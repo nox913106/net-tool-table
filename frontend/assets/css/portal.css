@@ -70,30 +70,68 @@ body.modal-open { overflow: hidden; }
 .flip {
   --h: 30px;
   position: relative;
+  display: block;
   width: 21px;
   height: var(--h);
-  perspective: 160px;
-  font: 700 18px/var(--h) var(--mono);
-  text-align: center;
+  perspective: 180px;
+  font: 700 18px var(--mono);
   color: var(--text);
+  /* opaque on purpose: the leaf must fully hide what is behind it */
+  --flip-top: color-mix(in srgb, var(--surface-solid) 92%, var(--text));
+  --flip-bottom: var(--surface-solid);
 }
-.flip-top, .flip-bottom, .leaf-front, .leaf-back {
+[data-theme="light"] .flip { --flip-top: #ffffff; --flip-bottom: #f1f3f8; }
+.flip-half {
   position: absolute;
   left: 0;
   right: 0;
   height: 50%;
   overflow: hidden;
-  background: var(--surface-2);
   border: 1px solid var(--border);
   backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
-.flip-top, .leaf-front { top: 0; border-radius: 6px 6px 0 0; border-bottom: 0; line-height: var(--h); }
-.flip-bottom { bottom: 0; border-radius: 0 0 6px 6px; border-top: 0; line-height: 0; background: var(--surface); }
-.leaf-back { top: 0; border-radius: 0 0 6px 6px; border-top: 0; line-height: 0; transform: rotateX(180deg); background: var(--surface); }
-.flip-leaf { position: absolute; inset: 0 0 50% 0; transform-origin: bottom; transform-style: preserve-3d; z-index: 2; }
-.flip::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: color-mix(in srgb, var(--bg) 60%, transparent); z-index: 3; }
-.flip.flipping .flip-leaf { animation: flip-down .55s cubic-bezier(.4, 0, .2, 1) forwards; }
+/* full-height glyph inside each half */
+.flip-half .g {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: var(--h);
+  line-height: var(--h);
+  text-align: center;
+}
+.flip-top, .leaf-front { top: 0; border-bottom: 0; border-radius: 6px 6px 0 0; background: var(--flip-top); }
+.flip-bottom { bottom: 0; border-top: 0; border-radius: 0 0 6px 6px; background: var(--flip-bottom); }
+.flip-bottom .g, .leaf-back .g { top: calc(var(--h) / -2); }
+.flip-leaf {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 50%;
+  z-index: 2;
+  transform-origin: 50% 100%;
+  transform-style: preserve-3d;
+}
+.leaf-front, .leaf-back { top: 0; height: 100%; }
+.leaf-back { transform: rotateX(180deg); border-top: 0; border-bottom: 1px solid var(--border); border-radius: 0 0 6px 6px; background: var(--flip-bottom); }
+/* hinge line */
+.flip::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(50% - .5px);
+  height: 1px;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  z-index: 3;
+  pointer-events: none;
+}
+.flip.flipping .flip-leaf { animation: flip-down .6s cubic-bezier(.45, .05, .35, 1) forwards; }
+.flip.flipping .leaf-front { animation: leaf-shade .6s linear forwards; }
 @keyframes flip-down { to { transform: rotateX(-180deg); } }
+@keyframes leaf-shade { 50% { filter: brightness(.75); } }
 .clock:not(.clock-flip) .clock-time { font-size: 18px; }
 
 /* --- net info --- */

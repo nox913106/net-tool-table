@@ -20,9 +20,20 @@ const TTClock = (() => {
 
   const pad = n => String(n).padStart(2, '0');
 
+  // Each half is a clipping box holding a full-height glyph; the bottom halves shift the
+  // glyph up by half a tile. Only the correct half of the digit can ever be visible.
+  //   .flip-top     new digit, upper half (revealed as the leaf falls)
+  //   .flip-bottom  old digit, lower half (covered by the leaf at the end)
+  //   .flip-leaf    front = old upper half, back = new lower half; rotates 0 → -180°
   function flipDigit(initial) {
     const d = TT.el('span', { class: 'flip' });
-    d.innerHTML = `<span class="flip-top"></span><span class="flip-bottom"></span><span class="flip-leaf"><span class="leaf-front"></span><span class="leaf-back"></span></span>`;
+    d.innerHTML =
+      '<span class="flip-half flip-top"><span class="g"></span></span>' +
+      '<span class="flip-half flip-bottom"><span class="g"></span></span>' +
+      '<span class="flip-leaf">' +
+        '<span class="flip-half leaf-front"><span class="g"></span></span>' +
+        '<span class="flip-half leaf-back"><span class="g"></span></span>' +
+      '</span>';
     setDigit(d, initial, false);
     return d;
   }
@@ -31,20 +42,25 @@ const TTClock = (() => {
     const old = d.dataset.v;
     if (old === v) return;
     d.dataset.v = v;
-    const [top, bottom, leaf] = d.children;
-    const [front, back] = leaf.children;
+    const glyph = sel => d.querySelector(sel + ' > .g');
+    const top = glyph('.flip-top'), bottom = glyph('.flip-bottom');
+    const front = glyph('.leaf-front'), back = glyph('.leaf-back');
+    const leaf = d.querySelector('.flip-leaf');
     if (!animate || old === undefined) {
       top.textContent = bottom.textContent = front.textContent = back.textContent = v;
       return;
     }
-    top.textContent = v;          // new value already visible behind the falling leaf
+    top.textContent = v;
     bottom.textContent = old;
     front.textContent = old;
     back.textContent = v;
     d.classList.remove('flipping');
-    void d.offsetWidth;
+    void d.offsetWidth;            // restart the animation
     d.classList.add('flipping');
-    leaf.addEventListener('animationend', () => { bottom.textContent = front.textContent = v; d.classList.remove('flipping'); }, { once: true });
+    leaf.addEventListener('animationend', () => {
+      bottom.textContent = front.textContent = v;
+      d.classList.remove('flipping');
+    }, { once: true });
   }
 
   function mount(root, settings) {
