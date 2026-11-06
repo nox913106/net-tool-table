@@ -1,0 +1,58 @@
+[Unit]
+Description=Tool Table portal (FastAPI / uvicorn, loopback only)
+Documentation=https://github.com/nox913106/net-tool-table
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=tooltable
+Group=tooltable
+WorkingDirectory=/opt/tool-table
+EnvironmentFile=/etc/tool-table/tool-table.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+# Bound to 127.0.0.1 only: the service port is reachable through nginx, never directly.
+# Single worker on purpose: SQLite.
+ExecStart=/opt/tool-table/.venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 --port ${TOOL_TABLE_APP_PORT} \
+    --workers 1 \
+    --proxy-headers --forwarded-allow-ips 127.0.0.1 \
+    --no-server-header \
+    --log-level warning
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=20
+
+# --- Sandboxing ---
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/tool-table
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete @debug
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0027
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tool-table
+
+[Install]
+WantedBy=multi-user.target

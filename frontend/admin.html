@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW" data-theme="dark" data-bg="aurora">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <title>管理後台</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/assets/css/base.css">
+  <link rel="stylesheet" href="/assets/css/admin.css">
+  <script src="/assets/js/common.js" defer></script>
+  <script src="/assets/js/admin.js" defer></script>
+</head>
+<body class="admin">
+  <div class="backdrop"><div class="grid-lines"></div></div>
+
+  <div class="shell">
+    <aside class="rail" id="rail">
+      <a class="rail-brand" href="#content">
+        <span id="rail-mark"></span>
+        <span class="rail-brand-text">
+          <strong id="rail-title">Tool Table</strong>
+          <small>管理後台</small>
+        </span>
+      </a>
+      <nav class="rail-nav" id="rail-nav" aria-label="管理功能"></nav>
+      <div class="rail-foot">
+        <a class="btn btn-sm rail-open" href="/" target="_blank" rel="noopener" id="open-portal"></a>
+        <button class="icon-btn" id="theme-btn" type="button"></button>
+      </div>
+    </aside>
+
+    <main class="stage" id="stage"></main>
+  </div>
+</body>
+</html>

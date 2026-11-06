@@ -1,0 +1,737 @@
+/* =============================================================================
+   Tool Table — portal
+   Everything on screen comes from /api/settings, /api/nodes/tree, /api/auth-links.
+
+   Routes (hash):
+     #/                 home (sections configured in admin → 首頁版面)
+     #/f/<id>           folder
+     #/search/<q>       search results
+     #/icon/<file>      quick filter (all links using an icon)
+     #/favorites        my favourites  (per browser)
+     #/recent           recently opened (per browser)
+   ============================================================================= */
+'use strict';
+
+(() => {
+  const { el, svg, esc, tile, api, store, hostOf } = TT;
+  const $ = id => document.getElementById(id);
+
+  const state = {
+    settings: {},
+    tree: [],
+    byId: new Map(),
+    parent: new Map(),
+    quickLinks: [],
+    expanded: new Set(store.get('expanded', [])),
+    view: store.get('view') || null,     // grid | list (viewer override)
+  };
+
+  // ======================================================================
+  // Boot
+  // ======================================================================
+  document.addEventListener('DOMContentLoaded', async () => {
+    try {
+      state.settings = await api('/api/settings');
+    } catch {
+      state.settings = {};
+    }
+    const s = state.settings;
+    TT.applyAppearance(s);
+    applyBranding();
+    setupChrome();
+
+    try {
+      const [tree, links] = await Promise.all([api('/api/nodes/tree'), api('/api/auth-links').catch(() => [])]);
+      indexTree(tree);
+      state.quickLinks = links;
+    } catch (e) {
+      $('view').replaceChildren(emptyState('⚠️', '無法讀取資料', e.message));
+      return;
+    }
+
+    buildNav();
+    buildTree();
+    buildFilters();
+    if (s.show_clock !== false) TTClock.mount($('clock'), s);
+    TTClock.mountNetInfo($('netinfo'), s);
+    TTClock.secretAdmin($('clock'), $('brand-mark'));
+
+    window.addEventListener('hashchange', route);
+    route();
+  });
+
+  function indexTree(tree) {
+    state.tree = tree;
+    state.byId.clear();
+    state.parent.clear();
+    const walk = (nodes, parent) => nodes.forEach(n => {
+      state.byId.set(n.id, n);
+      state.parent.set(n.id, parent);
+      walk(n.children || [], n);
+    });
+    walk(tree, null);
+  }
+
+  const isFolder = n => n.node_type === 'folder';
+  const pathOf = n => {
+    const out = [];
+    for (let p = state.parent.get(n.id); p; p = state.parent.get(p.id)) out.unshift(p);
+    return out;
+  };
+  const allNodes = () => [...state.byId.values()];
+  const viewMode = () => state.view || state.settings.default_view || 'grid';
+  const newTabFor = n => n.new_tab ?? state.settings.open_links_in_new_tab ?? true;
+  /** inherited accent: the node's own color, else the nearest ancestor's */
+  const colorOf = n => {
+    for (let p = n; p; p = state.parent.get(p.id)) if (p.color) return p.color;
+    return null;
+  };
+
+  // ======================================================================
+  // Chrome: branding, header buttons, sidebar, keyboard
+  // ======================================================================
+  function applyBranding() {
+    const s = state.settings;
+    document.title = s.site_title || 'Tool Table';
+    $('brand-title').textContent = s.site_title || 'Tool Table';
+    $('brand-subtitle').textContent = s.site_subtitle || '';
+    $('brand-subtitle').hidden = !s.site_subtitle;
+    $('brand-mark').replaceChildren(tile({ icon: s.favicon || '', name: s.site_title || 'T', size: 36 }));
+    if (s.favicon) TT.setFavicon(s.favicon);
+    $('search-trigger-text').textContent = s.search_placeholder || '搜尋…';
+    $('palette-input').placeholder = s.search_placeholder || '搜尋…';
+    $('admin-btn').hidden = !s.show_admin_button;
+  }
+
+  function setupChrome() {
+    $('menu-btn').innerHTML = svg('menu');
+    $('search-trigger-icon').innerHTML = svg('search');
+    $('palette-icon').innerHTML = svg('search');
+    $('admin-btn').innerHTML = svg('settings');
+    $('mod-key').textContent = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
+
+    const themeBtn = $('theme-btn');
+    const paintTheme = () => {
+      const pref = TT.themePref(state.settings);
+      themeBtn.innerHTML = svg(pref === 'auto' ? 'monitor' : pref === 'light' ? 'sun' : 'moon');
+      themeBtn.title = `主題：${{ auto: '跟隨系統', light: '淺色', dark: '深色' }[pref]}（點擊切換）`;
+    };
+    themeBtn.addEventListener('click', () => { TT.cycleTheme(state.settings); paintTheme(); });
+    paintTheme();
+
+    const perfBtn = $('perf-btn');
+    const paintPerf = () => {
+      const low = document.documentElement.dataset.perf === 'low';
+      perfBtn.innerHTML = svg(low ? 'zap-off' : 'zap');
+      perfBtn.title = low ? '省資源模式（點擊恢復動畫效果）' : '一般模式（點擊切換省資源模式）';
+    };
+    perfBtn.addEventListener('click', () => { TT.togglePerf(); paintPerf(); });
+    paintPerf();
+
+    $('menu-btn').addEventListener('click', () => document.body.classList.toggle('nav-open'));
+    $('scrim').addEventListener('click', () => document.body.classList.remove('nav-open'));
+    $('search-trigger').addEventListener('click', openPalette);
+
+    document.addEventListener('keydown', e => {
+      const typing = /input|textarea|select/i.test(document.activeElement.tagName);
+      if ((e.key === 'k' || e.key === 'K') && (e.ctrlKey || e.metaKey)) { e.preventDefault(); openPalette(); }
+      else if (e.key === '/' && !typing) { e.preventDefault(); openPalette(); }
+      else if (e.key === 'Escape' && document.body.classList.contains('nav-open')) document.body.classList.remove('nav-open');
+    });
+
+    // Record "recently opened" for any link card / row / chip in the page
+    const record = e => {
+      const a = e.target.closest('a[data-node]');
+      if (a && !e.target.closest('.fav-btn')) pushRecent(Number(a.dataset.node));
+    };
+    document.addEventListener('click', record);
+    document.addEventListener('auxclick', record);
+
+    setupPalette();
+  }
+
+  // ======================================================================
+  // Favourites & recent (per browser)
+  // ======================================================================
+  const favorites = () => store.get('favorites', []).filter(id => state.byId.has(id));
+  const isFav = id => store.get('favorites', []).includes(id);
+  function toggleFav(id) {
+    const list = store.get('favorites', []);
+    const i = list.indexOf(id);
+    if (i >= 0) list.splice(i, 1); else list.push(id);
+    store.set('favorites', list);
+    TT.toast(i >= 0 ? '已從最愛移除' : '已加入最愛 ★');
+    buildNav();
+    // refresh views that show favourites
+    if (/^#\/(favorites)?$/.test(location.hash || '#/') || !location.hash) route();
+    else document.querySelectorAll(`.fav-btn[data-id="${id}"]`).forEach(b => b.classList.toggle('on', i < 0));
+  }
+  function pushRecent(id) {
+    if (state.settings.enable_recent === false || !state.byId.has(id)) return;
+    const list = store.get('recent', []).filter(r => r.id !== id);
+    list.unshift({ id, t: Date.now() });
+    store.set('recent', list.slice(0, 30));
+  }
+  const recent = (limit = 30) => store.get('recent', []).map(r => state.byId.get(r.id)).filter(Boolean).slice(0, limit);
+
+  // ======================================================================
+  // Sidebar
+  // ======================================================================
+  function buildNav() {
+    const s = state.settings;
+    const items = [
+      { href: '#/', icon: 'home', label: '首頁' },
+      s.enable_favorites !== false && { href: '#/favorites', icon: 'star', label: '我的最愛', count: favorites().length },
+      s.enable_recent !== false && { href: '#/recent', icon: 'history', label: '最近使用' },
+    ].filter(Boolean);
+    $('nav-main').replaceChildren(...items.map(it =>
+      el('a', { class: 'nav-item', href: it.href, dataset: { route: it.href } },
+        el('span', { class: 'nav-icon', html: svg(it.icon) }),
+        el('span', { class: 'nav-label', text: it.label }),
+        it.count ? el('span', { class: 'badge', text: it.count }) : null)));
+  }
+
+  function buildTree() {
+    const s = state.settings;
+    const showLinks = !!s.sidebar_show_links;
+    const showIcons = s.sidebar_show_icons !== false;
+    const showCounts = s.sidebar_show_counts !== false;
+
+    const render = (nodes, depth) => {
+      const frag = document.createDocumentFragment();
+      nodes.forEach(n => {
+        const folder = isFolder(n);
+        if (!folder && !showLinks) return;
+        const kids = (n.children || []).filter(c => showLinks || isFolder(c));
+        const hasKids = folder && kids.length > 0;
+        const open = state.expanded.has(n.id);
+
+        const row = el('a', {
+          class: 'tree-row' + (folder ? '' : ' is-link'),
+          href: folder ? `#/f/${n.id}` : n.url,
+          role: 'treeitem',
+          'aria-expanded': hasKids ? String(open) : null,
+          dataset: folder ? { id: n.id } : { node: n.id },
+          target: !folder && newTabFor(n) ? '_blank' : null,
+          rel: !folder ? 'noopener' : null,
+          style: { '--depth': depth },
+        });
+        const caret = el('span', { class: 'tree-caret' + (hasKids ? '' : ' no-kids'), html: hasKids ? svg('chevron-right') : '' });
+        if (hasKids) caret.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); toggleExpand(n.id); });
+        row.append(caret);
+        if (showIcons) row.append(tile({ icon: n.icon, name: n.name, color: colorOf(n), folder, size: 24 }));
+        row.append(el('span', { class: 'tree-label', text: n.name }));
+        if (folder && showCounts && n.children?.length) row.append(el('span', { class: 'tree-count', text: n.children.length }));
+
+        const wrap = el('div', { class: 'tree-node' + (open ? ' open' : '') }, row);
+        if (hasKids) wrap.append(el('div', { class: 'tree-children', role: 'group' }, render(kids, depth + 1)));
+        frag.append(wrap);
+      });
+      return frag;
+    };
+
+    const tree = $('tree');
+    tree.replaceChildren(render(state.tree, 0));
+    $('tree-section').hidden = !tree.childElementCount;
+  }
+
+  function toggleExpand(id, force) {
+    const open = force ?? !state.expanded.has(id);
+    if (open) state.expanded.add(id); else state.expanded.delete(id);
+    store.set('expanded', [...state.expanded]);
+    const node = $('tree').querySelector(`.tree-row[data-id="${id}"]`)?.parentElement;
+    if (node) {
+      node.classList.toggle('open', open);
+      node.firstElementChild.setAttribute('aria-expanded', String(open));
+    }
+  }
+
+  function highlightNav() {
+    const hash = location.hash || '#/';
+    document.querySelectorAll('.nav-item').forEach(a => a.classList.toggle('active', a.dataset.route === hash || (hash === '#' && a.dataset.route === '#/')));
+    $('tree').querySelectorAll('.tree-row.active').forEach(r => r.classList.remove('active'));
+    const m = hash.match(/^#\/f\/(\d+)/);
+    if (m) {
+      const node = state.byId.get(Number(m[1]));
+      if (node) pathOf(node).forEach(p => toggleExpand(p.id, true));
+      const row = $('tree').querySelector(`.tree-row[data-id="${m[1]}"]`);
+      if (row) { row.classList.add('active'); row.scrollIntoView({ block: 'nearest' }); }
+    }
+    document.querySelectorAll('.filter-chip').forEach(c => c.classList.toggle('active', hash === `#/icon/${encodeURIComponent(c.dataset.icon)}`));
+  }
+
+  // ---------------------------------------------------------- quick filters
+  function quickFilters() {
+    const s = state.settings;
+    if (s.show_quick_filters === false) return [];
+    const configured = (s.quick_filters || []).filter(f => f && f.icon);
+    if (configured.length) return configured.map(f => ({ icon: f.icon, label: f.label || prettyIcon(f.icon) }));
+    const counts = new Map();
+    allNodes().forEach(n => { if (n.icon && !isFolder(n)) counts.set(n.icon, (counts.get(n.icon) || 0) + 1); });
+    return [...counts].filter(([, c]) => c >= 2).sort((a, b) => b[1] - a[1])
+      .slice(0, s.quick_filters_auto_limit || 8).map(([icon]) => ({ icon, label: prettyIcon(icon) }));
+  }
+  const prettyIcon = f => TT.isIconFile(f)
+    ? f.replace(/\.[^.]+$/, '').replace(/[-_](icon|logo|color)$/i, '').replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+    : f;
+
+  function buildFilters() {
+    const list = quickFilters();
+    $('filters-section').hidden = !list.length;
+    $('filters-title').textContent = state.settings.quick_filters_title || '快速篩選';
+    $('filters').replaceChildren(...list.map(f =>
+      el('a', { class: 'chip filter-chip', href: `#/icon/${encodeURIComponent(f.icon)}`, dataset: { icon: f.icon } },
+        tile({ icon: f.icon, name: f.label, size: 18 }), f.label)));
+  }
+
+  // ======================================================================
+  // Router
+  // ======================================================================
+  function route() {
+    const hash = decodeURIComponent(location.hash || '#/');
+    const view = $('view');
+    let m;
+    document.body.classList.remove('nav-open');
+
+    if ((m = hash.match(/^#\/f\/(\d+)/)) && state.byId.has(Number(m[1]))) renderFolder(state.byId.get(Number(m[1])));
+    else if ((m = hash.match(/^#\/search\/(.+)/))) renderSearch(m[1]);
+    else if ((m = hash.match(/^#\/icon\/(.+)/))) renderIconFilter(m[1]);
+    else if (hash === '#/favorites') renderFavorites();
+    else if (hash === '#/recent') renderRecent();
+    else renderHome();
+
+    highlightNav();
+    view.classList.remove('enter');
+    void view.offsetWidth;
+    view.classList.add('enter');
+    window.scrollTo({ top: 0 });
+  }
+
+  // ======================================================================
+  // Building blocks
+  // ======================================================================
+  function emptyState(icon, title, text, action) {
+    return el('div', { class: 'empty' },
+      el('div', { class: 'empty-icon', text: icon }),
+      el('h3', { text: title }),
+      text ? el('p', { text }) : null,
+      action || null);
+  }
+
+  function favButton(n) {
+    if (state.settings.enable_favorites === false) return null;
+    const b = el('button', {
+      class: 'fav-btn' + (isFav(n.id) ? ' on' : ''), type: 'button', dataset: { id: n.id },
+      title: '加入 / 移除最愛', 'aria-label': '加入或移除最愛', html: svg('star'),
+    });
+    b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); toggleFav(n.id); });
+    return b;
+  }
+
+  /** Card (grid) or row (list) for one node */
+  function card(n, { mode = viewMode(), showPath = false } = {}) {
+    const s = state.settings;
+    const folder = isFolder(n);
+    const color = colorOf(n);
+    const a = el('a', {
+      class: `card ${mode === 'list' ? 'card-row' : 'card-tile'} ${folder ? 'is-folder' : 'is-link'}`,
+      href: folder ? `#/f/${n.id}` : n.url,
+      dataset: folder ? {} : { node: n.id },
+      target: !folder && newTabFor(n) ? '_blank' : null,
+      rel: !folder ? 'noopener' : null,
+      title: !folder ? (n.description ? `${n.name}\n${n.description}\n${n.url}` : `${n.name}\n${n.url}`) : n.name,
+    });
+    if (color) a.style.setProperty('--card-color', color);
+
+    a.append(tile({ icon: n.icon, name: n.name, color, folder, size: mode === 'list' ? 34 : 46 }));
+
+    const body = el('div', { class: 'card-body' }, el('div', { class: 'card-title', text: n.name }));
+    if (s.show_descriptions !== false && n.description) body.append(el('div', { class: 'card-desc', text: n.description }));
+    if (showPath) {
+      const p = pathOf(n).map(x => x.name).join(' › ');
+      if (p) body.append(el('div', { class: 'card-meta', text: p }));
+    } else if (!folder && s.show_link_host !== false && hostOf(n.url)) {
+      body.append(el('div', { class: 'card-meta', text: hostOf(n.url) }));
+    }
+    if (folder) {
+      const kids = n.children || [];
+      const folders = kids.filter(isFolder).length;
+      const links = kids.length - folders;
+      body.append(el('div', { class: 'card-meta', text: [folders && `${folders} 個資料夾`, links && `${links} 個連結`].filter(Boolean).join(' · ') || '空資料夾' }));
+    }
+    a.append(body);
+
+    if (folder && mode !== 'list') {
+      const preview = (n.children || []).slice(0, 4);
+      if (preview.length) {
+        a.append(el('div', { class: 'card-preview' }, preview.map(c => tile({ icon: c.icon, name: c.name, color: colorOf(c), folder: isFolder(c), size: 22 }))));
+      }
+    }
+    if (folder) a.append(el('span', { class: 'card-go', html: svg('chevron-right') }));
+    else {
+      a.append(el('span', { class: 'card-go', html: svg('external') }));
+      const fb = favButton(n);
+      if (fb) a.append(fb);
+    }
+    return a;
+  }
+
+  function cardGrid(nodes, opts = {}) {
+    const mode = opts.mode || viewMode();
+    const g = el('div', { class: `cards ${mode === 'list' ? 'cards-list' : 'cards-grid'}${opts.compact ? ' cards-compact' : ''}` });
+    nodes.forEach((n, i) => {
+      const c = card(n, { ...opts, mode });
+      c.style.setProperty('--i', Math.min(i, 24));
+      g.append(c);
+    });
+    return g;
+  }
+
+  function section({ icon, title, action, body, cls = '' }) {
+    return el('section', { class: 'section ' + cls },
+      el('div', { class: 'section-head' },
+        el('h2', { class: 'section-title' }, sectionIcon(icon), title),
+        action || null),
+      body);
+  }
+
+  function sectionIcon(icon) {
+    if (!icon) return null;
+    if (icon instanceof Node) return el('span', { class: 'section-icon is-tile' }, icon);
+    return el('span', { class: 'section-icon', html: icon.startsWith('<') ? icon : esc(icon) });
+  }
+
+  function viewToggle(onChange) {
+    const seg = el('div', { class: 'segmented', role: 'group', 'aria-label': '顯示方式' });
+    [['grid', '格狀'], ['list', '清單']].forEach(([m, label]) => {
+      const b = el('button', { type: 'button', 'aria-pressed': String(viewMode() === m), title: label, html: svg(m) + `<span class="seg-label">${label}</span>` });
+      b.addEventListener('click', () => { state.view = m; store.set('view', m); onChange(); });
+      seg.append(b);
+    });
+    return seg;
+  }
+
+  function breadcrumb(items) {
+    const nav = el('nav', { class: 'crumbs', 'aria-label': '路徑' },
+      el('a', { href: '#/', html: svg('home') + '<span>首頁</span>' }));
+    items.forEach((it, i) => {
+      nav.append(el('span', { class: 'crumb-sep', html: svg('chevron-right') }));
+      const last = i === items.length - 1;
+      nav.append(last || !it.id ? el('span', { class: 'crumb-current', text: it.name }) : el('a', { href: `#/f/${it.id}`, text: it.name }));
+    });
+    return nav;
+  }
+
+  function pageHead({ crumbs, tileNode, title, desc, meta, tools }) {
+    const head = el('div', { class: 'page-head' });
+    if (crumbs) head.append(crumbs);
+    const row = el('div', { class: 'page-title-row' });
+    if (tileNode) row.append(tileNode);
+    row.append(el('div', { class: 'page-title-text' },
+      el('h1', { class: 'page-title', text: title }),
+      desc ? el('p', { class: 'page-desc', text: desc }) : null,
+      meta ? el('div', { class: 'page-meta', text: meta }) : null));
+    if (tools) row.append(el('div', { class: 'page-tools' }, tools));
+    head.append(row);
+    return head;
+  }
+
+  // ======================================================================
+  // Views
+  // ======================================================================
+  function greeting() {
+    const h = new Date().getHours();
+    return h < 5 ? '夜深了' : h < 11 ? '早安' : h < 14 ? '午安' : h < 18 ? '午後愉快' : '晚安';
+  }
+
+  function renderHome() {
+    const s = state.settings;
+    const view = $('view');
+    const frag = document.createDocumentFragment();
+
+    // Hero
+    const hero = el('div', { class: 'hero' },
+      el('div', { class: 'hero-text' },
+        el('p', { class: 'hero-kicker', text: greeting() }),
+        el('h1', { class: 'hero-title', text: s.site_title || 'Tool Table' }),
+        s.site_subtitle ? el('p', { class: 'hero-sub', text: s.site_subtitle }) : null));
+    const heroSearch = el('button', { class: 'hero-search', type: 'button' },
+      el('span', { class: 'hero-search-icon', html: svg('search') }),
+      el('span', { class: 'hero-search-text', text: s.search_placeholder || '搜尋…' }),
+      el('span', { class: 'hero-search-keys', html: `<kbd>${$('mod-key').textContent}</kbd><kbd>K</kbd>` }));
+    heroSearch.addEventListener('click', openPalette);
+    hero.append(heroSearch);
+    frag.append(hero);
+
+    if (!state.tree.length) {
+      frag.append(emptyState('🧭', '還沒有任何項目', '到管理後台建立資料夾與連結，或匯入一份 JSON 範本。',
+        el('a', { class: 'btn btn-primary', href: '/admin', html: svg('settings') + '前往管理後台' })));
+      view.replaceChildren(frag);
+      return;
+    }
+
+    const sections = Array.isArray(s.home_sections) ? s.home_sections : [];
+    sections.forEach(sec => {
+      const node = renderHomeSection(sec);
+      if (node) frag.append(node);
+    });
+    view.replaceChildren(frag);
+  }
+
+  function renderHomeSection(sec) {
+    const s = state.settings;
+    const compact = sec.style === 'compact';
+    switch (sec.type) {
+      case 'message':
+        if (!s.home_message) return null;
+        return el('section', { class: 'section' },
+          el('div', { class: 'callout glass' },
+            el('span', { class: 'callout-icon', html: svg('megaphone') }),
+            el('div', { class: 'callout-body' },
+              sec.title ? el('strong', { text: sec.title }) : null,
+              el('p', { text: s.home_message }))));
+
+      case 'quick_links': {
+        if (!state.quickLinks.length) return null;
+        const body = el('div', { class: 'quick-groups' });
+        [...state.quickLinks].sort((a, b) => (!a.region) - (!b.region)).forEach(g => {
+          const chips = el('div', { class: 'chip-row' }, g.items.map(it =>
+            el('a', { class: 'chip quick-chip', href: it.url, target: '_blank', rel: 'noopener', title: it.url },
+              el('span', { class: 'chip-dot' }), it.name)));
+          body.append(g.region
+            ? el('div', { class: 'quick-group' }, el('div', { class: 'quick-group-label', text: g.region }), chips)
+            : chips);
+        });
+        return section({ icon: s.quick_links_icon || svg('zap'), title: sec.title || s.quick_links_title || '快速連結', body, cls: 'section-quick' });
+      }
+
+      case 'favorites': {
+        if (s.enable_favorites === false) return null;
+        const favs = favorites().map(id => state.byId.get(id)).slice(0, sec.limit || 12);
+        const body = favs.length ? cardGrid(favs, { compact: true, mode: 'grid' })
+          : el('div', { class: 'hint-card', html: `${svg('star')}<span>在任何連結卡片上點 <b>☆</b>，就會出現在這裡。</span>` });
+        return section({ icon: svg('star'), title: sec.title || '我的最愛', body,
+          action: favs.length ? el('a', { class: 'section-link', href: '#/favorites', html: '全部' + svg('chevron-right') }) : null });
+      }
+
+      case 'recent': {
+        if (s.enable_recent === false) return null;
+        const list = recent(sec.limit || 8);
+        if (!list.length) return null;
+        return section({ icon: svg('history'), title: sec.title || '最近使用', body: cardGrid(list, { compact: true, mode: 'grid' }),
+          action: el('a', { class: 'section-link', href: '#/recent', html: '全部' + svg('chevron-right') }) });
+      }
+
+      case 'roots':
+        return section({ icon: svg('layout'), title: sec.title || '所有分類', body: cardGrid(state.tree, { compact, mode: 'grid' }) });
+
+      case 'folder': {
+        const node = state.byId.get(sec.node_id);
+        if (!node) return null;
+        const kids = (node.children || []).slice(0, sec.limit || 999);
+        return section({
+          icon: tile({ icon: node.icon, name: node.name, color: colorOf(node), folder: true, size: 26 }),
+          title: sec.title || node.name,
+          body: kids.length ? cardGrid(kids, { compact, mode: 'grid' }) : el('p', { class: 'hint', text: '這個資料夾目前沒有項目' }),
+          action: el('a', { class: 'section-link', href: `#/f/${node.id}`, html: '開啟' + svg('chevron-right') }),
+        });
+      }
+      default:
+        return null;
+    }
+  }
+
+  function renderFolder(node) {
+    const kids = node.children || [];
+    const folders = kids.filter(isFolder);
+    const links = kids.filter(n => !isFolder(n));
+    const frag = document.createDocumentFragment();
+    frag.append(pageHead({
+      crumbs: breadcrumb([...pathOf(node), node]),
+      tileNode: tile({ icon: node.icon, name: node.name, color: colorOf(node), folder: true, size: 56 }),
+      title: node.name,
+      desc: state.settings.show_descriptions !== false ? node.description : '',
+      meta: [folders.length && `${folders.length} 個資料夾`, links.length && `${links.length} 個連結`].filter(Boolean).join(' · ') || '空資料夾',
+      tools: kids.length ? viewToggle(() => renderFolder(node)) : null,
+    }));
+
+    if (!kids.length) frag.append(emptyState('📂', '這裡還是空的', '到管理後台為這個資料夾新增項目。'));
+    if (folders.length) frag.append(section({ icon: svg('folder'), title: '資料夾', body: cardGrid(folders) }));
+    if (links.length) frag.append(section({ icon: svg('link'), title: '連結', body: cardGrid(links) }));
+    $('view').replaceChildren(frag);
+  }
+
+  function search(q) {
+    const kw = q.trim().toLowerCase();
+    if (!kw) return [];
+    const scored = [];
+    for (const n of allNodes()) {
+      const name = n.name.toLowerCase();
+      let score = 0;
+      if (name === kw) score = 100;
+      else if (name.startsWith(kw)) score = 80;
+      else if (name.includes(kw)) score = 60;
+      else if ((n.description || '').toLowerCase().includes(kw)) score = 40;
+      else if ((n.url || '').toLowerCase().includes(kw)) score = 30;
+      else if ((n.icon || '').toLowerCase().replace(/[-_.]/g, ' ').includes(kw)) score = 20;
+      else if (pathOf(n).some(p => p.name.toLowerCase().includes(kw))) score = 10;
+      if (score) scored.push([score + (isFolder(n) ? 0 : 5), n]);
+    }
+    return scored.sort((a, b) => b[0] - a[0] || a[1].name.localeCompare(b[1].name)).map(x => x[1]);
+  }
+
+  function renderSearch(q) {
+    const results = search(q);
+    const frag = document.createDocumentFragment();
+    frag.append(pageHead({
+      crumbs: breadcrumb([{ name: '搜尋' }]),
+      tileNode: el('span', { class: 'tile', style: { '--tile': '56px' }, html: svg('search') }),
+      title: `「${q}」`, meta: `${results.length} 筆結果`,
+      tools: results.length ? viewToggle(() => renderSearch(q)) : null,
+    }));
+    frag.append(results.length ? cardGrid(results, { showPath: true }) : emptyState('🔍', '找不到符合的項目', '換個關鍵字試試，或搜尋網址的一部分。'));
+    $('view').replaceChildren(frag);
+  }
+
+  function renderIconFilter(icon) {
+    const results = allNodes().filter(n => n.icon === icon && !isFolder(n));
+    const f = quickFilters().find(x => x.icon === icon);
+    const frag = document.createDocumentFragment();
+    frag.append(pageHead({
+      crumbs: breadcrumb([{ name: state.settings.quick_filters_title || '快速篩選' }]),
+      tileNode: tile({ icon, name: f ? f.label : icon, size: 56 }),
+      title: f ? f.label : prettyIcon(icon), meta: `${results.length} 個連結`,
+      tools: results.length ? viewToggle(() => renderIconFilter(icon)) : null,
+    }));
+    frag.append(results.length ? cardGrid(results, { showPath: true }) : emptyState('🏷️', '沒有符合的連結'));
+    $('view').replaceChildren(frag);
+  }
+
+  function renderFavorites() {
+    const favs = favorites().map(id => state.byId.get(id));
+    const frag = document.createDocumentFragment();
+    frag.append(pageHead({
+      crumbs: breadcrumb([{ name: '我的最愛' }]),
+      tileNode: el('span', { class: 'tile', style: { '--tile': '56px', '--tile-color': '#f59e0b' }, html: svg('star') }),
+      title: '我的最愛', meta: favs.length ? `${favs.length} 個項目 · 只存在這個瀏覽器` : '只存在這個瀏覽器',
+      tools: favs.length ? viewToggle(renderFavorites) : null,
+    }));
+    frag.append(favs.length ? cardGrid(favs, { showPath: true }) : emptyState('⭐', '還沒有最愛', '在任何連結卡片上點 ☆，就會收進這裡。'));
+    $('view').replaceChildren(frag);
+  }
+
+  function renderRecent() {
+    const list = recent();
+    const frag = document.createDocumentFragment();
+    const clear = list.length ? el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '清除紀錄' }) : null;
+    clear?.addEventListener('click', () => { store.remove('recent'); renderRecent(); });
+    frag.append(pageHead({
+      crumbs: breadcrumb([{ name: '最近使用' }]),
+      tileNode: el('span', { class: 'tile', style: { '--tile': '56px' }, html: svg('history') }),
+      title: '最近使用', meta: '只存在這個瀏覽器',
+      tools: list.length ? el('div', { class: 'tool-row' }, clear, viewToggle(renderRecent)) : null,
+    }));
+    frag.append(list.length ? cardGrid(list, { showPath: true }) : emptyState('🕘', '還沒有使用紀錄', '開啟過的連結會出現在這裡。'));
+    $('view').replaceChildren(frag);
+  }
+
+  // ======================================================================
+  // Command palette
+  // ======================================================================
+  let paletteItems = [];
+  let paletteIndex = 0;
+
+  function setupPalette() {
+    const modal = $('palette');
+    const input = $('palette-input');
+    modal.addEventListener('mousedown', e => { if (e.target === modal) closePalette(); });
+    input.addEventListener('input', () => renderPalette(input.value));
+    input.addEventListener('keydown', e => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); movePalette(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); movePalette(-1); }
+      else if (e.key === 'Escape') { e.preventDefault(); closePalette(); }
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey || !paletteItems.length) {
+          if (input.value.trim()) { closePalette(); location.hash = `#/search/${encodeURIComponent(input.value.trim())}`; }
+        } else activatePalette(paletteItems[paletteIndex], e.ctrlKey || e.metaKey);
+      }
+    });
+  }
+
+  function openPalette() {
+    $('palette').hidden = false;
+    document.body.classList.add('modal-open');
+    const input = $('palette-input');
+    input.value = '';
+    renderPalette('');
+    requestAnimationFrame(() => input.focus());
+  }
+  function closePalette() {
+    $('palette').hidden = true;
+    document.body.classList.remove('modal-open');
+  }
+
+  function renderPalette(q) {
+    const box = $('palette-results');
+    let groups;
+    if (q.trim()) {
+      groups = [{ label: '結果', items: search(q).slice(0, 40) }];
+    } else {
+      groups = [
+        { label: '最近使用', items: recent(6) },
+        { label: '我的最愛', items: favorites().map(id => state.byId.get(id)).slice(0, 6) },
+        { label: '分類', items: state.tree.filter(isFolder).slice(0, 8) },
+      ];
+    }
+    paletteItems = [];
+    paletteIndex = 0;
+    const frag = document.createDocumentFragment();
+    groups.forEach(g => {
+      const items = g.items.filter(n => !paletteItems.includes(n));
+      if (!items.length) return;
+      frag.append(el('div', { class: 'palette-group', text: g.label }));
+      items.forEach(n => {
+        const idx = paletteItems.length;
+        paletteItems.push(n);
+        const path = pathOf(n).map(p => p.name).join(' › ');
+        const row = el('div', { class: 'palette-item', role: 'option', dataset: { idx } },
+          tile({ icon: n.icon, name: n.name, color: colorOf(n), folder: isFolder(n), size: 32 }),
+          el('div', { class: 'palette-item-text' },
+            el('div', { class: 'palette-item-title', text: n.name }),
+            el('div', { class: 'palette-item-sub', text: [path, !isFolder(n) && hostOf(n.url)].filter(Boolean).join('  ·  ') })),
+          el('span', { class: 'palette-item-kind', html: isFolder(n) ? svg('folder') : svg('external') }));
+        row.addEventListener('mousemove', () => selectPalette(idx));
+        row.addEventListener('click', e => activatePalette(n, e.ctrlKey || e.metaKey));
+        frag.append(row);
+      });
+    });
+    if (!paletteItems.length) {
+      frag.append(el('div', { class: 'palette-empty', text: q.trim() ? `找不到「${q.trim()}」` : '輸入關鍵字開始搜尋' }));
+    }
+    box.replaceChildren(frag);
+    selectPalette(0);
+  }
+
+  function selectPalette(i) {
+    paletteIndex = i;
+    $('palette-results').querySelectorAll('.palette-item').forEach(r => {
+      const on = Number(r.dataset.idx) === i;
+      r.classList.toggle('selected', on);
+      r.setAttribute('aria-selected', String(on));
+      if (on) r.scrollIntoView({ block: 'nearest' });
+    });
+  }
+  function movePalette(d) {
+    if (!paletteItems.length) return;
+    selectPalette((paletteIndex + d + paletteItems.length) % paletteItems.length);
+  }
+  function activatePalette(n, forceNewTab = false) {
+    if (!n) return;
+    closePalette();
+    if (isFolder(n)) { location.hash = `#/f/${n.id}`; return; }
+    pushRecent(n.id);
+    if (forceNewTab || newTabFor(n)) window.open(n.url, '_blank', 'noopener');
+    else location.href = n.url;
+  }
+})();

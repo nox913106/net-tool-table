@@ -1,0 +1,213 @@
+/* =============================================================================
+   Tool Table — shared helpers (portal + admin)
+   ============================================================================= */
+'use strict';
+
+const TT = (() => {
+  // ---------------------------------------------------------------- storage
+  const store = {
+    get(key, fallback = null) {
+      try {
+        const v = localStorage.getItem('tt:' + key);
+        return v === null ? fallback : JSON.parse(v);
+      } catch { return fallback; }
+    },
+    set(key, value) {
+      try { localStorage.setItem('tt:' + key, JSON.stringify(value)); } catch { /* private mode */ }
+    },
+    remove(key) {
+      try { localStorage.removeItem('tt:' + key); } catch { /* ignore */ }
+    },
+  };
+
+  // -------------------------------------------------------------------- api
+  async function api(path, { method = 'GET', body, form } = {}) {
+    const opts = { method, headers: {} };
+    if (form) opts.body = form;
+    else if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    const res = await fetch(path, opts);
+    let data = null;
+    const text = await res.text();
+    try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+    if (!res.ok) {
+      const detail = data && data.detail;
+      const msg = typeof detail === 'string' ? detail
+        : Array.isArray(detail) ? detail.map(d => d.msg).join('；')
+        : `HTTP ${res.status}`;
+      throw new Error(msg);
+    }
+    return data;
+  }
+
+  // ---------------------------------------------------------------- escape
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  const el = (tag, attrs = {}, ...children) => {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v === null || v === undefined || v === false) continue;
+      if (k === 'class') node.className = v;
+      else if (k === 'html') node.innerHTML = v;
+      else if (k === 'text') node.textContent = v;
+      else if (k === 'style' && typeof v === 'object') {
+        for (const [prop, val] of Object.entries(v)) {
+          if (prop.startsWith('--')) node.style.setProperty(prop, val); else node.style[prop] = val;
+        }
+      }
+      else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2), v);
+      else if (k === 'dataset') Object.assign(node.dataset, v);
+      else node.setAttribute(k, v === true ? '' : v);
+    }
+    for (const c of children.flat()) {
+      if (c === null || c === undefined || c === false) continue;
+      node.append(c instanceof Node ? c : document.createTextNode(String(c)));
+    }
+    return node;
+  };
+
+  // ------------------------------------------------------------------ icons
+  // Line icons (24×24, stroke = currentColor)
+  const P = {
+    search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+    folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>',
+    'folder-open': '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v1"/><path d="M3 19 5.6 11.4A2 2 0 0 1 7.5 10H20a1 1 0 0 1 1 1.3L18.6 18a2 2 0 0 1-1.9 1.4H5a2 2 0 0 1-2-2Z"/>',
+    link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+    external: '<path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M19 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4"/>',
+    star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9Z"/>',
+    history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+    moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/>',
+    monitor: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+    zap: '<path d="M13 2 4 14h7l-1 8 9-12h-7Z"/>',
+    'zap-off': '<path d="M12.4 6.6 13 2l-3 4M17.3 11.8 20 10h-5.6M8 8l-4 6h7l-1 8 5-6.7"/><path d="m2 2 20 20"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>',
+    grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+    list: '<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/>',
+    'chevron-right': '<path d="m9 6 6 6-6 6"/>',
+    'chevron-down': '<path d="m6 9 6 6 6-6"/>',
+    'chevron-up': '<path d="m6 15 6-6 6 6"/>',
+    menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+    x: '<path d="M18 6 6 18M6 6l12 12"/>',
+    home: '<path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
+    'arrow-left': '<path d="M19 12H5M12 19l-7-7 7-7"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>',
+    edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+    upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5M12 3v12"/>',
+    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/>',
+    grip: '<circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/>',
+    'eye-off': '<path d="M9.9 4.2A10 10 0 0 1 12 4c7 0 10 8 10 8a17 17 0 0 1-3.2 4.2M6.6 6.6C3.6 8.6 2 12 2 12s3 8 10 8a9.7 9.7 0 0 0 5.4-1.6"/><path d="m2 2 20 20M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
+    image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>',
+    palette: '<circle cx="13.5" cy="6.5" r="1"/><circle cx="17.5" cy="10.5" r="1"/><circle cx="8.5" cy="7.5" r="1"/><circle cx="6.5" cy="12.5" r="1"/><path d="M12 2a10 10 0 0 0 0 20c1 0 1.5-.8 1.5-1.7 0-.4-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.9.8-1.7 1.7-1.7H16a6 6 0 0 0 6-6c0-4.9-4.5-8.4-10-8.4Z"/>',
+    layout: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>',
+    globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>',
+    filter: '<path d="M3 5h18l-7 8v6l-4 2v-8Z"/>',
+    sparkles: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9Z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9Z"/>',
+    megaphone: '<path d="m3 11 15-6v14L3 13Z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+    database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/>',
+    copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
+    refresh: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
+  };
+  const svg = (name, attrs = '') =>
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${attrs}>${P[name] || ''}</svg>`;
+
+  const ICON_FILE = /\.(png|jpe?g|svg|webp|gif)$/i;
+  const isIconFile = icon => !!icon && ICON_FILE.test(icon);
+  const iconUrl = icon => `/resource/icon/${encodeURIComponent(icon)}`;
+
+  function initials(name) {
+    const s = String(name || '').replace(/^[\d\-.\s]+/, '').trim();   // drop "3-2." style prefixes
+    if (!s) return '?';
+    const cjk = s.match(/[㐀-鿿]/);
+    if (cjk && s.indexOf(cjk[0]) === 0) return s.slice(0, 1);
+    const words = s.split(/[\s\-_/]+/).filter(Boolean);
+    return (words.length > 1 ? words[0][0] + words[1][0] : s.slice(0, 2)).toUpperCase();
+  }
+
+  /** Icon tile: uploaded image, emoji/text icon, folder glyph or initials */
+  function tile({ icon, name, color, folder = false, size = 44 } = {}) {
+    const t = el('span', { class: 'tile' });
+    t.style.setProperty('--tile', size + 'px');
+    if (color) t.style.setProperty('--tile-color', color);
+    const fallback = () => {
+      t.innerHTML = folder ? svg('folder') : `<span class="initials">${esc(initials(name))}</span>`;
+    };
+    if (isIconFile(icon)) {
+      const img = el('img', { src: iconUrl(icon), alt: '', loading: 'lazy', decoding: 'async' });
+      img.addEventListener('error', fallback, { once: true });
+      t.append(img);
+    } else if (icon) {
+      t.append(el('span', { class: 'emoji', text: icon }));
+    } else {
+      fallback();
+    }
+    return t;
+  }
+
+  // ------------------------------------------------------------------- misc
+  function hostOf(url) {
+    try { return new URL(url).host; } catch { return ''; }
+  }
+
+  function toast(msg, isError = false) {
+    let box = document.querySelector('.toasts');
+    if (!box) { box = el('div', { class: 'toasts', role: 'status', 'aria-live': 'polite' }); document.body.append(box); }
+    const t = el('div', { class: 'toast' + (isError ? ' error' : ''), text: msg });
+    box.append(t);
+    setTimeout(() => { t.classList.add('leaving'); setTimeout(() => t.remove(), 300); }, isError ? 4500 : 2400);
+  }
+
+  // ----------------------------------------------------------- appearance
+  const media = window.matchMedia('(prefers-color-scheme: dark)');
+
+  /** Effective theme: viewer override > site setting; "auto" follows the OS */
+  function resolveTheme(siteTheme) {
+    const pref = store.get('theme') || siteTheme || 'auto';
+    return pref === 'auto' ? (media.matches ? 'dark' : 'light') : pref;
+  }
+
+  function applyAppearance(settings) {
+    const root = document.documentElement;
+    root.dataset.theme = resolveTheme(settings.theme);
+    root.dataset.bg = settings.background || 'aurora';
+    root.dataset.density = settings.density || 'comfortable';
+    root.dataset.perf = store.get('perf') === 'low' ? 'low' : 'normal';
+    if (/^#[0-9a-f]{6}$/i.test(settings.accent_color || '')) root.style.setProperty('--accent', settings.accent_color);
+    media.onchange = () => { root.dataset.theme = resolveTheme(settings.theme); document.dispatchEvent(new Event('tt:theme')); };
+  }
+
+  /** Cycle theme preference: auto → light → dark → auto */
+  function cycleTheme(settings) {
+    const order = ['auto', 'light', 'dark'];
+    const cur = store.get('theme') || settings.theme || 'auto';
+    const next = order[(order.indexOf(cur) + 1) % order.length];
+    store.set('theme', next);
+    document.documentElement.dataset.theme = resolveTheme(settings.theme);
+    document.dispatchEvent(new Event('tt:theme'));
+    return next;
+  }
+  const themePref = settings => store.get('theme') || settings.theme || 'auto';
+
+  function togglePerf() {
+    const next = store.get('perf') === 'low' ? 'normal' : 'low';
+    store.set('perf', next);
+    document.documentElement.dataset.perf = next;
+    return next;
+  }
+
+  function setFavicon(icon) {
+    let link = document.querySelector('link[rel="icon"]');
+    if (!link) { link = el('link', { rel: 'icon' }); document.head.append(link); }
+    if (isIconFile(icon)) link.href = iconUrl(icon);
+    else if (icon) {
+      const s = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">${esc(icon)}</text></svg>`;
+      link.href = 'data:image/svg+xml,' + encodeURIComponent(s);
+    }
+  }
+
+  return { store, api, esc, el, svg, tile, isIconFile, iconUrl, initials, hostOf, toast, applyAppearance, cycleTheme, themePref, togglePerf, setFavicon };
+})();

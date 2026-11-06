@@ -1,0 +1,544 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Tool Table — single entry-point deployment tool (Debian / Ubuntu)
+#
+# Usage:
+#   tool-table.sh install   [--https-port 33443] [--http-port 80|0] [--app-port 8080]
+#                           [--fqdn portal.example.com]
+#   tool-table.sh upgrade   [--no-pull]
+#   tool-table.sh uninstall [--purge] [--yes]
+#   tool-table.sh doctor
+#   tool-table.sh backup    [--quiet]
+#   tool-table.sh restore   <backup-file.tar.gz>
+#   tool-table.sh renew-cert
+#   tool-table.sh help
+#
+# Layout:
+#   /opt/tool-table                 source (git) + .venv
+#   /etc/tool-table/tool-table.env  settings (ports, paths)
+#   /etc/tool-table/tls/            server.crt / server.key (self-signed by default)
+#   /var/lib/tool-table/            tool-table.db + icons/   (service user: tooltable)
+#   /var/backups/tool-table/        daily backups (systemd timer)
+#
+# Network:
+#   app   → 127.0.0.1:<app-port> only (never exposed)
+#   nginx → :<https-port> TLS reverse proxy; :<http-port> redirects to https
+# =============================================================================
+set -euo pipefail
+
+APP_USER="tooltable"
+APP_DIR="${TOOL_TABLE_DIR:-/opt/tool-table}"
+ETC_DIR="/etc/tool-table"
+ENV_FILE="$ETC_DIR/tool-table.env"
+TLS_DIR="$ETC_DIR/tls"
+DATA_DIR_DEFAULT="/var/lib/tool-table"
+BACKUP_DIR_DEFAULT="/var/backups/tool-table"
+VENV="$APP_DIR/.venv"
+
+NGINX_SITE="/etc/nginx/sites-available/tool-table"
+NGINX_LINK="/etc/nginx/sites-enabled/tool-table"
+NGINX_SNIPPETS="/etc/nginx/snippets"
+UNIT_DIR="/etc/systemd/system"
+
+DEFAULT_HTTPS_PORT=33443
+DEFAULT_HTTP_PORT=80
+DEFAULT_APP_PORT=8080
+
+# ---------------------------------------------------------------- helpers ---
+log()  { echo -e "\033[1;32m[tool-table]\033[0m $*"; }
+warn() { echo -e "\033[1;33m[warn]\033[0m $*" >&2; }
+die()  { echo -e "\033[1;31m[error]\033[0m $*" >&2; exit 1; }
+
+require_root() { [[ $EUID -eq 0 ]] || die "請用 root 執行（sudo）"; }
+
+script_dir() { cd "$(dirname "${BASH_SOURCE[0]}")" && pwd; }
+
+# Read KEY from the env file (empty if missing)
+env_get() {
+    [[ -f "$ENV_FILE" ]] || { echo ""; return; }
+    sed -n "s/^$1=//p" "$ENV_FILE" | tail -n1
+}
+
+# Set KEY=VALUE in the env file (add or replace)
+env_set() {
+    local key="$1" value="$2"
+    if grep -q "^$key=" "$ENV_FILE" 2>/dev/null; then
+        sed -i "s|^$key=.*|$key=$value|" "$ENV_FILE"
+    else
+        echo "$key=$value" >> "$ENV_FILE"
+    fi
+}
+
+valid_port() { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 0 && $1 <= 65535 )); }
+
+# Who is listening on a TCP port (empty if free)
+port_owner() {
+    ss -Hltnp "sport = :$1" 2>/dev/null | sed -n 's/.*users:(("\([^"]*\)".*/\1/p' | head -n1
+}
+
+# "Service started" is not "service is answering": poll until an HTTP status comes back.
+wait_until_serving() {
+    local url="$1" timeout="${2:-60}" waited=0 code
+    while (( waited < timeout )); do
+        code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 3 "$url" 2>/dev/null || echo 000)"
+        [[ "$code" =~ ^[1-4] ]] && return 0
+        sleep 2; waited=$((waited + 2))
+    done
+    return 1
+}
+
+primary_ip() { hostname -I 2>/dev/null | awk '{print $1}'; }
+
+check_os() {
+    [[ -r /etc/os-release ]] || die "找不到 /etc/os-release，無法判斷作業系統"
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    command -v apt-get >/dev/null || die "只支援 Debian / Ubuntu（需要 apt）"
+    case "${ID}:${VERSION_ID:-}" in
+        debian:12|debian:13|ubuntu:22.04|ubuntu:24.04|ubuntu:26.04) ;;
+        *) warn "未測試的系統：${PRETTY_NAME:-$ID}（支援 Debian 12/13、Ubuntu 22.04/24.04/26.04），繼續安裝…" ;;
+    esac
+}
+
+# ------------------------------------------------------------- rendering ---
+render_nginx() {
+    local https_port="$1" http_port="$2" app_port="$3" fqdn="$4"
+    local src="$APP_DIR/deploy/nginx"
+    local server_name="${fqdn:-_}"
+
+    install -d -m 0755 "$NGINX_SNIPPETS"
+    install -m 0644 "$src/tool-table-headers.conf" "$NGINX_SNIPPETS/tool-table-headers.conf"
+    install -m 0644 "$src/tool-table-proxy.conf"   "$NGINX_SNIPPETS/tool-table-proxy.conf"
+
+    local tmp; tmp="$(mktemp)"
+    sed -e "s/__HTTPS_PORT__/$https_port/g" \
+        -e "s/__HTTP_PORT__/$http_port/g" \
+        -e "s/__APP_PORT__/$app_port/g" \
+        -e "s/__SERVER_NAME__/$server_name/g" \
+        "$src/tool-table.conf" > "$tmp"
+    if [[ "$http_port" == "0" ]]; then
+        # No HTTP listener at all
+        sed -i '/#__HTTP_BLOCK_START__/,/#__HTTP_BLOCK_END__/d' "$tmp"
+    fi
+    if [[ ! -e /proc/net/if_inet6 ]]; then
+        # IPv6 disabled in the kernel: nginx would refuse to start on [::]
+        warn "此主機未啟用 IPv6，nginx 只監聽 IPv4"
+        sed -i '/listen \[::\]:/d' "$tmp"
+    fi
+    install -m 0644 "$tmp" "$NGINX_SITE"
+    rm -f "$tmp"
+    ln -sfn "$NGINX_SITE" "$NGINX_LINK"
+
+    # The distro default site also claims port 80 as default_server
+    if [[ "$http_port" == "80" && -L /etc/nginx/sites-enabled/default ]]; then
+        log "停用 nginx 預設站台（/etc/nginx/sites-enabled/default，原檔仍在 sites-available）"
+        rm -f /etc/nginx/sites-enabled/default
+    fi
+
+    nginx -t >/dev/null 2>&1 || { nginx -t; die "nginx 設定檢查失敗"; }
+}
+
+install_units() {
+    install -m 0644 "$APP_DIR/deploy/systemd/tool-table.service"        "$UNIT_DIR/tool-table.service"
+    install -m 0644 "$APP_DIR/deploy/systemd/tool-table-backup.service" "$UNIT_DIR/tool-table-backup.service"
+    install -m 0644 "$APP_DIR/deploy/systemd/tool-table-backup.timer"   "$UNIT_DIR/tool-table-backup.timer"
+    systemctl daemon-reload
+}
+
+setup_python() {
+    log "建立 Python 虛擬環境：$VENV"
+    [[ -x "$VENV/bin/python" ]] || python3 -m venv "$VENV"
+    "$VENV/bin/pip" install --quiet --upgrade pip
+    "$VENV/bin/pip" install --quiet -r "$APP_DIR/requirements.txt"
+    # Pre-compile as root: the service runs with a read-only /opt
+    "$VENV/bin/python" -m compileall -q "$APP_DIR/app" >/dev/null || true
+}
+
+open_firewall() {
+    local https_port="$1" http_port="$2"
+    if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+        log "ufw 已啟用：開放 ${https_port}/tcp$( [[ "$http_port" != 0 ]] && echo " 與 ${http_port}/tcp")"
+        ufw allow "${https_port}/tcp" >/dev/null
+        [[ "$http_port" != 0 ]] && ufw allow "${http_port}/tcp" >/dev/null
+    fi
+    if command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
+        log "firewalld 已啟用：開放 ${https_port}/tcp"
+        firewall-cmd --permanent --add-port="${https_port}/tcp" >/dev/null
+        [[ "$http_port" != 0 ]] && firewall-cmd --permanent --add-port="${http_port}/tcp" >/dev/null
+        firewall-cmd --reload >/dev/null
+    fi
+    return 0
+}
+
+print_summary() {
+    local https_port="$1" http_port="$2" fqdn="$3" ip
+    ip="$(primary_ip)"
+    local host="${fqdn:-${ip:-<伺服器IP>}}"
+    echo
+    echo "=============================================================="
+    echo "  Tool Table 已就緒"
+    echo "--------------------------------------------------------------"
+    echo "  入口      https://${host}:${https_port}/"
+    echo "  管理後台  https://${host}:${https_port}/admin"
+    [[ "$http_port" != 0 ]] && \
+    echo "  HTTP      http://${host}$( [[ "$http_port" != 80 ]] && echo ":$http_port")/  → 自動轉到 HTTPS"
+    echo
+    echo "  憑證為自簽，瀏覽器第一次會警告，確認後即可使用。"
+    echo "  換正式憑證：覆蓋 $TLS_DIR/server.crt 與 server.key 後 systemctl reload nginx"
+    echo "  健檢：     sudo bash $APP_DIR/scripts/tool-table.sh doctor"
+    echo "=============================================================="
+}
+
+# --------------------------------------------------------------- install ---
+cmd_install() {
+    local https_port="" http_port="" app_port="" fqdn="" fqdn_set=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --https-port) https_port="$2"; shift 2 ;;
+            --http-port)  http_port="$2"; shift 2 ;;
+            --app-port)   app_port="$2"; shift 2 ;;
+            --fqdn)       fqdn="$2"; fqdn_set=1; shift 2 ;;
+            *) die "未知參數：$1（見 help）" ;;
+        esac
+    done
+    require_root
+    check_os
+    [[ -f "$APP_DIR/app/main.py" ]] || die "$APP_DIR 不是 Tool Table 原始碼目錄（請用 bootstrap.sh 安裝）"
+
+    # Values: argument > existing env file > default
+    https_port="${https_port:-$(env_get TOOL_TABLE_HTTPS_PORT)}"; https_port="${https_port:-$DEFAULT_HTTPS_PORT}"
+    http_port="${http_port:-$(env_get TOOL_TABLE_HTTP_PORT)}";    http_port="${http_port:-$DEFAULT_HTTP_PORT}"
+    app_port="${app_port:-$(env_get TOOL_TABLE_APP_PORT)}";       app_port="${app_port:-$DEFAULT_APP_PORT}"
+    (( fqdn_set )) || fqdn="$(env_get TOOL_TABLE_FQDN)"
+    for p in "$https_port" "$app_port"; do valid_port "$p" && (( p > 0 )) || die "無效的埠號：$p"; done
+    valid_port "$http_port" || die "無效的埠號：$http_port"
+    [[ "$https_port" != "$app_port" && "$https_port" != "$http_port" && "$http_port" != "$app_port" ]] \
+        || die "HTTPS / HTTP / 服務埠不可重複"
+
+    log "安裝相依套件（python3、nginx、openssl…）"
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y -qq python3 python3-venv python3-pip nginx openssl curl ca-certificates iproute2 >/dev/null
+
+    # Ports must be free, or already ours
+    local owner
+    for p in "$https_port" "$http_port"; do
+        [[ "$p" == 0 ]] && continue
+        owner="$(port_owner "$p")"
+        [[ -z "$owner" || "$owner" == nginx ]] || die "埠 $p 已被 $owner 使用"
+    done
+    owner="$(port_owner "$app_port")"
+    if [[ -n "$owner" ]] && ! systemctl is-active --quiet tool-table; then
+        die "服務埠 $app_port 已被 $owner 使用，請用 --app-port 換一個"
+    fi
+
+    log "建立系統帳號與目錄"
+    id "$APP_USER" >/dev/null 2>&1 || \
+        useradd --system --home-dir "$DATA_DIR_DEFAULT" --no-create-home --shell /usr/sbin/nologin "$APP_USER"
+    install -d -m 0750 -o root -g "$APP_USER" "$ETC_DIR"
+    install -d -m 0755 -o root -g root "$TLS_DIR"
+    install -d -m 0750 -o "$APP_USER" -g "$APP_USER" "$DATA_DIR_DEFAULT" "$DATA_DIR_DEFAULT/icons"
+    install -d -m 0700 -o root -g root "$BACKUP_DIR_DEFAULT"
+
+    # Bundled icons → data dir (never overwrite icons the admin uploaded or renamed)
+    if [[ -d "$APP_DIR/resource/icon" ]]; then
+        cp -n "$APP_DIR/resource/icon/"* "$DATA_DIR_DEFAULT/icons/" 2>/dev/null || true
+        chown -R "$APP_USER:$APP_USER" "$DATA_DIR_DEFAULT/icons"
+    fi
+
+    log "寫入設定：$ENV_FILE"
+    if [[ ! -f "$ENV_FILE" ]]; then
+        install -m 0640 -o root -g "$APP_USER" "$APP_DIR/deploy/tool-table.env.example" "$ENV_FILE"
+    fi
+    env_set TOOL_TABLE_DATA_DIR "$DATA_DIR_DEFAULT"
+    env_set TOOL_TABLE_ICON_DIR "$DATA_DIR_DEFAULT/icons"
+    env_set TOOL_TABLE_ENABLE_DOCS false
+    env_set TOOL_TABLE_APP_PORT "$app_port"
+    env_set TOOL_TABLE_HTTPS_PORT "$https_port"
+    env_set TOOL_TABLE_HTTP_PORT "$http_port"
+    env_set TOOL_TABLE_FQDN "$fqdn"
+    [[ -n "$(env_get TOOL_TABLE_BACKUP_DIR)" ]] || env_set TOOL_TABLE_BACKUP_DIR "$BACKUP_DIR_DEFAULT"
+    [[ -n "$(env_get TOOL_TABLE_BACKUP_KEEP_DAYS)" ]] || env_set TOOL_TABLE_BACKUP_KEEP_DAYS 14
+
+    setup_python
+
+    log "TLS 憑證：$TLS_DIR"
+    bash "$APP_DIR/scripts/generate-self-signed-cert.sh" --out-dir "$TLS_DIR" ${fqdn:+--cn "$fqdn"}
+
+    log "安裝 systemd 服務"
+    install_units
+    systemctl enable --now tool-table.service >/dev/null
+    systemctl restart tool-table.service
+    systemctl enable --now tool-table-backup.timer >/dev/null
+
+    log "設定 nginx（HTTPS :$https_port$( [[ "$http_port" != 0 ]] && echo "，HTTP :$http_port → HTTPS")）"
+    render_nginx "$https_port" "$http_port" "$app_port" "$fqdn"
+    systemctl enable nginx >/dev/null 2>&1 || true
+    systemctl restart nginx
+
+    open_firewall "$https_port" "$http_port"
+
+    log "等待服務回應…"
+    wait_until_serving "https://127.0.0.1:${https_port}/api/health" 60 \
+        || die "服務沒有回應，請執行：sudo bash $APP_DIR/scripts/tool-table.sh doctor"
+
+    print_summary "$https_port" "$http_port" "$fqdn"
+}
+
+# --------------------------------------------------------------- upgrade ---
+cmd_upgrade() {
+    local pull=1
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --no-pull) pull=0; shift ;;
+            *) die "未知參數：$1" ;;
+        esac
+    done
+    require_root
+    [[ -f "$ENV_FILE" ]] || die "尚未安裝（找不到 $ENV_FILE），請先執行 install"
+
+    if (( pull )); then
+        log "更新原始碼（git pull）"
+        git -C "$APP_DIR" pull --ff-only || die "git pull 失敗（$APP_DIR 有本機修改？）"
+        # Hand over to the freshly pulled script so new upgrade steps take effect now
+        exec bash "$APP_DIR/scripts/tool-table.sh" upgrade --no-pull
+    fi
+
+    log "升級前備份"
+    cmd_backup --quiet
+
+    setup_python
+    install_units
+
+    # New bundled icons only (cp -n never overwrites)
+    cp -n "$APP_DIR/resource/icon/"* "$(env_get TOOL_TABLE_ICON_DIR)/" 2>/dev/null || true
+    chown -R "$APP_USER:$APP_USER" "$(env_get TOOL_TABLE_ICON_DIR)"
+
+    render_nginx "$(env_get TOOL_TABLE_HTTPS_PORT)" "$(env_get TOOL_TABLE_HTTP_PORT)" \
+                 "$(env_get TOOL_TABLE_APP_PORT)" "$(env_get TOOL_TABLE_FQDN)"
+    systemctl restart tool-table.service
+    systemctl reload nginx
+
+    wait_until_serving "https://127.0.0.1:$(env_get TOOL_TABLE_HTTPS_PORT)/api/health" 60 \
+        || die "升級後服務沒有回應，請執行 doctor；備份在 $(env_get TOOL_TABLE_BACKUP_DIR)"
+    log "升級完成"
+}
+
+# ------------------------------------------------------------- uninstall ---
+cmd_uninstall() {
+    local purge=0 yes=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --purge) purge=1; shift ;;
+            --yes)   yes=1; shift ;;
+            *) die "未知參數：$1" ;;
+        esac
+    done
+    require_root
+
+    log "停用並移除服務"
+    systemctl disable --now tool-table.service tool-table-backup.timer >/dev/null 2>&1 || true
+    rm -f "$UNIT_DIR/tool-table.service" "$UNIT_DIR/tool-table-backup.service" "$UNIT_DIR/tool-table-backup.timer"
+    systemctl daemon-reload
+
+    log "移除 nginx 站台"
+    rm -f "$NGINX_LINK" "$NGINX_SITE" "$NGINX_SNIPPETS/tool-table-headers.conf" "$NGINX_SNIPPETS/tool-table-proxy.conf"
+    if command -v nginx >/dev/null && nginx -t >/dev/null 2>&1; then
+        systemctl reload nginx 2>/dev/null || true
+    fi
+
+    if (( purge )); then
+        if (( ! yes )); then
+            read -r -p "將刪除 $ETC_DIR 與 $DATA_DIR_DEFAULT（資料庫、圖示、憑證）。輸入 yes 確認：" ans
+            [[ "$ans" == "yes" ]] || die "已取消"
+        fi
+        rm -rf "$ETC_DIR" "$DATA_DIR_DEFAULT"
+        id "$APP_USER" >/dev/null 2>&1 && userdel "$APP_USER" 2>/dev/null || true
+        log "已清除設定與資料（備份保留在 $BACKUP_DIR_DEFAULT）"
+    else
+        log "保留資料：$ETC_DIR、$DATA_DIR_DEFAULT（要一併刪除請加 --purge）"
+    fi
+    log "原始碼保留在 $APP_DIR（不需要可自行刪除）"
+}
+
+# ---------------------------------------------------------------- backup ---
+cmd_backup() {
+    local quiet=0
+    [[ "${1:-}" == "--quiet" ]] && quiet=1
+    require_root
+    local data_dir icon_dir backup_dir keep stamp work out
+    data_dir="$(env_get TOOL_TABLE_DATA_DIR)"; data_dir="${data_dir:-$DATA_DIR_DEFAULT}"
+    icon_dir="$(env_get TOOL_TABLE_ICON_DIR)"; icon_dir="${icon_dir:-$data_dir/icons}"
+    backup_dir="$(env_get TOOL_TABLE_BACKUP_DIR)"; backup_dir="${backup_dir:-$BACKUP_DIR_DEFAULT}"
+    keep="$(env_get TOOL_TABLE_BACKUP_KEEP_DAYS)"; keep="${keep:-14}"
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    install -d -m 0700 "$backup_dir"
+    work="$(mktemp -d)"
+    mkdir -p "$work/tool-table"
+
+    # Consistent online copy of SQLite (safe while the service is running)
+    if [[ -f "$data_dir/tool-table.db" ]]; then
+        python3 - "$data_dir/tool-table.db" "$work/tool-table/tool-table.db" <<'PY'
+import sqlite3, sys
+src = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+dst = sqlite3.connect(sys.argv[2])
+src.backup(dst)
+dst.close(); src.close()
+PY
+    fi
+    [[ -d "$icon_dir" ]] && cp -a "$icon_dir" "$work/tool-table/icons"
+    [[ -f "$ENV_FILE" ]] && cp -a "$ENV_FILE" "$work/tool-table/"
+
+    out="$backup_dir/tool-table-$stamp.tar.gz"
+    tar -C "$work" -czf "$out" tool-table
+    chmod 0600 "$out"
+    rm -rf "$work"
+
+    find "$backup_dir" -maxdepth 1 -name 'tool-table-*.tar.gz' -mtime +"$keep" -delete
+    (( quiet )) || log "備份完成：$out（保留 $keep 天）"
+    return 0
+}
+
+cmd_restore() {
+    local file="${1:-}"
+    require_root
+    [[ -f "$file" ]] || die "用法：tool-table.sh restore /var/backups/tool-table/tool-table-YYYYmmdd-HHMMSS.tar.gz"
+    local data_dir icon_dir work
+    data_dir="$(env_get TOOL_TABLE_DATA_DIR)"; data_dir="${data_dir:-$DATA_DIR_DEFAULT}"
+    icon_dir="$(env_get TOOL_TABLE_ICON_DIR)"; icon_dir="${icon_dir:-$data_dir/icons}"
+    work="$(mktemp -d)"
+    tar -C "$work" -xzf "$file"
+    [[ -d "$work/tool-table" ]] || die "不是 Tool Table 的備份檔"
+
+    log "還原前先備份目前資料"
+    cmd_backup --quiet
+
+    systemctl stop tool-table.service
+    if [[ -f "$work/tool-table/tool-table.db" ]]; then
+        install -m 0640 -o "$APP_USER" -g "$APP_USER" "$work/tool-table/tool-table.db" "$data_dir/tool-table.db"
+        rm -f "$data_dir/tool-table.db-wal" "$data_dir/tool-table.db-shm"
+    fi
+    if [[ -d "$work/tool-table/icons" ]]; then
+        rm -rf "$icon_dir"
+        cp -a "$work/tool-table/icons" "$icon_dir"
+        chown -R "$APP_USER:$APP_USER" "$icon_dir"
+    fi
+    rm -rf "$work"
+    systemctl start tool-table.service
+    log "已還原：$file"
+}
+
+# ------------------------------------------------------------ renew-cert ---
+cmd_renew_cert() {
+    require_root
+    local fqdn
+    fqdn="$(env_get TOOL_TABLE_FQDN)"
+    bash "$APP_DIR/scripts/generate-self-signed-cert.sh" --out-dir "$TLS_DIR" --force ${fqdn:+--cn "$fqdn"}
+    nginx -t >/dev/null 2>&1 && systemctl reload nginx
+    log "已重新產生自簽憑證並重新載入 nginx"
+}
+
+# ---------------------------------------------------------------- doctor ---
+cmd_doctor() {
+    local fails=0
+    ok()   { echo -e "  \033[1;32m✔\033[0m $*"; }
+    bad()  { echo -e "  \033[1;31m✘\033[0m $1"; [[ -n "${2:-}" ]] && echo -e "    → $2"; fails=$((fails + 1)); }
+    info() { echo -e "  · $*"; }
+
+    echo "Tool Table 健檢"
+    [[ $EUID -eq 0 ]] || warn "建議用 sudo 執行，部分檢查需要 root"
+
+    if [[ -f "$ENV_FILE" ]]; then ok "設定檔 $ENV_FILE"
+    else bad "找不到 $ENV_FILE" "sudo bash $APP_DIR/scripts/tool-table.sh install"; fi
+
+    local app_port https_port http_port data_dir loc=""
+    app_port="$(env_get TOOL_TABLE_APP_PORT)"; app_port="${app_port:-$DEFAULT_APP_PORT}"
+    https_port="$(env_get TOOL_TABLE_HTTPS_PORT)"; https_port="${https_port:-$DEFAULT_HTTPS_PORT}"
+    http_port="$(env_get TOOL_TABLE_HTTP_PORT)"; http_port="${http_port:-$DEFAULT_HTTP_PORT}"
+    data_dir="$(env_get TOOL_TABLE_DATA_DIR)"; data_dir="${data_dir:-$DATA_DIR_DEFAULT}"
+    info "HTTPS :$https_port　HTTP :$http_port　服務 127.0.0.1:$app_port"
+
+    if [[ -x "$VENV/bin/uvicorn" ]]; then ok "Python 環境 $VENV"
+    else bad "缺少 $VENV" "sudo bash $APP_DIR/scripts/tool-table.sh upgrade --no-pull"; fi
+
+    if systemctl is-active --quiet tool-table; then ok "tool-table.service 執行中"
+    else bad "tool-table.service 未執行" "sudo journalctl -u tool-table -n 50 --no-pager"; fi
+
+    # Service port must NOT be reachable from the network
+    local listen
+    listen="$(ss -Hltn "sport = :$app_port" 2>/dev/null | awk '{print $4}' | tr '\n' ' ')"
+    if [[ -z "$listen" ]]; then
+        bad "服務埠 $app_port 沒有在監聽" "sudo systemctl restart tool-table"
+    elif echo "$listen" | grep -qvE '^(127\.0\.0\.1|\[::1\]):'; then
+        bad "服務埠 $app_port 對外開放（$listen）" "服務應只綁 127.0.0.1；請重新執行 install"
+    else
+        ok "服務埠只綁本機（$listen）"
+    fi
+
+    local code
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$app_port/api/health" || echo 000)"
+    [[ "$code" == 200 ]] && ok "後端回應 /api/health" || bad "後端沒有回應（HTTP $code）" "sudo journalctl -u tool-table -n 50 --no-pager"
+
+    if nginx -t >/dev/null 2>&1; then ok "nginx 設定正確"
+    else bad "nginx 設定錯誤" "sudo nginx -t"; fi
+    systemctl is-active --quiet nginx && ok "nginx 執行中" || bad "nginx 未執行" "sudo systemctl restart nginx"
+
+    code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 5 "https://127.0.0.1:$https_port/api/health" || echo 000)"
+    [[ "$code" == 200 ]] && ok "HTTPS :$https_port 正常" || bad "HTTPS :$https_port 回應 $code" "sudo tail -n 30 /var/log/nginx/tool-table.error.log"
+
+    if [[ "$http_port" != 0 ]]; then
+        local loc
+        loc="$(curl -s -o /dev/null -w '%{redirect_url}' --max-time 5 "http://127.0.0.1:$http_port/admin" || true)"
+        [[ "$loc" == "https://127.0.0.1:$https_port/admin" ]] && ok "HTTP :$http_port → HTTPS 轉址" \
+            || bad "HTTP :$http_port 沒有轉到 HTTPS（得到：${loc:-無}）" "sudo bash $APP_DIR/scripts/tool-table.sh install"
+    fi
+    loc="$(curl -s -o /dev/null -w '%{redirect_url}' --max-time 5 "http://127.0.0.1:$https_port/" || true)"
+    [[ "$loc" == https://* ]] && ok "以 http:// 連 :$https_port 會轉成 https" \
+        || bad "以 http:// 連 :$https_port 沒有轉址" "確認 nginx 站台含 error_page 497"
+
+    if [[ -r "$TLS_DIR/server.crt" ]]; then
+        local end
+        end="$(openssl x509 -enddate -noout -in "$TLS_DIR/server.crt" | cut -d= -f2)"
+        if openssl x509 -checkend $((30 * 86400)) -noout -in "$TLS_DIR/server.crt" >/dev/null; then
+            ok "憑證有效至 $end"
+        else
+            bad "憑證 30 天內到期（$end）" "sudo bash $APP_DIR/scripts/tool-table.sh renew-cert"
+        fi
+    else
+        bad "找不到憑證 $TLS_DIR/server.crt" "sudo bash $APP_DIR/scripts/tool-table.sh renew-cert"
+    fi
+
+    if [[ -f "$data_dir/tool-table.db" ]]; then
+        [[ "$(stat -c %U "$data_dir/tool-table.db")" == "$APP_USER" ]] && ok "資料庫 $data_dir/tool-table.db" \
+            || bad "資料庫擁有者不是 $APP_USER" "sudo chown -R $APP_USER:$APP_USER $data_dir"
+    else
+        info "資料庫尚未建立（服務第一次啟動時建立）"
+    fi
+
+    systemctl is-enabled --quiet tool-table-backup.timer 2>/dev/null && ok "每日備份排程已啟用" \
+        || bad "每日備份排程未啟用" "sudo systemctl enable --now tool-table-backup.timer"
+    local last
+    last="$(ls -1t "$(env_get TOOL_TABLE_BACKUP_DIR)"/tool-table-*.tar.gz 2>/dev/null | head -n1 || true)"
+    [[ -n "$last" ]] && info "最近一次備份：$last" || info "尚無備份"
+
+    echo
+    if (( fails == 0 )); then log "全部通過"; else warn "$fails 項需要處理（見上方 → 修法）"; return 1; fi
+}
+
+cmd_help() { sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+
+main() {
+    case "${1:-help}" in
+        install)    shift; cmd_install "$@" ;;
+        upgrade)    shift; cmd_upgrade "$@" ;;
+        uninstall)  shift; cmd_uninstall "$@" ;;
+        doctor)     shift; cmd_doctor "$@" ;;
+        backup)     shift; cmd_backup "$@" ;;
+        restore)    shift; cmd_restore "$@" ;;
+        renew-cert) shift; cmd_renew_cert "$@" ;;
+        help|-h|--help) cmd_help ;;
+        *) cmd_help; exit 2 ;;
+    esac
+}
+
+main "$@"

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW" data-theme="dark" data-bg="aurora">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <title>Tool Table</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/assets/css/base.css">
+  <link rel="stylesheet" href="/assets/css/portal.css">
+  <script src="/assets/js/common.js" defer></script>
+  <script src="/assets/js/clock.js" defer></script>
+  <script src="/assets/js/portal.js" defer></script>
+</head>
+<body>
+  <div class="backdrop"><div class="grid-lines"></div></div>
+
+  <header class="topbar">
+    <button class="icon-btn menu-btn" id="menu-btn" aria-label="開啟選單"></button>
+
+    <a class="brand" id="brand" href="#/" aria-label="首頁">
+      <span class="brand-mark" id="brand-mark"></span>
+      <span class="brand-text">
+        <strong id="brand-title">Tool Table</strong>
+        <small id="brand-subtitle"></small>
+      </span>
+    </a>
+
+    <button class="search-trigger" id="search-trigger" type="button">
+      <span class="search-trigger-icon" id="search-trigger-icon"></span>
+      <span class="search-trigger-text" id="search-trigger-text">搜尋…</span>
+      <span class="search-trigger-keys"><kbd id="mod-key">Ctrl</kbd><kbd>K</kbd></span>
+    </button>
+
+    <div class="topbar-right">
+      <div class="netinfo" id="netinfo" hidden></div>
+      <div class="clock" id="clock" hidden title="時間"></div>
+      <button class="icon-btn" id="perf-btn" type="button"></button>
+      <button class="icon-btn" id="theme-btn" type="button"></button>
+      <a class="icon-btn" id="admin-btn" href="/admin" title="管理後台" hidden></a>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar" aria-label="導覽">
+      <nav class="nav" id="nav-main"></nav>
+
+      <section class="nav-section" id="tree-section">
+        <div class="nav-title">分類</div>
+        <div class="tree" id="tree" role="tree"></div>
+      </section>
+
+      <section class="nav-section" id="filters-section" hidden>
+        <div class="nav-title" id="filters-title">快速篩選</div>
+        <div class="filter-list" id="filters"></div>
+      </section>
+    </aside>
+    <div class="scrim" id="scrim"></div>
+
+    <main class="main" id="main">
+      <div class="view" id="view" aria-live="polite"></div>
+    </main>
+  </div>
+
+  <!-- Command palette -->
+  <div class="modal palette" id="palette" hidden>
+    <div class="modal-card palette-card" role="dialog" aria-modal="true" aria-label="搜尋">
+      <div class="palette-input">
+        <span class="palette-input-icon" id="palette-icon"></span>
+        <input id="palette-input" type="text" autocomplete="off" spellcheck="false" placeholder="搜尋…">
+        <kbd>Esc</kbd>
+      </div>
+      <div class="palette-results" id="palette-results" role="listbox"></div>
+      <div class="palette-foot">
+        <span><kbd>↑</kbd><kbd>↓</kbd> 選擇</span>
+        <span><kbd>↵</kbd> 開啟</span>
+        <span><kbd>Shift</kbd><kbd>↵</kbd> 全部結果</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
