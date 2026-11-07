@@ -71,6 +71,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "enable_favorites": True,           # ☆ on cards (stored per browser)
     "enable_recent": True,              # recently opened (stored per browser)
     "allow_drop_add": True,             # drag a web link onto the portal to add it
+    "favicon_web_fallback": True,       # public sites: use a favicon service when the site blocks direct fetches
 }
 
 ENUMS = {

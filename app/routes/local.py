@@ -20,7 +20,18 @@ from pydantic import BaseModel, Field
 from .. import localapps as la
 from ..config import LOCAL_APPS
 from ..database import get_db
-from ..favicon import fetch_favicon
+from ..favicon import fetch_favicon as _fetch_favicon
+from .settings import read_settings
+
+
+async def fetch_favicon(url: str):
+    """Fetch a site icon (in a worker thread) honouring the favicon_web_fallback setting."""
+    db = await get_db()
+    try:
+        fallback = (await read_settings(db)).get("favicon_web_fallback", True)
+    finally:
+        await db.close()
+    return await run_in_threadpool(_fetch_favicon, url, fallback)
 
 router = APIRouter(prefix="/api", tags=["local"])
 
@@ -58,7 +69,7 @@ async def read_shortcut(request: Request, file: UploadFile = File(...)):
             info = la.parse_url_file(data)
             if not info["url"].lower().startswith(("http://", "https://")):
                 raise HTTPException(status_code=400, detail="只支援 http / https 網址捷徑")
-            icon = await run_in_threadpool(fetch_favicon, info["url"])
+            icon = await fetch_favicon(info["url"])
             return {"kind": "url", "name": name, "url": info["url"], "icon": icon}
         if ext != ".lnk":
             raise HTTPException(status_code=400, detail=LAUNCHABLE_HINT)
@@ -68,7 +79,7 @@ async def read_shortcut(request: Request, file: UploadFile = File(...)):
     target = la.expand_env(info["target"])
     # an .lnk to a web page behaves like a URL shortcut
     if target.lower().startswith(("http://", "https://")):
-        icon = await run_in_threadpool(fetch_favicon, target)
+        icon = await fetch_favicon(target)
         return {"kind": "url", "name": name, "url": target, "icon": icon}
     return await _describe(target, info["args"], info["cwd"], info["icon"], info["icon_index"], name)
 
@@ -125,8 +136,8 @@ class FetchIconRequest(BaseModel):
 
 
 @router.post("/icons/fetch")
-def fetch_icon(body: FetchIconRequest):
+async def fetch_icon(body: FetchIconRequest):
     if not body.url.lower().startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="只支援 http / https 網址")
     # 200 with icon=null when nothing usable was found (not an error for the caller)
-    return {"icon": fetch_favicon(body.url)}
+    return {"icon": await fetch_favicon(body.url)}

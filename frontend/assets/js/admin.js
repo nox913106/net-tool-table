@@ -754,6 +754,7 @@
    */
   function createNode(parentId, prefill = null) {
     const app = prefill?.kind === 'app';
+    let iconPending = null;   // website icon still being fetched
     const draft = { node_type: 'link', icon: prefill?.icon || '' };
     const parentName = parentId ? state.byId.get(parentId).name : '最上層';
     const name = el('input', { class: 'input', placeholder: '例如：Grafana', maxlength: '200', value: prefill?.name || '' });
@@ -781,7 +782,12 @@
     if (prefill && !app && !draft.icon) {
       const guess = TT.guessIcon(prefill.url, prefill.name, state.icons.map(i => i.name));
       if (guess) iconField.set(guess);
-      else TT.fetchSiteIcon(prefill.url).then(icon => { if (icon && !draft.icon) { iconField.set(icon); loadIcons(); } });
+      else {
+        iconPending = TT.fetchSiteIcon(prefill.url).then(icon => {
+          if (icon && !draft.icon) { iconField.set(icon); loadIcons(); }
+          iconPending = null;
+        });
+      }
     }
     // program dropped without a known path: fill name/icon once a path is pasted
     url.addEventListener('change', async () => {
@@ -808,6 +814,12 @@
       const program = TT.looksLikePath(target);
       if (!name.value.trim()) return toast('請輸入名稱', true);
       if (draft.node_type === 'link' && !program && !/^[a-z][a-z0-9+.-]*:/i.test(target)) return toast('請輸入完整網址（https://…）或程式路徑（C:\\…）', true);
+      if (iconPending) {                       // don't create the item before its icon arrives
+        ok.disabled = true;
+        ok.textContent = '取得圖示中…';
+        await Promise.race([iconPending, new Promise(r => setTimeout(r, 12000))]);
+        ok.disabled = false;
+      }
       try {
         const created = await api('/api/nodes', {
           method: 'POST', body: {
@@ -1142,6 +1154,7 @@
       { key: 'open_links_in_new_tab', label: '連結預設在新分頁開啟', type: 'switch' },
       { key: 'enable_favorites', label: '啟用「我的最愛」', type: 'switch' },
       { key: 'enable_recent', label: '啟用「最近使用」', type: 'switch' },
+      { key: 'favicon_web_fallback', label: '抓不到網站圖示時，改向 Google / DuckDuckGo 圖示服務取得', type: 'switch', hint: '只用於公開網站；內網網址不會送出' },
       { key: 'allow_drop_add', label: '允許在入口直接拖曳網址新增', type: 'switch', hint: '從瀏覽器網址列、網頁連結或書籤拖到入口頁面' },
       { key: 'quick_links_group_label', label: '快速連結的「群組」名稱', type: 'text', placeholder: '例如：區域、部門' },
     ] },

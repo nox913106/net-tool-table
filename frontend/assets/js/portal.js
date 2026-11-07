@@ -755,6 +755,7 @@
     paint();
 
     // icon: library match → website favicon (links) / program icon (apps)
+    let iconPending = null;   // website icon still being fetched
     if (!app && !icon) {
       try {
         const names = (await api('/api/icons')).map(i => i.name);
@@ -762,7 +763,12 @@
       } catch { /* ignore */ }
       if (!icon) {
         busy('正在取得網站圖示…');
-        TT.fetchSiteIcon(info.url).then(got => { if (got) icon = got; busy(''); paint(); });
+        iconPending = TT.fetchSiteIcon(info.url).then(got => {
+          if (got) icon = got;
+          busy(got ? '' : '抓不到網站圖示，先用名稱縮寫（之後可在後台更換）');
+          iconPending = null;
+          paint();
+        });
       }
       paint();
     }
@@ -816,6 +822,10 @@
         return;
       }
       ok.disabled = true;
+      if (iconPending) {                       // don't create the card before its icon arrives
+        ok.textContent = '取得圖示中…';
+        await Promise.race([iconPending, new Promise(r => setTimeout(r, 12000))]);
+      }
       try {
         const parentId = folder.value ? Number(folder.value) : null;
         const created = await api('/api/nodes', {
@@ -840,6 +850,7 @@
       } catch (err) {
         TT.toast(err.message, true);
         ok.disabled = false;
+        ok.innerHTML = svg('plus') + '新增';
       }
     };
     ok.addEventListener('click', submit);
