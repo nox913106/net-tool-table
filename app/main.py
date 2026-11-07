@@ -8,7 +8,7 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import ENABLE_DOCS, ICON_DIR, PROJECT_ROOT
@@ -64,6 +64,53 @@ async def serve_portal():
 @app.api_route("/admin", methods=["GET", "HEAD"], include_in_schema=False)
 async def serve_admin():
     return FileResponse(FRONTEND_DIR / "admin.html")
+
+
+# --- Install as an app (Chrome / Edge "Install", Android "Add to home screen") ---
+@app.api_route("/manifest.webmanifest", methods=["GET", "HEAD"], include_in_schema=False)
+async def web_manifest():
+    from .database import get_db
+    from .routes.settings import read_settings
+    db = await get_db()
+    try:
+        s = await read_settings(db)
+    finally:
+        await db.close()
+    title = (s.get("site_title") or "Tool Table").strip()[:45]
+    icon = "/assets/app/"
+    return JSONResponse({
+        "id": "/",
+        "name": title,
+        "short_name": title[:12],
+        "description": (s.get("site_subtitle") or "常用工具與系統入口")[:120],
+        "lang": "zh-Hant-TW",
+        "start_url": "/",
+        "scope": "/",
+        "display": "standalone",
+        "background_color": "#0a0d1a",
+        "theme_color": s.get("accent_color") or "#6366f1",
+        "icons": [
+            {"src": icon + "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": icon + "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": icon + "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+        ],
+        "shortcuts": [
+            {"name": "搜尋", "url": "/#search", "icons": [{"src": icon + "icon-192.png", "sizes": "192x192"}]},
+            {"name": "管理後台", "url": "/admin", "icons": [{"src": icon + "icon-192.png", "sizes": "192x192"}]},
+        ],
+    }, media_type="application/manifest+json", headers={"Cache-Control": "no-cache"})
+
+
+@app.api_route("/sw.js", methods=["GET", "HEAD"], include_in_schema=False)
+async def service_worker():
+    # served from the root so it controls the whole site
+    return FileResponse(FRONTEND_DIR / "sw.js", media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"})
+
+
+@app.api_route("/favicon.ico", methods=["GET", "HEAD"], include_in_schema=False)
+async def favicon():
+    return FileResponse(FRONTEND_DIR / "assets" / "app" / "favicon-32.png", media_type="image/png")
 
 
 @app.get("/admin.html", include_in_schema=False)

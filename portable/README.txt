@@ -4,7 +4,8 @@
 【開始使用】
 1. 把整個 ToolTable 資料夾解壓縮到任何地方（桌面、D 槽、隨身碟都可以）
 2. 點兩下 ToolTable.exe
-3. 瀏覽器會自動打開入口頁；管理後台在網址後面加 /admin
+3. 入口頁會用 Chrome（沒有就用 Edge）以「獨立視窗」打開，像一般程式一樣，
+   沒有網址列和分頁；管理後台是 http://127.0.0.1:8080/admin
 
   * 那個黑色視窗就是伺服器本身，關掉它就會停止服務。
   * 第一次執行時 Windows 可能顯示「Windows 已保護您的電腦」：
@@ -30,6 +31,13 @@
   只有執行 ToolTable.exe 的這台電腦能新增、啟動程式；
   用 --lan 開放給其他電腦時，他們看得到卡片但無法啟動。
 
+【安裝成 App（開始功能表 / 工作列 / 桌面圖示）】
+  在 Chrome 或 Edge 開啟入口頁，按頁首右上角的「下載」圖示（安裝為應用程式），
+  或網址列右邊的「安裝」圖示 → 安裝。之後就能從開始功能表開啟、釘選到工作列。
+  注意：App 只是視窗，資料仍由 ToolTable.exe 提供，使用前要先執行 ToolTable.exe。
+  （小技巧：把 ToolTable.exe 的捷徑放進「啟動」資料夾 shell:startup，開機就自動執行，
+    搭配 --no-browser 就不會每次開機都跳出視窗）
+
 【升級】
   下載新版 zip，解壓後把舊版的 data 資料夾複製過去覆蓋即可。
 
@@ -38,6 +46,7 @@
   ToolTable.exe --lan              讓同網段其他電腦也能連線
                                    （Windows 防火牆會詢問，請按「允許」）
   ToolTable.exe --no-browser       不自動開瀏覽器
+  ToolTable.exe --tab              用一般瀏覽器分頁開啟（不要獨立視窗）
   ToolTable.exe --data-dir D:\tt   資料改存到指定資料夾
 
   已經在執行時再點一次 ToolTable.exe，只會再打開瀏覽器，不會重複啟動。

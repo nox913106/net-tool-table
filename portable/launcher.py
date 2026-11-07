@@ -2,7 +2,8 @@
 Tool Table — portable launcher (Windows ToolTable.exe, also works from source)
 
 Double-click → starts the portal on http://127.0.0.1:8080 (or the next free port),
-opens the browser, keeps running until this window is closed.
+opens it in its own app window (Chrome or Edge "--app" mode, no address bar / tabs;
+falls back to the default browser), keeps running until this window is closed.
 
 Data lives next to the exe in .\\data (database + icons), so the whole folder can be
 copied to another PC or a USB drive. If that folder is not writable (e.g. under
@@ -12,6 +13,7 @@ Options:
   --port N        preferred port (default 8080; the next free one is used if busy)
   --lan           also accept connections from other computers (binds 0.0.0.0)
   --no-browser    do not open the browser
+  --tab           open in a normal browser tab instead of an app window
   --data-dir DIR  store data somewhere else
 """
 import argparse
@@ -122,12 +124,41 @@ def lan_addresses():
     return sorted(addrs)
 
 
+def find_app_browser():
+    """Chrome or Edge executable that supports --app windows (Windows only), or None."""
+    if os.name != "nt":
+        return None
+    roots = [os.environ.get(k) for k in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA")]
+    rels = [r"Google\Chrome\Application\chrome.exe", r"Microsoft\Edge\Application\msedge.exe"]
+    for rel in rels:                       # Chrome first, then Edge (always present on Windows 10/11)
+        for root in roots:
+            if root and (Path(root) / rel).is_file():
+                return str(Path(root) / rel)
+    return shutil.which("chrome") or shutil.which("msedge")
+
+
+def open_ui(url: str, tab: bool = False):
+    """Open the portal as an app window when possible, otherwise in the default browser."""
+    exe = None if tab else find_app_browser()
+    if exe:
+        try:
+            import subprocess
+            subprocess.Popen([exe, f"--app={url}", "--window-size=1440,900"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
+            return
+        except OSError:
+            pass
+    webbrowser.open(url)
+
+
 def main():
     setup_console()
     parser = argparse.ArgumentParser(description=f"{APP_NAME} 單機版")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--lan", action="store_true", help="允許其他電腦連線")
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--tab", action="store_true", help="用一般瀏覽器分頁開啟，而不是獨立視窗")
     parser.add_argument("--data-dir")
     parser.add_argument("--local-apps", action="store_true", help=argparse.SUPPRESS)  # testing off Windows
     args = parser.parse_args()
@@ -136,9 +167,9 @@ def main():
 
     # Second double-click while it is running: just open the browser again
     if already_running(args.port):
-        print(f"{APP_NAME} 已在執行中，開啟瀏覽器…")
+        print(f"{APP_NAME} 已在執行中，開啟視窗…")
         if not args.no_browser:
-            webbrowser.open(f"http://127.0.0.1:{args.port}/")
+            open_ui(f"http://127.0.0.1:{args.port}/", args.tab)
         time.sleep(1.5)
         return
 
@@ -183,7 +214,7 @@ def main():
     def open_browser():
         for _ in range(100):
             if server.started:
-                webbrowser.open(url)
+                open_ui(url, args.tab)
                 return
             time.sleep(0.1)
 

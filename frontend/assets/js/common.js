@@ -183,6 +183,7 @@ const TT = (() => {
     root.dataset.perf = store.get('perf') === 'low' ? 'low' : 'normal';
     if (/^#[0-9a-f]{6}$/i.test(settings.accent_color || '')) root.style.setProperty('--accent', settings.accent_color);
     media.onchange = () => { root.dataset.theme = resolveTheme(settings.theme); document.dispatchEvent(new Event('tt:theme')); };
+    syncThemeColor();
   }
 
   /** Cycle theme preference: auto → light → dark → auto */
@@ -332,7 +333,42 @@ const TT = (() => {
   /** Website favicon → icon library. Resolves to the icon name or '' */
   const fetchSiteIcon = url => api('/api/icons/fetch', { method: 'POST', body: { url } }).then(r => r.icon || '').catch(() => '');
 
+  /* ---------- install as an app (Chrome / Edge) ---------- */
+  let installPrompt = null;
+  const installListeners = new Set();
+  const installed = () => matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: window-controls-overlay)').matches;
+  document.addEventListener('tt:theme', () => syncThemeColor());
+  if ('serviceWorker' in navigator && window.isSecureContext) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => { /* e.g. untrusted certificate */ }));
+  }
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();               // show our own button instead of the mini-infobar
+    installPrompt = e;
+    installListeners.forEach(f => f(true));
+  });
+  window.addEventListener('appinstalled', () => {
+    installPrompt = null;
+    installListeners.forEach(f => f(false));
+    toast('已安裝為應用程式，可從開始功能表或桌面開啟');
+  });
+  /** fn(available) is called whenever the browser offers / withdraws installation */
+  function onInstallable(fn) { installListeners.add(fn); fn(!!installPrompt && !installed()); }
+  async function installApp() {
+    if (!installPrompt) return false;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    installPrompt = null;
+    installListeners.forEach(f => f(false));
+    return outcome === 'accepted';
+  }
+  /** keep the window title bar of the installed app in the page colour */
+  function syncThemeColor() {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0a0d1a';
+  }
+
   return {
+    onInstallable, installApp, installed, syncThemeColor,
     store, api, esc, el, svg, tile, isIconFile, iconUrl, initials, hostOf, toast, applyAppearance, cycleTheme, themePref,
     togglePerf, setFavicon, isLinkDrag, readDroppedLink, guessIcon, nameFromUrl,
     isProgram, isFileDrag, programPath, looksLikePath, localStatus, launchProgram, inspectDroppedFile, fetchSiteIcon,

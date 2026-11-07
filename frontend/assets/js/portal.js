@@ -129,6 +129,11 @@
     perfBtn.addEventListener('click', () => { TT.togglePerf(); paintPerf(); });
     paintPerf();
 
+    const installBtn = $('install-btn');
+    installBtn.innerHTML = svg('download');
+    TT.onInstallable(ok => { installBtn.hidden = !ok; });
+    installBtn.addEventListener('click', () => TT.installApp());
+
     $('menu-btn').addEventListener('click', () => document.body.classList.toggle('nav-open'));
     $('scrim').addEventListener('click', () => document.body.classList.remove('nav-open'));
     $('search-trigger').addEventListener('click', openPalette);
@@ -299,6 +304,8 @@
   // Router
   // ======================================================================
   function route() {
+    // app shortcut "搜尋" (right-click the taskbar icon of the installed app)
+    if (location.hash === '#search') { history.replaceState(null, '', '/'); setTimeout(openPalette, 50); }
     const hash = decodeURIComponent(location.hash || '#/');
     const view = $('view');
     let m;
