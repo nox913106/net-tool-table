@@ -209,5 +209,64 @@ const TT = (() => {
     }
   }
 
-  return { store, api, esc, el, svg, tile, isIconFile, iconUrl, initials, hostOf, toast, applyAppearance, cycleTheme, themePref, togglePerf, setFavicon };
+  // ------------------------------------------------------- dropped links
+  /** Is this drag carrying a link from a browser (address bar, page link, bookmark)? */
+  function isLinkDrag(e) {
+    const types = [...(e.dataTransfer?.types || [])];
+    return !types.includes('Files') && (types.includes('text/uri-list') || types.includes('text/x-moz-url'));
+  }
+
+  function nameFromUrl(url) {
+    try {
+      const host = new URL(url).hostname.replace(/^www\./, '');
+      const first = host.split('.')[0] || host;
+      return first.charAt(0).toUpperCase() + first.slice(1);
+    } catch { return url; }
+  }
+
+  /** Read { url, title } from a drop event's dataTransfer (Chrome, Edge, Firefox, Safari) */
+  function readDroppedLink(dt) {
+    let url = '';
+    let title = '';
+    const moz = dt.getData('text/x-moz-url');                  // Firefox: "url\ntitle"
+    if (moz) [url, title = ''] = moz.split(/\r?\n/);
+    if (!url) url = (dt.getData('text/uri-list') || '').split(/\r?\n/).find(l => l && !l.startsWith('#')) || '';
+    const html = dt.getData('text/html');                       // link text / page title
+    if (html) {
+      const a = new DOMParser().parseFromString(html, 'text/html').querySelector('a[href]');
+      if (a) {
+        url = url || a.getAttribute('href');
+        title = title || a.textContent.trim() || a.getAttribute('title') || a.querySelector('img')?.alt || '';
+      }
+    }
+    if (!url) {
+      const t = (dt.getData('text/plain') || '').trim();
+      if (/^https?:\/\/\S+$/i.test(t)) url = t;
+    }
+    url = (url || '').trim();
+    if (!/^https?:\/\//i.test(url)) return null;
+    title = title.replace(/\s+/g, ' ').trim();
+    if (!title || title === url) title = nameFromUrl(url);
+    return { url, title: title.slice(0, 200) };
+  }
+
+  /** Pick the uploaded icon whose name appears in the URL or title (e.g. grafana_icon.svg ↔ grafana.example.com) */
+  function guessIcon(url, title, iconNames) {
+    const host = hostOf(url).toLowerCase();
+    const labels = host.split('.');
+    const hay = `${host} ${url} ${title}`.toLowerCase();
+    let best = '';
+    let bestLen = 0;
+    for (const name of iconNames) {
+      const base = name.toLowerCase().replace(/\.[^.]+$/, '').replace(/([-_](icon|logo|color|org))+$/, '');
+      const tokens = new Set([base, ...base.split(/[-_]/)]);
+      for (const tok of tokens) {
+        const hit = tok.length >= 4 ? hay.includes(tok) : tok.length === 3 && labels.includes(tok);
+        if (hit && tok.length > bestLen) { best = name; bestLen = tok.length; }
+      }
+    }
+    return best;
+  }
+
+  return { store, api, esc, el, svg, tile, isIconFile, iconUrl, initials, hostOf, toast, applyAppearance, cycleTheme, themePref, togglePerf, setFavicon, isLinkDrag, readDroppedLink, guessIcon, nameFromUrl };
 })();

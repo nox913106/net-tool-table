@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ..database import get_db
+from ..models import unsafe_url
 
 router = APIRouter(prefix="/api", tags=["settings"])
 
@@ -68,6 +69,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "open_links_in_new_tab": True,      # default for links without their own setting
     "enable_favorites": True,           # ☆ on cards (stored per browser)
     "enable_recent": True,              # recently opened (stored per browser)
+    "allow_drop_add": True,             # drag a web link onto the portal to add it
 }
 
 ENUMS = {
@@ -268,6 +270,8 @@ async def import_subtree(db, items: List[dict], parent_id: Optional[int], parent
         if not isinstance(item, dict) or not item.get("name"):
             continue
         node_type = item.get("node_type") or ("folder" if "children" in item else "link")
+        if node_type == "link" and unsafe_url(item.get("url")):
+            continue  # refuse javascript:/data: links
         if node_type not in ("folder", "link"):
             raise HTTPException(status_code=400, detail=f"無效的類型: {node_type}")
         n += 1
@@ -320,7 +324,7 @@ async def import_all(payload: ImportPayload):
                 incoming["home_sections"] = remapped
             await write_settings(db, incoming)
         for i, link in enumerate(data.get("quick_links", [])):
-            if not link.get("name") or not link.get("url"):
+            if not link.get("name") or not link.get("url") or unsafe_url(link["url"]):
                 continue
             await db.execute(
                 "INSERT INTO auth_links (region, name, url, sort_order, is_active) VALUES (?, ?, ?, ?, ?)",

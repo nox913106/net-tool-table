@@ -60,10 +60,61 @@
     $('open-portal').innerHTML = svg('external') + '<span>開啟入口</span>';
 
     await Promise.all([loadTree(), loadIcons()]);
+    setupLinkDrop();
     window.addEventListener('hashchange', route);
     window.addEventListener('beforeunload', e => { if (state.dirty) { e.preventDefault(); e.returnValue = ''; } });
     route();
   });
+
+  // ======================================================================
+  // Drag a link from the browser (address bar / page / bookmark) to add it
+  // ======================================================================
+  let linkDropHandled = false;
+
+  function setupLinkDrop() {
+    const hint = el('div', { class: 'drop-hint', role: 'status' });
+    document.body.append(hint);
+    const end = () => document.body.classList.remove('link-dragging');
+    document.addEventListener('dragenter', e => {
+      if (dragId !== null || !TT.isLinkDrag(e)) return;
+      hint.innerHTML = svg('link') + `<span>${esc({
+        content: '放到資料夾上＝新增到該資料夾；放在其他地方＝新增到目前選取的資料夾',
+        quick: '放開即可新增為快速連結',
+      }[currentPanel] || '請先切到「內容」或「快速連結」再拖放')}</span>`;
+      const zone = document.querySelector('.atree-root-drop');
+      if (zone) zone.textContent = '放到這裡：新增到最上層';
+      document.body.classList.add('link-dragging');
+    });
+    document.addEventListener('dragleave', e => { if (!e.relatedTarget) end(); });
+    document.addEventListener('dragend', end);
+    // allow dropping anywhere so the browser never navigates away to the dropped URL
+    document.addEventListener('dragover', e => { if (dragId === null && TT.isLinkDrag(e)) e.preventDefault(); });
+    document.addEventListener('drop', e => {
+      end();
+      if (dragId !== null || !TT.isLinkDrag(e)) return;
+      e.preventDefault();
+      if (!linkDropHandled) toast('請先切到「內容」或「快速連結」再拖放網址', true);
+      linkDropHandled = false;
+    });
+  }
+
+  /** Read the dropped link; returns null (and complains) when there is no usable URL */
+  function takeDroppedLink(e) {
+    e.preventDefault();
+    linkDropHandled = true;
+    document.body.classList.remove('link-dragging');
+    clearDrop();
+    const link = TT.readDroppedLink(e.dataTransfer);
+    if (!link) toast('沒有讀到可用的網址（只支援 http / https）', true);
+    return link;
+  }
+
+  function folderForNewItem() {
+    const sel = state.byId.get(state.selected);
+    if (!sel) return null;
+    if (isFolder(sel)) return sel.id;
+    return state.parent.get(sel.id)?.id ?? null;
+  }
 
   function paintBrand() {
     const s = state.settings;
@@ -331,9 +382,16 @@
     const left = el('section', { class: 'panel tree-panel' },
       el('div', { class: 'panel-tools' }, search, expandAll, collapseAll),
       treeBox, dropRoot,
-      el('p', { class: 'hint tree-hint', html: `${svg('grip')}<span>拖曳排序；拖到資料夾中間＝放進資料夾</span>` }));
+      el('p', { class: 'hint tree-hint', html: `${svg('grip')}<span>拖曳排序；拖到資料夾中間＝放進資料夾。也可以把瀏覽器的網址或連結直接拖進來新增。</span>` }));
     const right = el('section', { class: 'panel editor-panel', id: 'editor' });
-    $('stage-body').append(el('div', { class: 'content-grid' }, left, right));
+    const grid = el('div', { class: 'content-grid' }, left, right);
+    grid.addEventListener('dragover', e => { if (dragId === null && TT.isLinkDrag(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+    grid.addEventListener('drop', e => {
+      if (dragId !== null || !TT.isLinkDrag(e)) return;
+      const link = takeDroppedLink(e);
+      if (link) createNode(folderForNewItem(), link);
+    });
+    $('stage-body').append(grid);
     paintTree();
     paintEditor();
   }
@@ -419,6 +477,14 @@
       clearDrop();
     });
     row.addEventListener('dragover', e => {
+      if (dragId === null && TT.isLinkDrag(e)) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'copy';
+        const cls = isFolder(n) ? 'drop-inside' : 'drop-after';
+        if (!row.classList.contains(cls)) { clearDrop(); row.classList.add(cls); }
+        return;
+      }
       if (!canDrop(n)) return;
       e.preventDefault();
       const pos = dropPosition(e, row, n);
@@ -426,6 +492,13 @@
     });
     row.addEventListener('dragleave', e => { if (!row.contains(e.relatedTarget)) row.classList.remove('drop-before', 'drop-after', 'drop-inside'); });
     row.addEventListener('drop', e => {
+      if (dragId === null && TT.isLinkDrag(e)) {
+        e.stopPropagation();
+        const link = takeDroppedLink(e);
+        const parent = isFolder(n) ? n : state.parent.get(n.id);
+        if (link) createNode(parent ? parent.id : null, link);
+        return;
+      }
       e.preventDefault();
       if (!canDrop(n)) return;
       const pos = dropPosition(e, row, n);
@@ -436,9 +509,19 @@
   }
 
   function setupRootDrop(zone) {
-    zone.addEventListener('dragover', e => { if (dragId !== null) { e.preventDefault(); zone.classList.add('over'); } });
+    zone.addEventListener('dragenter', () => { if (dragId !== null) zone.textContent = '拖到這裡：移到最上層'; });
+    zone.addEventListener('dragover', e => {
+      if (dragId !== null || TT.isLinkDrag(e)) { e.preventDefault(); e.stopPropagation(); zone.classList.add('over'); }
+    });
     zone.addEventListener('dragleave', () => zone.classList.remove('over'));
-    zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('over'); if (dragId !== null) moveNode(dragId, null, 'root'); });
+    zone.addEventListener('drop', e => {
+      zone.classList.remove('over');
+      if (dragId !== null) { e.preventDefault(); moveNode(dragId, null, 'root'); return; }
+      if (!TT.isLinkDrag(e)) return;
+      e.stopPropagation();
+      const link = takeDroppedLink(e);
+      if (link) createNode(null, link);
+    });
   }
 
   async function moveNode(id, target, pos) {
@@ -603,21 +686,23 @@
     box.replaceChildren(head, form, el('div', { class: 'editor-actions' }, saveBtn, addChild, el('span', { class: 'spacer' }), del));
   }
 
-  function createNode(parentId) {
+  function createNode(parentId, prefill = null) {
     const draft = { node_type: 'link', name: '', url: '', icon: '', description: '' };
+    if (prefill) draft.icon = TT.guessIcon(prefill.url, prefill.title, state.icons.map(i => i.name));
     const parentName = parentId ? state.byId.get(parentId).name : '最上層';
     const name = el('input', { class: 'input', placeholder: '例如：Grafana', maxlength: '200' });
     const url = el('input', { class: 'input', type: 'url', placeholder: 'https://' });
     const urlField = field('網址', url);
     const type = segmented([['link', '連結', 'link'], ['folder', '資料夾', 'folder']], 'link', v => { draft.node_type = v; urlField.hidden = v !== 'link'; iconField.repaint(); });
     const desc = el('input', { class: 'input', placeholder: '選填' });
-    const iconField = iconButton('', () => name.value, v => { draft.icon = v; }, { folder: () => draft.node_type === 'folder' });
+    const iconField = iconButton(draft.icon, () => name.value, v => { draft.icon = v; }, { folder: () => draft.node_type === 'folder' });
     name.addEventListener('input', () => iconField.repaint());
+    if (prefill) { name.value = prefill.title; url.value = prefill.url; iconField.repaint(); }
 
     const ok = el('button', { class: 'btn btn-primary', type: 'button', html: svg('plus') + '建立' });
     const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: '取消' });
     const close = modal({
-      title: `新增到「${parentName}」`,
+      title: prefill ? `把網址新增到「${parentName}」` : `新增到「${parentName}」`,
       body: el('div', { class: 'stack' }, el('div', { class: 'field' }, el('span', { class: 'field-label', text: '類型' }), type), field('名稱', name), urlField, field('說明', desc), el('div', { class: 'field' }, el('span', { class: 'field-label', text: '圖示' }), iconField)),
       actions: [cancel, ok],
     });
@@ -788,6 +873,13 @@
     $('stage-actions').append(add);
     const box = el('div', { class: 'quick-admin' });
     $('stage-body').append(box);
+    const body = $('stage-body');
+    body.addEventListener('dragover', e => { if (TT.isLinkDrag(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+    body.addEventListener('drop', e => {
+      if (!TT.isLinkDrag(e)) return;
+      const link = takeDroppedLink(e);
+      if (link) editQuick(null, link);
+    });
 
     const paint = async () => {
       state.links = await api('/api/auth-links/all');
@@ -814,13 +906,13 @@
       if (!state.links.length) box.append(el('div', { class: 'empty' }, el('div', { class: 'empty-icon', html: svg('zap') }), el('h3', { text: '還沒有快速連結' }), el('p', { text: '常用、需要一鍵直達的網址（例如上網驗證、VPN）適合放這裡。' })));
     };
 
-    function editQuick(l) {
+    function editQuick(l, prefill = null) {
       const label = state.settings.quick_links_group_label || '群組';
       const groups = [...new Set(state.links.map(x => x.region).filter(Boolean))];
       const dl = el('datalist', { id: 'ql-groups' }, groups.map(g => el('option', { value: g })));
       const region = el('input', { class: 'input', list: 'ql-groups', value: l?.region || '', placeholder: '選填' });
-      const name = el('input', { class: 'input', value: l?.name || '' });
-      const url = el('input', { class: 'input', type: 'url', value: l?.url || '', placeholder: 'https://' });
+      const name = el('input', { class: 'input', value: l?.name || prefill?.title || '' });
+      const url = el('input', { class: 'input', type: 'url', value: l?.url || prefill?.url || '', placeholder: 'https://' });
       const sort = el('input', { class: 'input', type: 'number', value: l?.sort_order ?? 0 });
       let active = l ? !!l.is_active : true;
       const ok = el('button', { class: 'btn btn-primary', type: 'button', text: '儲存' });
@@ -950,6 +1042,7 @@
       { key: 'open_links_in_new_tab', label: '連結預設在新分頁開啟', type: 'switch' },
       { key: 'enable_favorites', label: '啟用「我的最愛」', type: 'switch' },
       { key: 'enable_recent', label: '啟用「最近使用」', type: 'switch' },
+      { key: 'allow_drop_add', label: '允許在入口直接拖曳網址新增', type: 'switch', hint: '從瀏覽器網址列、網頁連結或書籤拖到入口頁面' },
       { key: 'quick_links_group_label', label: '快速連結的「群組」名稱', type: 'text', placeholder: '例如：區域、部門' },
     ] },
   ];

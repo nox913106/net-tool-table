@@ -139,7 +139,7 @@
   font-size: 13px;
   color: var(--text-3);
 }
-body.is-dragging .atree-root-drop { display: block; }
+body.is-dragging .atree-root-drop, body.link-dragging .atree-root-drop { display: block; }
 .atree-root-drop.over { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
 
 /* editor */
@@ -345,3 +345,29 @@ body.is-dragging .atree-root-drop { display: block; }
   .section-opts { padding-left: 0; }
   .quick-admin { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ------------------------------------------------- drag a link to add --- */
+.drop-hint {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(640px, 92vw);
+  padding: 12px 18px;
+  border-radius: 14px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 16px 40px -12px var(--accent);
+  transform: translate(-50%, -160%);
+  transition: transform var(--t) var(--ease);
+  pointer-events: none;
+}
+.drop-hint svg { width: 18px; height: 18px; flex: none; }
+body.link-dragging .drop-hint { transform: translate(-50%, 0); }
+body.link-dragging .content-grid .panel,
+body.link-dragging .quick-admin { outline: 2px dashed var(--accent-line); outline-offset: 4px; }

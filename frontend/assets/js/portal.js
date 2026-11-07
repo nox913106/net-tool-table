@@ -55,6 +55,7 @@
     if (s.show_clock !== false) TTClock.mount($('clock'), s);
     TTClock.mountNetInfo($('netinfo'), s);
     TTClock.secretAdmin($('clock'), $('brand-mark'));
+    if (s.allow_drop_add !== false) setupLinkDrop();
 
     window.addEventListener('hashchange', route);
     route();
@@ -633,6 +634,137 @@
     }));
     frag.append(list.length ? cardGrid(list, { showPath: true }) : emptyState('🕘', '還沒有使用紀錄', '開啟過的連結會出現在這裡。'));
     $('view').replaceChildren(frag);
+  }
+
+  // ======================================================================
+  // Drag a link from the browser onto the page to add it
+  // ======================================================================
+  const currentFolder = () => {
+    const m = (location.hash || '').match(/^#\/f\/(\d+)/);
+    const n = m && state.byId.get(Number(m[1]));
+    return n && isFolder(n) ? n : null;
+  };
+  const defaultDropFolder = () => {
+    const cur = currentFolder();
+    if (cur) return cur.id;
+    const last = store.get('drop-folder');
+    return state.byId.has(last) ? last : null;
+  };
+
+  function setupLinkDrop() {
+    let internal = false;   // dragging one of our own cards / links
+    document.addEventListener('dragstart', () => { internal = true; });
+    document.addEventListener('dragend', () => { internal = false; });
+
+    const title = el('strong', { class: 'drop-title' });
+    document.body.append(el('div', { class: 'drop-overlay', 'aria-hidden': 'true' },
+      el('div', { class: 'drop-card' },
+        el('span', { class: 'drop-icon', html: svg('plus') }),
+        title,
+        el('span', { class: 'drop-sub', text: '放開後可以確認名稱、圖示與資料夾' }))));
+    const show = on => document.body.classList.toggle('link-dragging', on);
+
+    document.addEventListener('dragenter', e => {
+      if (internal || !TT.isLinkDrag(e)) return;
+      const f = state.byId.get(defaultDropFolder());
+      title.textContent = f ? `放開以新增到「${f.name}」` : '放開以新增連結';
+      show(true);
+    });
+    document.addEventListener('dragover', e => {
+      if (internal || !TT.isLinkDrag(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    });
+    document.addEventListener('dragleave', e => { if (!e.relatedTarget) show(false); });
+    document.addEventListener('drop', e => {
+      show(false);
+      if (internal || !TT.isLinkDrag(e)) return;
+      e.preventDefault();
+      const link = TT.readDroppedLink(e.dataTransfer);
+      if (!link) { TT.toast('沒有讀到可用的網址（只支援 http / https）', true); return; }
+      addLinkDialog(link);
+    });
+  }
+
+  async function addLinkDialog(link) {
+    let icons = [];
+    try { icons = (await api('/api/icons')).map(i => i.name); } catch { /* no icons */ }
+    const icon = TT.guessIcon(link.url, link.title, icons);
+
+    const name = el('input', { class: 'input', value: link.title, maxlength: '200' });
+    const url = el('input', { class: 'input', type: 'url', value: link.url });
+    const folder = el('select', { class: 'select' }, el('option', { value: '', text: '（最上層）' }));
+    const walk = (nodes, depth) => nodes.forEach(n => {
+      if (!isFolder(n)) return;
+      folder.append(el('option', { value: n.id, text: '　'.repeat(depth) + n.name }));
+      walk(n.children || [], depth + 1);
+    });
+    walk(state.tree, 0);
+    folder.value = String(defaultDropFolder() ?? '');
+
+    const preview = el('div', { class: 'drop-preview' });
+    const paint = () => {
+      const parent = state.byId.get(Number(folder.value));
+      preview.replaceChildren(
+        tile({ icon, name: name.value || link.title, color: parent ? colorOf(parent) : null, size: 46 }),
+        el('div', { class: 'drop-preview-text' },
+          el('strong', { text: name.value || '（未命名）' }),
+          el('span', { text: hostOf(url.value) || url.value })));
+    };
+    name.addEventListener('input', paint);
+    url.addEventListener('input', paint);
+    folder.addEventListener('change', paint);
+    paint();
+
+    const label = (text, ctl) => el('label', { class: 'field' }, el('span', { class: 'field-label', text }), ctl);
+    const ok = el('button', { class: 'btn btn-primary', type: 'button', html: svg('plus') + '新增' });
+    const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: '取消' });
+    const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': '關閉', html: svg('x') });
+    const wrap = el('div', { class: 'modal' },
+      el('div', { class: 'modal-card', role: 'dialog', 'aria-modal': 'true', 'aria-label': '新增連結' },
+        el('div', { class: 'modal-head' }, el('h3', { text: '新增連結' }), closeBtn),
+        el('div', { class: 'modal-body' }, preview, label('名稱', name), label('網址', url), label('放到資料夾', folder),
+          el('p', { class: 'hint', text: '圖示、說明、顏色可以之後到管理後台修改。' })),
+        el('div', { class: 'modal-foot' }, cancel, ok)));
+    const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey); document.body.classList.remove('modal-open'); };
+    const onKey = e => { if (e.key === 'Escape') close(); };
+    wrap.addEventListener('mousedown', e => { if (e.target === wrap) close(); });
+    closeBtn.addEventListener('click', close);
+    cancel.addEventListener('click', close);
+    document.addEventListener('keydown', onKey);
+    document.body.append(wrap);
+    document.body.classList.add('modal-open');
+    setTimeout(() => { name.focus(); name.select(); }, 30);
+
+    const submit = async () => {
+      if (!name.value.trim()) { TT.toast('請輸入名稱', true); return; }
+      if (!/^https?:\/\//i.test(url.value.trim())) { TT.toast('請輸入完整網址（例如 https://…）', true); return; }
+      ok.disabled = true;
+      try {
+        const parentId = folder.value ? Number(folder.value) : null;
+        const created = await api('/api/nodes', {
+          method: 'POST',
+          body: { parent_id: parentId, name: name.value.trim(), node_type: 'link', url: url.value.trim(), icon: icon || null },
+        });
+        store.set('drop-folder', parentId);
+        close();
+        indexTree(await api('/api/nodes/tree'));
+        buildTree();
+        buildFilters();
+        const target = parentId ? `#/f/${parentId}` : '#/';
+        if (location.hash === target || (!parentId && !location.hash)) route(); else location.hash = target;
+        setTimeout(() => {
+          const card = document.querySelector(`.card[data-node="${created.id}"]`);
+          if (card) { card.scrollIntoView({ block: 'center', behavior: 'smooth' }); card.classList.add('just-added'); }
+        }, 120);
+        TT.toast(`已新增「${created.name}」`);
+      } catch (e) {
+        TT.toast(e.message, true);
+        ok.disabled = false;
+      }
+    };
+    ok.addEventListener('click', submit);
+    [name, url].forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }));
   }
 
   // ======================================================================

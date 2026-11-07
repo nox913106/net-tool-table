@@ -1,9 +1,30 @@
 """
 Pydantic Models for Tool Table API
 """
-from pydantic import BaseModel, Field
-from typing import Optional, List
+import re
 from datetime import datetime
+from typing import List, Optional
+
+from pydantic import BaseModel, Field, field_validator
+
+# Schemes that would run code in the browser when the link is clicked
+_BLOCKED_SCHEMES = ("javascript:", "data:", "vbscript:")
+
+
+def unsafe_url(url: Optional[str]) -> bool:
+    if not url:
+        return False
+    # browsers ignore whitespace / control characters inside the scheme ("java\tscript:")
+    compact = re.sub(r"[\x00-\x20]", "", url).lower()
+    return compact.startswith(_BLOCKED_SCHEMES)
+
+
+def check_url(url: Optional[str]) -> Optional[str]:
+    if url is None:
+        return None
+    if unsafe_url(url):
+        raise ValueError("不允許的網址類型（javascript:、data:、vbscript:）")
+    return url.strip()
 
 # ============ Node Models ============
 
@@ -18,6 +39,9 @@ class NodeBase(BaseModel):
     new_tab: bool = True
     sort_order: int = 0
     is_active: bool = True
+
+    _check_url = field_validator("url")(lambda cls, v: check_url(v))
+
 
 class NodeCreate(NodeBase):
     """Model for creating a new node"""
@@ -35,6 +59,9 @@ class NodeUpdate(BaseModel):
     new_tab: Optional[bool] = None
     sort_order: Optional[int] = None
     is_active: Optional[bool] = None
+
+    _check_url = field_validator("url")(lambda cls, v: check_url(v))
+
 
 class NodeMove(BaseModel):
     """Model for moving a node"""
@@ -69,6 +96,9 @@ class AuthLinkBase(BaseModel):
     sort_order: int = 0
     is_active: bool = True
 
+    _check_url = field_validator("url")(lambda cls, v: check_url(v))
+
+
 class AuthLinkCreate(AuthLinkBase):
     """Model for creating auth link"""
     pass
@@ -80,6 +110,9 @@ class AuthLinkUpdate(BaseModel):
     url: Optional[str] = None
     sort_order: Optional[int] = None
     is_active: Optional[bool] = None
+
+    _check_url = field_validator("url")(lambda cls, v: check_url(v))
+
 
 class AuthLinkResponse(AuthLinkBase):
     """Response model for auth link"""
