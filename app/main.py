@@ -43,9 +43,14 @@ app.include_router(local.router)
 
 @app.middleware("http")
 async def harden_icons(request: Request, call_next):
-    """Uploaded / fetched icons may be SVG: never let one run script if opened directly."""
+    """Uploaded / fetched icons may be SVG: never let one run script if opened directly.
+    Pages and scripts are always revalidated, so after an upgrade the browser never mixes
+    an old cached page with new scripts (a 304 makes this cheap)."""
     response = await call_next(request)
-    if request.url.path.startswith("/resource/icon/"):
+    path = request.url.path
+    if path in ("/", "/admin") or path.startswith("/assets/"):
+        response.headers.setdefault("Cache-Control", "no-cache")
+    if path.startswith("/resource/icon/"):
         response.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
         response.headers["X-Content-Type-Options"] = "nosniff"
     return response

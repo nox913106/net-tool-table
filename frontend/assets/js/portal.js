@@ -130,9 +130,11 @@
     paintPerf();
 
     const installBtn = $('install-btn');
-    installBtn.innerHTML = svg('download');
-    TT.onInstallable(ok => { installBtn.hidden = !ok; });
-    installBtn.addEventListener('click', () => TT.installApp());
+    if (installBtn) {
+      installBtn.innerHTML = svg('download');
+      TT.onInstallable(ok => { installBtn.hidden = !ok; });
+      installBtn.addEventListener('click', () => TT.installApp());
+    }
 
     $('menu-btn').addEventListener('click', () => document.body.classList.toggle('nav-open'));
     $('scrim').addEventListener('click', () => document.body.classList.remove('nav-open'));
