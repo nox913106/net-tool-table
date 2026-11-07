@@ -58,7 +58,7 @@ jobs:
             $B = 'http://127.0.0.1:18080'
             $H = @{ 'X-Tool-Table' = '1' }
             $notepad = "$env:SystemRoot\System32\notepad.exe"
-            $lnkPath = Join-Path $env:RUNNER_TEMP '記事本.lnk'
+            $lnkPath = Join-Path $env:RUNNER_TEMP 'Notepad Test.lnk'
             $ws = New-Object -ComObject WScript.Shell
             $sc = $ws.CreateShortcut($lnkPath)
             $sc.TargetPath = $notepad
