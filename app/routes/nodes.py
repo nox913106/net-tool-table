@@ -2,10 +2,11 @@
 Nodes API Routes
 CRUD operations for hierarchical nodes (categories and links)
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import List, Optional
 import aiosqlite
 
+from .. import localapps as la
 from ..database import get_db
 from ..models import (
     NodeCreate, NodeUpdate, NodeMove, NodeResponse, 
@@ -168,13 +169,17 @@ async def get_by_code(code: str):
         await db.close()
 
 @router.post("", response_model=NodeResponse)
-async def create_node(node: NodeCreate):
+async def create_node(node: NodeCreate, request: Request):
     """Create a new node"""
     db = await get_db()
     try:
         # Validate link type requires URL
         if node.node_type == 'link' and not node.url:
             raise HTTPException(status_code=400, detail="Link type requires URL")
+        if node.url:
+            node.url = la.normalize_target(node.url)
+            if la.is_file_url(node.url):
+                la.require_local(request)   # only the PC running the portable edition may add programs
         if node.parent_id is not None:
             cursor = await db.execute("SELECT node_type FROM nodes WHERE id = ?", (node.parent_id,))
             parent = await cursor.fetchone()
@@ -198,10 +203,12 @@ async def create_node(node: NodeCreate):
                 
                 cursor = await db.execute(
                     """INSERT INTO nodes (parent_id, code, name, node_type, icon, url,
-                                          description, color, new_tab, sort_order, is_active)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                          description, color, launch_args, launch_cwd,
+                                          new_tab, sort_order, is_active)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (node.parent_id, code, node.name, node.node_type,
                      node.icon, node.url, node.description, node.color or None,
+                     node.launch_args or None, node.launch_cwd or None,
                      node.new_tab, node.sort_order, node.is_active)
                 )
                 await db.commit()
@@ -237,7 +244,7 @@ async def reorder_nodes(reorder: NodeReorder):
         await db.close()
 
 @router.put("/{node_id}", response_model=NodeResponse)
-async def update_node(node_id: int, node: NodeUpdate):
+async def update_node(node_id: int, node: NodeUpdate, request: Request):
     """Update a node"""
     db = await get_db()
     try:
@@ -258,6 +265,12 @@ async def update_node(node_id: int, node: NodeUpdate):
                     status_code=400,
                     detail="無法將含有子節點的資料夾改為連結類型"
                 )
+
+        if node.url:
+            node.url = la.normalize_target(node.url)
+        # Changing a program link (or turning a link into one) is local-only
+        if la.is_file_url(node.url) or (la.is_file_url(existing["url"]) and node.model_fields_set & {"url", "launch_args", "launch_cwd"}):
+            la.require_local(request)
 
         # Build update query
         updates = []

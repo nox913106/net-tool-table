@@ -71,15 +71,20 @@
   // ======================================================================
   let linkDropHandled = false;
 
-  function setupLinkDrop() {
+  let local = { enabled: false, allowed: false };
+  const isAddDrag = e => dragId === null && (TT.isLinkDrag(e) || (local.allowed && TT.isFileDrag(e)));
+
+  async function setupLinkDrop() {
+    local = await TT.localStatus();
     const hint = el('div', { class: 'drop-hint', role: 'status' });
     document.body.append(hint);
     const end = () => document.body.classList.remove('link-dragging');
     document.addEventListener('dragenter', e => {
-      if (dragId !== null || !TT.isLinkDrag(e)) return;
-      hint.innerHTML = svg('link') + `<span>${esc({
+      if (!isAddDrag(e)) return;
+      const files = TT.isFileDrag(e);
+      hint.innerHTML = svg(files ? 'app' : 'link') + `<span>${esc({
         content: '放到資料夾上＝新增到該資料夾；放在其他地方＝新增到目前選取的資料夾',
-        quick: '放開即可新增為快速連結',
+        quick: files ? '快速連結只能放網址，程式請拖到「內容」' : '放開即可新增為快速連結',
       }[currentPanel] || '請先切到「內容」或「快速連結」再拖放')}</span>`;
       const zone = document.querySelector('.atree-root-drop');
       if (zone) zone.textContent = '放到這裡：新增到最上層';
@@ -87,13 +92,18 @@
     });
     document.addEventListener('dragleave', e => { if (!e.relatedTarget) end(); });
     document.addEventListener('dragend', end);
-    // allow dropping anywhere so the browser never navigates away to the dropped URL
-    document.addEventListener('dragover', e => { if (dragId === null && TT.isLinkDrag(e)) e.preventDefault(); });
+    // allow dropping anywhere so the browser never navigates away to the dropped URL / file
+    document.addEventListener('dragover', e => { if (dragId === null && (TT.isLinkDrag(e) || TT.isFileDrag(e))) e.preventDefault(); });
     document.addEventListener('drop', e => {
       end();
-      if (dragId !== null || !TT.isLinkDrag(e)) return;
+      if (dragId !== null) return;
+      const files = TT.isFileDrag(e);
+      if (!files && !TT.isLinkDrag(e)) return;
       e.preventDefault();
-      if (!linkDropHandled) toast('請先切到「內容」或「快速連結」再拖放網址', true);
+      if (!linkDropHandled) {
+        if (files && !local.allowed) toast(local.enabled ? '拖曳程式只能在執行單機版的那台電腦上使用' : '拖曳程式需要 Windows 單機版', true);
+        else toast('請先切到「內容」或「快速連結」再拖放', true);
+      }
       linkDropHandled = false;
     });
   }
@@ -107,6 +117,39 @@
     const link = TT.readDroppedLink(e.dataTransfer);
     if (!link) toast('沒有讀到可用的網址（只支援 http / https）', true);
     return link;
+  }
+
+  /** Handle a drop (link or local file) → open the create dialog in `parentId` */
+  async function dropToCreate(e, parentId) {
+    if (TT.isFileDrag(e)) {
+      e.preventDefault();
+      linkDropHandled = true;
+      document.body.classList.remove('link-dragging');
+      clearDrop();
+      if (!local.allowed) { toast(local.enabled ? '拖曳程式只能在執行單機版的那台電腦上使用' : '拖曳程式需要 Windows 單機版', true); return; }
+      const file = e.dataTransfer.files[0];
+      if (!file) return;
+      try { createNode(parentId, await TT.inspectDroppedFile(file)); } catch (err) { toast(err.message, true); }
+      return;
+    }
+    const link = takeDroppedLink(e);
+    if (link) createNode(parentId, { kind: 'url', name: link.title, url: link.url });
+  }
+
+  /** Automatic icon: program's own icon, or the website's icon */
+  async function autoIcon(target) {
+    const v = (target || '').trim();
+    if (TT.looksLikePath(v)) {
+      const r = await api('/api/local/inspect', { method: 'POST', body: { path: v } });
+      if (r.icon) return r.icon;
+      throw new Error('這個程式沒有可用的圖示');
+    }
+    if (/^https?:\/\//i.test(v)) {
+      const icon = await TT.fetchSiteIcon(v);
+      if (icon) return icon;
+      throw new Error('這個網站沒有可用的圖示，或伺服器連不到它');
+    }
+    throw new Error('請先填寫網址或程式路徑');
   }
 
   function folderForNewItem() {
@@ -345,14 +388,24 @@
           el('span', { class: 'hint', text: v ? '' : (opts.folder?.() ? '顯示資料夾圖示' : '顯示名稱縮寫') })),
         btn);
     };
-    const btn = el('button', { class: 'btn btn-sm', type: 'button', text: '更換…' });
-    btn.addEventListener('click', async () => {
+    const pick = el('button', { class: 'btn btn-sm', type: 'button', text: '更換…' });
+    pick.addEventListener('click', async () => {
       const v = await pickIcon(value);
       if (v === undefined) return;
-      value = v;
-      paint(v);
-      onChange(v);
+      wrap.set(v);
     });
+    const btn = el('div', { class: 'icon-field-tools' }, pick);
+    if (opts.auto) {
+      const auto = el('button', { class: 'btn btn-sm', type: 'button', title: '程式：取用程式本身的圖示；網址：抓取網站圖示', html: svg('wand') + '自動' });
+      auto.addEventListener('click', async () => {
+        auto.disabled = true;
+        try { wrap.set(await opts.auto()); toast('已取得圖示'); await loadIcons(); }
+        catch (e) { toast(e.message, true); }
+        finally { auto.disabled = false; }
+      });
+      btn.prepend(auto);
+    }
+    wrap.set = v => { value = v; paint(v); onChange(v); };
     paint(value);
     wrap.repaint = () => paint(value);
     return wrap;
@@ -385,12 +438,8 @@
       el('p', { class: 'hint tree-hint', html: `${svg('grip')}<span>拖曳排序；拖到資料夾中間＝放進資料夾。也可以把瀏覽器的網址或連結直接拖進來新增。</span>` }));
     const right = el('section', { class: 'panel editor-panel', id: 'editor' });
     const grid = el('div', { class: 'content-grid' }, left, right);
-    grid.addEventListener('dragover', e => { if (dragId === null && TT.isLinkDrag(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
-    grid.addEventListener('drop', e => {
-      if (dragId !== null || !TT.isLinkDrag(e)) return;
-      const link = takeDroppedLink(e);
-      if (link) createNode(folderForNewItem(), link);
-    });
+    grid.addEventListener('dragover', e => { if (isAddDrag(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+    grid.addEventListener('drop', e => { if (isAddDrag(e)) dropToCreate(e, folderForNewItem()); });
     $('stage-body').append(grid);
     paintTree();
     paintEditor();
@@ -431,7 +480,8 @@
           tile({ icon: n.icon, name: n.name, color: n.color || null, folder, size: 26 }),
           el('span', { class: 'aname', text: n.name }),
           n.is_active ? null : el('span', { class: 'atag', title: '已停用：前台不會顯示', html: svg('eye-off') }),
-          folder ? el('span', { class: 'acount', text: kids.length || '' }) : el('span', { class: 'akind', html: svg('link') }),
+          folder ? el('span', { class: 'acount', text: kids.length || '' })
+            : el('span', { class: 'akind' + (TT.isProgram(n.url) ? ' is-program' : ''), title: TT.isProgram(n.url) ? '本機程式' : '', html: svg(TT.isProgram(n.url) ? 'play' : 'link') }),
         ].filter(Boolean));
         row.addEventListener('click', () => select(n.id));
         row.addEventListener('keydown', e => { if (e.key === 'Enter') select(n.id); });
@@ -477,7 +527,7 @@
       clearDrop();
     });
     row.addEventListener('dragover', e => {
-      if (dragId === null && TT.isLinkDrag(e)) {
+      if (isAddDrag(e)) {
         e.preventDefault();
         e.stopPropagation();
         e.dataTransfer.dropEffect = 'copy';
@@ -492,11 +542,10 @@
     });
     row.addEventListener('dragleave', e => { if (!row.contains(e.relatedTarget)) row.classList.remove('drop-before', 'drop-after', 'drop-inside'); });
     row.addEventListener('drop', e => {
-      if (dragId === null && TT.isLinkDrag(e)) {
+      if (isAddDrag(e)) {
         e.stopPropagation();
-        const link = takeDroppedLink(e);
         const parent = isFolder(n) ? n : state.parent.get(n.id);
-        if (link) createNode(parent ? parent.id : null, link);
+        dropToCreate(e, parent ? parent.id : null);
         return;
       }
       e.preventDefault();
@@ -511,16 +560,15 @@
   function setupRootDrop(zone) {
     zone.addEventListener('dragenter', () => { if (dragId !== null) zone.textContent = '拖到這裡：移到最上層'; });
     zone.addEventListener('dragover', e => {
-      if (dragId !== null || TT.isLinkDrag(e)) { e.preventDefault(); e.stopPropagation(); zone.classList.add('over'); }
+      if (dragId !== null || isAddDrag(e)) { e.preventDefault(); e.stopPropagation(); zone.classList.add('over'); }
     });
     zone.addEventListener('dragleave', () => zone.classList.remove('over'));
     zone.addEventListener('drop', e => {
       zone.classList.remove('over');
       if (dragId !== null) { e.preventDefault(); moveNode(dragId, null, 'root'); return; }
-      if (!TT.isLinkDrag(e)) return;
+      if (!isAddDrag(e)) return;
       e.stopPropagation();
-      const link = takeDroppedLink(e);
-      if (link) createNode(null, link);
+      dropToCreate(e, null);
     });
   }
 
@@ -572,7 +620,7 @@
       return;
     }
 
-    const draft = { name: n.name, node_type: n.node_type, url: n.url || '', description: n.description || '', icon: n.icon || '', color: n.color || '', new_tab: n.new_tab !== false && n.new_tab !== 0, is_active: !!n.is_active, parent: state.parent.get(n.id)?.id ?? '' };
+    const draft = { name: n.name, node_type: n.node_type, url: TT.programPath(n.url || ''), description: n.description || '', icon: n.icon || '', color: n.color || '', new_tab: n.new_tab !== false && n.new_tab !== 0, is_active: !!n.is_active, parent: state.parent.get(n.id)?.id ?? '', launch_args: n.launch_args || '', launch_cwd: n.launch_cwd || '' };
     const markDirty = () => { state.dirty = true; saveBtn.disabled = false; };
     const folderNow = () => draft.node_type === 'folder';
 
@@ -597,18 +645,31 @@
       draft.node_type = v; markDirty(); urlRow.hidden = v !== 'link'; paintPreview(); iconField.repaint();
     });
 
-    const url = el('input', { class: 'input', type: 'url', value: draft.url, placeholder: 'https://' });
-    url.addEventListener('input', () => { draft.url = url.value; markDirty(); });
+    const url = el('input', { class: 'input', type: 'text', value: draft.url, placeholder: 'https://…　或　C:\\Program Files\\…\\程式.exe', spellcheck: 'false' });
     const newTab = switchCtl(draft.new_tab, '在新分頁開啟', v => { draft.new_tab = v; markDirty(); });
-    const urlRow = el('div', { class: 'field-group' }, field('網址', url), newTab);
+    const argsIn = el('input', { class: 'input mono', value: draft.launch_args, placeholder: '選填' });
+    argsIn.addEventListener('input', () => { draft.launch_args = argsIn.value; markDirty(); });
+    const cwdIn = el('input', { class: 'input mono', value: draft.launch_cwd, placeholder: '預設為程式所在資料夾' });
+    cwdIn.addEventListener('input', () => { draft.launch_cwd = cwdIn.value; markDirty(); });
+    const programRow = el('div', { class: 'form-row' }, field('啟動參數', argsIn), field('工作資料夾', cwdIn));
+    const syncKind = () => {
+      const prog = TT.looksLikePath(url.value);
+      programRow.hidden = !prog;
+      newTab.hidden = prog;
+      url.classList.toggle('mono', prog);
+    };
+    url.addEventListener('input', () => { draft.url = url.value; markDirty(); syncKind(); });
+    const urlRow = el('div', { class: 'field-group' },
+      field('網址或程式路徑', url, local.allowed ? '程式只能在執行單機版的這台電腦上啟動' : ''), newTab, programRow);
     urlRow.hidden = draft.node_type !== 'link';
+    syncKind();
 
     const desc = el('textarea', { class: 'textarea', rows: '2', placeholder: '顯示在卡片上的簡短說明（選填）' });
     desc.value = draft.description;
     desc.addEventListener('input', () => { draft.description = desc.value; markDirty(); });
 
     const iconField = iconButton(draft.icon, () => draft.name, v => { draft.icon = v; markDirty(); paintPreview(); },
-      { color: () => draft.color || null, folder: folderNow });
+      { color: () => draft.color || null, folder: folderNow, auto: draft.node_type === 'link' ? () => autoIcon(url.value) : null });
 
     const colors = colorPicker(draft.color, v => { draft.color = v; markDirty(); paintPreview(); iconField.repaint(); });
 
@@ -649,7 +710,7 @@
 
     async function save() {
       if (!draft.name.trim()) return toast('請輸入名稱', true);
-      if (draft.node_type === 'link' && !/^[a-z][a-z0-9+.-]*:/i.test(draft.url.trim())) return toast('請輸入完整網址（例如 https://…）', true);
+      if (draft.node_type === 'link' && !/^[a-z][a-z0-9+.-]*:/i.test(draft.url.trim()) && !TT.looksLikePath(draft.url)) return toast('請輸入完整網址（https://…）或程式路徑（C:\\…）', true);
       saveBtn.disabled = true;
       try {
         const newParent = draft.parent === '' ? null : Number(draft.parent);
@@ -664,6 +725,8 @@
             description: draft.description.trim() || null,
             icon: draft.icon || null, color: draft.color || '',
             new_tab: draft.new_tab, is_active: draft.is_active,
+            ...(draft.node_type === 'link' && TT.looksLikePath(draft.url)
+              ? { launch_args: draft.launch_args.trim() || null, launch_cwd: draft.launch_cwd.trim() || null } : {}),
           },
         });
         state.dirty = false;
@@ -686,41 +749,77 @@
     box.replaceChildren(head, form, el('div', { class: 'editor-actions' }, saveBtn, addChild, el('span', { class: 'spacer' }), del));
   }
 
+  /**
+   * Create dialog. prefill (from a drop): { kind: 'url'|'app', name, url, icon?, args?, cwd?, found? }
+   */
   function createNode(parentId, prefill = null) {
-    const draft = { node_type: 'link', name: '', url: '', icon: '', description: '' };
-    if (prefill) draft.icon = TT.guessIcon(prefill.url, prefill.title, state.icons.map(i => i.name));
+    const app = prefill?.kind === 'app';
+    const draft = { node_type: 'link', icon: prefill?.icon || '' };
     const parentName = parentId ? state.byId.get(parentId).name : '最上層';
-    const name = el('input', { class: 'input', placeholder: '例如：Grafana', maxlength: '200' });
-    const url = el('input', { class: 'input', type: 'url', placeholder: 'https://' });
-    const urlField = field('網址', url);
-    const type = segmented([['link', '連結', 'link'], ['folder', '資料夾', 'folder']], 'link', v => { draft.node_type = v; urlField.hidden = v !== 'link'; iconField.repaint(); });
+    const name = el('input', { class: 'input', placeholder: '例如：Grafana', maxlength: '200', value: prefill?.name || '' });
+    const url = el('input', {
+      class: 'input' + (app ? ' mono' : ''), type: 'text', spellcheck: 'false',
+      placeholder: 'https://…　或　C:\\Program Files\\…\\程式.exe',
+      value: prefill ? (app ? (prefill.found === false ? '' : TT.programPath(prefill.url)) : prefill.url) : '',
+    });
+    const args = el('input', { class: 'input mono', placeholder: '選填', value: prefill?.args || '' });
+    const argsField = field('啟動參數', args);
+    const urlField = el('div', { class: 'field-group' },
+      field('網址或程式路徑', url, app && prefill.found === false
+        ? `在電腦上找不到「${prefill.name}」：請在檔案總管對它按 Shift + 右鍵 →「複製為路徑」，貼到這裡` : ''),
+      argsField);
+    const syncKind = () => { argsField.hidden = !TT.looksLikePath(url.value); url.classList.toggle('mono', !argsField.hidden); };
+    url.addEventListener('input', syncKind);
+    syncKind();
+    const type = segmented([['link', '連結 / 程式', 'link'], ['folder', '資料夾', 'folder']], 'link', v => { draft.node_type = v; urlField.hidden = v !== 'link'; iconField.repaint(); });
     const desc = el('input', { class: 'input', placeholder: '選填' });
-    const iconField = iconButton(draft.icon, () => name.value, v => { draft.icon = v; }, { folder: () => draft.node_type === 'folder' });
+    const iconField = iconButton(draft.icon, () => name.value, v => { draft.icon = v; },
+      { folder: () => draft.node_type === 'folder', auto: () => autoIcon(url.value) });
     name.addEventListener('input', () => iconField.repaint());
-    if (prefill) { name.value = prefill.title; url.value = prefill.url; iconField.repaint(); }
+
+    // dropped web link: icon from the library, else the site's own icon
+    if (prefill && !app && !draft.icon) {
+      const guess = TT.guessIcon(prefill.url, prefill.name, state.icons.map(i => i.name));
+      if (guess) iconField.set(guess);
+      else TT.fetchSiteIcon(prefill.url).then(icon => { if (icon && !draft.icon) { iconField.set(icon); loadIcons(); } });
+    }
+    // program dropped without a known path: fill name/icon once a path is pasted
+    url.addEventListener('change', async () => {
+      if (!TT.looksLikePath(url.value) || draft.icon) return;
+      try {
+        const r = await api('/api/local/inspect', { method: 'POST', body: { path: url.value.trim() } });
+        if (r.icon) iconField.set(r.icon);
+        if (!name.value.trim() && r.name) { name.value = r.name; iconField.repaint(); }
+      } catch (e) { toast(e.message, true); }
+    });
 
     const ok = el('button', { class: 'btn btn-primary', type: 'button', html: svg('plus') + '建立' });
     const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: '取消' });
+    const what = app ? '程式' : prefill ? '網址' : '';
     const close = modal({
-      title: prefill ? `把網址新增到「${parentName}」` : `新增到「${parentName}」`,
+      title: what ? `把${what}新增到「${parentName}」` : `新增到「${parentName}」`,
       body: el('div', { class: 'stack' }, el('div', { class: 'field' }, el('span', { class: 'field-label', text: '類型' }), type), field('名稱', name), urlField, field('說明', desc), el('div', { class: 'field' }, el('span', { class: 'field-label', text: '圖示' }), iconField)),
       actions: [cancel, ok],
     });
+    if (app && prefill.found === false) setTimeout(() => url.focus(), 60);
     cancel.addEventListener('click', () => close());
     const submit = async () => {
+      const target = url.value.trim();
+      const program = TT.looksLikePath(target);
       if (!name.value.trim()) return toast('請輸入名稱', true);
-      if (draft.node_type === 'link' && !/^[a-z][a-z0-9+.-]*:/i.test(url.value.trim())) return toast('請輸入完整網址（例如 https://…）', true);
+      if (draft.node_type === 'link' && !program && !/^[a-z][a-z0-9+.-]*:/i.test(target)) return toast('請輸入完整網址（https://…）或程式路徑（C:\\…）', true);
       try {
         const created = await api('/api/nodes', {
           method: 'POST', body: {
             parent_id: parentId, name: name.value.trim(), node_type: draft.node_type,
-            url: draft.node_type === 'link' ? url.value.trim() : null,
+            url: draft.node_type === 'link' ? target : null,
             icon: draft.icon || null, description: desc.value.trim() || null,
+            ...(draft.node_type === 'link' && program ? { launch_args: args.value.trim() || null, launch_cwd: prefill?.cwd || null } : {}),
           },
         });
         close();
         if (parentId) { state.expanded.add(parentId); saveExpanded(); }
-        await loadTree();
+        await Promise.all([loadTree(), loadIcons()]);
         state.selected = created.id;
         state.dirty = false;
         paintTree();
@@ -730,7 +829,7 @@
       } catch (e) { toast(e.message, true); }
     };
     ok.addEventListener('click', submit);
-    [name, url, desc].forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }));
+    [name, url, desc, args].forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }));
   }
 
   // ======================================================================
@@ -874,8 +973,9 @@
     const box = el('div', { class: 'quick-admin' });
     $('stage-body').append(box);
     const body = $('stage-body');
-    body.addEventListener('dragover', e => { if (TT.isLinkDrag(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+    body.addEventListener('dragover', e => { if (TT.isLinkDrag(e) || TT.isFileDrag(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
     body.addEventListener('drop', e => {
+      if (TT.isFileDrag(e)) { e.preventDefault(); linkDropHandled = true; toast('快速連結只能放網址；程式請拖到「內容」', true); return; }
       if (!TT.isLinkDrag(e)) return;
       const link = takeDroppedLink(e);
       if (link) editQuick(null, link);

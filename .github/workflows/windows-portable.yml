@@ -52,6 +52,50 @@ jobs:
             }
             if (-not (Test-Path dist\ToolTable\data\tool-table.db)) { Write-Host 'data\tool-table.db was not created next to the exe'; $ok = $false }
           }
+
+          # ---- local programs: real Windows shortcut, exe lookup, icon extraction, launch, guards
+          if ($ok) {
+            $B = 'http://127.0.0.1:18080'
+            $H = @{ 'X-Tool-Table' = '1' }
+            $notepad = "$env:SystemRoot\System32\notepad.exe"
+            $lnkPath = Join-Path $env:RUNNER_TEMP '記事本.lnk'
+            $ws = New-Object -ComObject WScript.Shell
+            $sc = $ws.CreateShortcut($lnkPath)
+            $sc.TargetPath = $notepad
+            $sc.Arguments = '/A'
+            $sc.WorkingDirectory = $env:SystemRoot
+            $sc.Save()
+
+            $st = Invoke-RestMethod "$B/api/local/status"
+            Write-Host "local status: enabled=$($st.enabled) allowed=$($st.allowed)"
+            if (-not $st.allowed) { $ok = $false }
+
+            $r = Invoke-RestMethod "$B/api/local/shortcut" -Method Post -Headers $H -Form @{ file = Get-Item $lnkPath }
+            Write-Host "shortcut → target=$($r.path) args=$($r.args) icon=$($r.icon) name=$($r.name)"
+            if ($r.path -notlike '*notepad.exe' -or $r.args -ne '/A' -or -not $r.icon) { $ok = $false }
+
+            $size = (Get-Item $notepad).Length
+            $f = Invoke-RestMethod "$B/api/local/resolve" -Method Post -Headers $H -ContentType 'application/json' -Body (@{ name = 'notepad.exe'; size = $size } | ConvertTo-Json)
+            Write-Host "resolve → found=$($f.found) path=$($f.path) icon=$($f.icon)"
+            if (-not $f.found -or -not $f.icon) { $ok = $false }
+
+            $node = Invoke-RestMethod "$B/api/nodes" -Method Post -Headers $H -ContentType 'application/json' -Body (@{ name = 'Notepad'; node_type = 'link'; url = $notepad } | ConvertTo-Json)
+            Write-Host "program node url=$($node.url)"
+            Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force
+            Invoke-RestMethod "$B/api/launch/$($node.id)" -Method Post -Headers $H | Out-Null
+            Start-Sleep -Seconds 3
+            $np = Get-Process notepad -ErrorAction SilentlyContinue
+            Write-Host "notepad running after launch: $([bool]$np)"
+            if (-not $np) { $ok = $false }
+            $np | Stop-Process -Force -ErrorAction SilentlyContinue
+
+            $code = (Invoke-WebRequest "$B/api/launch/$($node.id)" -Method Post -SkipHttpErrorCheck -UseBasicParsing).StatusCode
+            Write-Host "launch without X-Tool-Table header → $code (expect 403)"
+            if ($code -ne 403) { $ok = $false }
+            $code = (Invoke-WebRequest "$B/api/launch/$($node.id)" -Method Post -Headers @{ 'X-Tool-Table' = '1'; 'Host' = 'evil.example.com' } -SkipHttpErrorCheck -UseBasicParsing).StatusCode
+            Write-Host "launch with foreign Host header → $code (expect 403)"
+            if ($code -ne 403) { $ok = $false }
+          }
           Stop-Process -Id $proc.Id -Force
           Start-Sleep -Seconds 2
           if (-not $ok) { throw 'Smoke test failed' }

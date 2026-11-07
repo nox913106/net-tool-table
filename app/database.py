@@ -76,6 +76,10 @@ async def init_db():
             await db.execute("ALTER TABLE nodes ADD COLUMN new_tab BOOLEAN DEFAULT TRUE")
         if "color" not in node_cols:
             await db.execute("ALTER TABLE nodes ADD COLUMN color TEXT")
+        if "launch_args" not in node_cols:     # local programs (portable edition)
+            await db.execute("ALTER TABLE nodes ADD COLUMN launch_args TEXT")
+        if "launch_cwd" not in node_cols:
+            await db.execute("ALTER TABLE nodes ADD COLUMN launch_cwd TEXT")
 
         # Create indexes
         await db.execute("CREATE INDEX IF NOT EXISTS idx_nodes_parent ON nodes(parent_id)")

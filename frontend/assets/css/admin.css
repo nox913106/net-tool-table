@@ -371,3 +371,7 @@ body.is-dragging .atree-root-drop, body.link-dragging .atree-root-drop { display
 body.link-dragging .drop-hint { transform: translate(-50%, 0); }
 body.link-dragging .content-grid .panel,
 body.link-dragging .quick-admin { outline: 2px dashed var(--accent-line); outline-offset: 4px; }
+
+.icon-field-tools { display: flex; gap: 6px; }
+.input.mono { font-family: var(--mono); font-size: 13px; }
+.akind.is-program { color: var(--success); }

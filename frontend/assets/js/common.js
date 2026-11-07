@@ -22,7 +22,9 @@ const TT = (() => {
 
   // -------------------------------------------------------------------- api
   async function api(path, { method = 'GET', body, form } = {}) {
-    const opts = { method, headers: {} };
+    // X-Tool-Table forces a CORS preflight for cross-site requests (which the server never
+    // approves), so other websites cannot call local-only endpoints such as /api/launch.
+    const opts = { method, headers: { 'X-Tool-Table': '1' } };
     if (form) opts.body = form;
     else if (body !== undefined) {
       opts.headers['Content-Type'] = 'application/json';
@@ -111,6 +113,9 @@ const TT = (() => {
     database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/>',
     copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
     refresh: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
+    play: '<path d="M7 4v16l13-8Z"/>',
+    app: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18"/><circle cx="6.5" cy="6.5" r=".6"/><circle cx="9" cy="6.5" r=".6"/>',
+    wand: '<path d="m15 4 5 5L9 20H4v-5Z"/><path d="m13 6 5 5"/><path d="M19 2v3M20.5 3.5h-3"/>',
   };
   const svg = (name, attrs = '') =>
     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${attrs}>${P[name] || ''}</svg>`;
@@ -268,5 +273,68 @@ const TT = (() => {
     return best;
   }
 
-  return { store, api, esc, el, svg, tile, isIconFile, iconUrl, initials, hostOf, toast, applyAppearance, cycleTheme, themePref, togglePerf, setFavicon, isLinkDrag, readDroppedLink, guessIcon, nameFromUrl };
+  // ---------------------------------------------------- local programs
+  // Only the Windows portable edition can launch programs / read shortcuts, and only for
+  // the browser on that same PC. /api/local/status says whether that applies here.
+  const isProgram = url => /^file:/i.test(url || '');
+  const isFileDrag = e => [...(e.dataTransfer?.types || [])].includes('Files');
+
+  /** file:///C:/Program Files/x.exe → C:\Program Files\x.exe (for display / editing) */
+  function programPath(url) {
+    if (!isProgram(url)) return url || '';
+    let p = url.replace(/^file:/i, '');
+    if (p.startsWith('///')) p = p.slice(3);
+    else if (p.startsWith('//')) p = '\\\\' + p.slice(2);
+    try { p = decodeURIComponent(p); } catch { /* keep */ }
+    return /^[A-Za-z]:/.test(p) || p.startsWith('\\\\') ? p.replace(/\//g, '\\') : (p.startsWith('/') ? p : '/' + p);
+  }
+  // C:\…, \\server\share\…, file:…, or an absolute POSIX path (development on Linux / macOS)
+  const looksLikePath = v => /^[A-Za-z]:[\\/]/.test(v || '') || /^\\\\/.test(v || '') || isProgram(v) || /^\/(?!\/)/.test(v || '');
+
+  let localStatusCache = null;
+  function localStatus() {
+    if (!localStatusCache) localStatusCache = api('/api/local/status').catch(() => ({ enabled: false, allowed: false }));
+    return localStatusCache;
+  }
+
+  async function launchProgram(node) {
+    const st = await localStatus();
+    if (!st.allowed) {
+      toast(st.enabled ? '程式只能在執行單機版的那台電腦上啟動' : '這是本機程式，只能在 Windows 單機版啟動', true);
+      return false;
+    }
+    try {
+      await api(`/api/launch/${node.id}`, { method: 'POST' });
+      toast(`已啟動「${node.name}」`);
+      return true;
+    } catch (e) { toast(e.message, true); return false; }
+  }
+
+  const SHORTCUT_EXT = /\.(lnk|url)$/i;
+  const PROGRAM_EXT = /\.(exe|bat|cmd|msc|cpl|ps1|vbs|jar|appref-ms)$/i;
+
+  /**
+   * A file dropped from Explorer → { kind: 'app'|'url', name, url, icon, args, cwd, found }.
+   * Shortcuts are read on the server; for an .exe the server looks it up by name + size.
+   */
+  async function inspectDroppedFile(file) {
+    if (SHORTCUT_EXT.test(file.name)) {
+      const form = new FormData();
+      form.append('file', file);
+      return { found: true, ...(await api('/api/local/shortcut', { method: 'POST', form })) };
+    }
+    if (PROGRAM_EXT.test(file.name)) {
+      return api('/api/local/resolve', { method: 'POST', body: { name: file.name, size: file.size } });
+    }
+    throw new Error('請拖曳程式的捷徑（.lnk）、網址捷徑（.url）或執行檔（.exe）');
+  }
+
+  /** Website favicon → icon library. Resolves to the icon name or '' */
+  const fetchSiteIcon = url => api('/api/icons/fetch', { method: 'POST', body: { url } }).then(r => r.icon || '').catch(() => '');
+
+  return {
+    store, api, esc, el, svg, tile, isIconFile, iconUrl, initials, hostOf, toast, applyAppearance, cycleTheme, themePref,
+    togglePerf, setFavicon, isLinkDrag, readDroppedLink, guessIcon, nameFromUrl,
+    isProgram, isFileDrag, programPath, looksLikePath, localStatus, launchProgram, inspectDroppedFile, fetchSiteIcon,
+  };
 })();

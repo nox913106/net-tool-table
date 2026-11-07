@@ -36,6 +36,8 @@ class NodeBase(BaseModel):
     url: Optional[str] = None
     description: Optional[str] = None
     color: Optional[str] = Field(None, pattern=r"^(#[0-9a-fA-F]{6})?$")   # per-item accent, e.g. "#22c55e"
+    launch_args: Optional[str] = Field(None, max_length=2000)   # local program arguments
+    launch_cwd: Optional[str] = Field(None, max_length=1024)    # local program working folder
     new_tab: bool = True
     sort_order: int = 0
     is_active: bool = True
@@ -56,6 +58,8 @@ class NodeUpdate(BaseModel):
     url: Optional[str] = None
     description: Optional[str] = None
     color: Optional[str] = Field(None, pattern=r"^(#[0-9a-fA-F]{6})?$")
+    launch_args: Optional[str] = Field(None, max_length=2000)
+    launch_cwd: Optional[str] = Field(None, max_length=1024)
     new_tab: Optional[bool] = None
     sort_order: Optional[int] = None
     is_active: Optional[bool] = None

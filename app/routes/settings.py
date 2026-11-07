@@ -8,10 +8,11 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from ..database import get_db
+from ..localapps import is_file_url, local_allowed
 from ..models import unsafe_url
 
 router = APIRouter(prefix="/api", tags=["settings"])
@@ -194,7 +195,8 @@ async def reset_settings():
 
 # ============ Export / Import ============
 
-NODE_FIELDS = ["name", "node_type", "icon", "url", "description", "color", "new_tab", "sort_order", "is_active"]
+NODE_FIELDS = ["name", "node_type", "icon", "url", "description", "color", "launch_args", "launch_cwd",
+               "new_tab", "sort_order", "is_active"]
 LINK_FIELDS = ["region", "name", "url", "sort_order", "is_active"]
 
 
@@ -253,7 +255,7 @@ class ImportPayload(BaseModel):
 
 
 async def import_subtree(db, items: List[dict], parent_id: Optional[int], parent_code: Optional[str],
-                         id_map: Optional[Dict[int, int]] = None):
+                         id_map: Optional[Dict[int, int]] = None, allow_local: bool = False):
     # Continue numbering after any existing siblings (append mode)
     if parent_id is None:
         cursor = await db.execute("SELECT code FROM nodes WHERE parent_id IS NULL")
@@ -272,6 +274,8 @@ async def import_subtree(db, items: List[dict], parent_id: Optional[int], parent
         node_type = item.get("node_type") or ("folder" if "children" in item else "link")
         if node_type == "link" and unsafe_url(item.get("url")):
             continue  # refuse javascript:/data: links
+        if node_type == "link" and is_file_url(item.get("url")) and not allow_local:
+            continue  # program links may only be imported on the PC running the portable edition
         if node_type not in ("folder", "link"):
             raise HTTPException(status_code=400, detail=f"無效的類型: {node_type}")
         n += 1
@@ -280,13 +284,15 @@ async def import_subtree(db, items: List[dict], parent_id: Optional[int], parent
         code = f"{parent_code}-{n}" if parent_code else str(n)
         cursor = await db.execute(
             """INSERT INTO nodes (parent_id, code, name, node_type, icon, url, description,
-                                  color, new_tab, sort_order, is_active)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                  color, launch_args, launch_cwd, new_tab, sort_order, is_active)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 parent_id, code, item["name"], node_type, item.get("icon") or None,
                 item.get("url") if node_type == "link" else None,
                 item.get("description") or None,
                 item.get("color") if isinstance(item.get("color"), str) and len(item["color"]) == 7 else None,
+                (item.get("launch_args") or None) if node_type == "link" else None,
+                (item.get("launch_cwd") or None) if node_type == "link" else None,
                 bool(item.get("new_tab", True)),
                 int(item.get("sort_order", n - 1) or 0),
                 bool(item.get("is_active", True)),
@@ -295,11 +301,11 @@ async def import_subtree(db, items: List[dict], parent_id: Optional[int], parent
         if id_map is not None and isinstance(item.get("ref"), int):
             id_map[item["ref"]] = cursor.lastrowid
         if item.get("children"):
-            await import_subtree(db, item["children"], cursor.lastrowid, code, id_map)
+            await import_subtree(db, item["children"], cursor.lastrowid, code, id_map, allow_local)
 
 
 @router.post("/import")
-async def import_all(payload: ImportPayload):
+async def import_all(payload: ImportPayload, request: Request):
     data = payload.data
     if not isinstance(data.get("nodes", []), list) or not isinstance(data.get("quick_links", []), list):
         raise HTTPException(status_code=400, detail="檔案格式錯誤")
@@ -310,7 +316,8 @@ async def import_all(payload: ImportPayload):
             await db.execute("DELETE FROM auth_links")
             await db.execute("DELETE FROM settings")
         id_map: Dict[int, int] = {}
-        await import_subtree(db, data.get("nodes", []), None, None, id_map)
+        await import_subtree(db, data.get("nodes", []), None, None, id_map,
+                             allow_local=local_allowed(request) and request.headers.get("x-tool-table") == "1")
         if isinstance(data.get("settings"), dict):
             incoming = {k: v for k, v in data["settings"].items() if k in DEFAULT_SETTINGS}
             if isinstance(incoming.get("home_sections"), list):

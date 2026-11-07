@@ -10,7 +10,9 @@ ROOT = os.path.abspath(os.path.join(SPECPATH, '..'))
 hidden = (
     collect_submodules('uvicorn')
     + collect_submodules('app')
-    + ['aiosqlite', 'multipart', 'python_multipart']
+    + collect_submodules('icoextract')
+    + ['aiosqlite', 'multipart', 'python_multipart', 'pefile', 'PIL.IcoImagePlugin', 'PIL.PngImagePlugin',
+       'PIL.JpegImagePlugin', 'PIL.GifImagePlugin', 'PIL.BmpImagePlugin', 'PIL.WebPImagePlugin']
 )
 
 a = Analysis(
@@ -21,7 +23,7 @@ a = Analysis(
         (os.path.join(ROOT, 'resource', 'icon'), os.path.join('resource', 'icon')),
     ],
     hiddenimports=hidden,
-    excludes=['tkinter', 'unittest', 'pydoc', 'test', 'numpy', 'yaml', 'PIL'],
+    excludes=['tkinter', 'unittest', 'pydoc', 'test', 'numpy', 'yaml'],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

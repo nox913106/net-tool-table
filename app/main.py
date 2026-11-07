@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import ENABLE_DOCS, ICON_DIR, PROJECT_ROOT
 from .database import init_db
-from .routes import auth_links, nodes, search, settings
+from .routes import auth_links, local, nodes, search, settings
 
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 VERSION = "3.0.0"
@@ -36,6 +36,17 @@ app.include_router(nodes.router)
 app.include_router(auth_links.router)
 app.include_router(search.router)
 app.include_router(settings.router)
+app.include_router(local.router)
+
+
+@app.middleware("http")
+async def harden_icons(request: Request, call_next):
+    """Uploaded / fetched icons may be SVG: never let one run script if opened directly."""
+    response = await call_next(request)
+    if request.url.path.startswith("/resource/icon/"):
+        response.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 # --- Static ---
 ICON_DIR.mkdir(parents=True, exist_ok=True)

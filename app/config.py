@@ -29,5 +29,9 @@ ICON_DIR = Path(os.environ.get("TOOL_TABLE_ICON_DIR") or PROJECT_ROOT / "resourc
 # Interactive API docs (/docs, /redoc, /openapi.json) — disabled in production
 ENABLE_DOCS = _bool("TOOL_TABLE_ENABLE_DOCS", True)
 
+# Launch local programs / read shortcuts (Windows portable edition only;
+# portable/launcher.py sets it). Never enable this on a shared server.
+LOCAL_APPS = _bool("TOOL_TABLE_LOCAL_APPS", False)
+
 ALLOWED_ICON_EXTENSIONS = {".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif"}
 MAX_ICON_BYTES = 5 * 1024 * 1024

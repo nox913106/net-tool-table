@@ -129,6 +129,7 @@ def main():
     parser.add_argument("--lan", action="store_true", help="允許其他電腦連線")
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--data-dir")
+    parser.add_argument("--local-apps", action="store_true", help=argparse.SUPPRESS)  # testing off Windows
     args = parser.parse_args()
 
     host = "0.0.0.0" if args.lan else "127.0.0.1"
@@ -150,6 +151,9 @@ def main():
     os.environ["TOOL_TABLE_DATA_DIR"] = str(data_dir)
     os.environ["TOOL_TABLE_ICON_DIR"] = str(icon_dir)
     os.environ.setdefault("TOOL_TABLE_ENABLE_DOCS", "false")
+    # Launching programs / reading shortcuts only makes sense when the server is this PC
+    if os.name == "nt" or args.local_apps:
+        os.environ["TOOL_TABLE_LOCAL_APPS"] = "1"
 
     sys.path.insert(0, str(BUNDLE_DIR))
     import uvicorn
