@@ -66,6 +66,10 @@ jobs:
             $sc.WorkingDirectory = $env:SystemRoot
             $sc.Save()
 
+            $w = Invoke-RestMethod "$B/api/whoami"
+            Write-Host "whoami → ip=$($w.ip) host=$($w.host) all=$($w.all -join ',')"
+            if (-not $w.local -or $w.ip -like '127.*') { $ok = $false }
+
             $st = Invoke-RestMethod "$B/api/local/status"
             Write-Host "local status: enabled=$($st.enabled) allowed=$($st.allowed)"
             if (-not $st.allowed) { $ok = $false }

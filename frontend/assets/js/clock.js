@@ -104,9 +104,12 @@ const TTClock = (() => {
     const chips = [];
     if (settings.show_client_ip) {
       try {
-        const { ip } = await TT.api('/api/whoami');
-        if (ip) chips.push(TT.el('span', { class: 'net-chip', title: '你的 IP（本伺服器看到的位址）' },
-          TT.el('span', { class: 'net-dot' }), ip));
+        const w = await TT.api('/api/whoami');
+        const title = w.local
+          ? `這台電腦的 IP（${w.host || ''}）` + ((w.all || []).length > 1 ? '\n全部：' + w.all.join('、') : '')
+          : '你的 IP（本伺服器看到的位址）';
+        if (w.ip) chips.push(TT.el('span', { class: 'net-chip', title },
+          TT.el('span', { class: 'net-dot' }), w.ip));
       } catch { /* ignore */ }
     }
     if (settings.show_public_ip) {

@@ -2,6 +2,8 @@
 Tool Table - FastAPI application
 Serves the API and the static frontend (frontend/).
 """
+import ipaddress
+import socket
 import time
 from contextlib import asynccontextmanager
 
@@ -83,5 +85,49 @@ async def server_time():
 
 @app.get("/api/whoami")
 async def whoami(request: Request):
-    """The viewer's IP as seen by this server (behind nginx: from X-Forwarded-For)."""
-    return {"ip": request.client.host if request.client else None}
+    """The viewer's IP as seen by this server (behind nginx: from X-Forwarded-For).
+
+    When the browser runs on this same machine (portable version, or opened on the
+    server itself) the connection is loopback, so report this computer's own LAN
+    address and name instead of 127.0.0.1."""
+    ip = request.client.host if request.client else None
+    if ip and _is_loopback(ip):
+        return {"ip": _primary_ip() or ip, "local": True, "host": socket.gethostname(), "all": _all_ips()}
+    return {"ip": ip, "local": False}
+
+
+def _is_loopback(ip: str) -> bool:
+    try:
+        return ipaddress.ip_address(ip.split("%")[0]).is_loopback
+    except ValueError:
+        return ip == "localhost"
+
+
+def _primary_ip() -> str:
+    """Address of the interface used for outbound traffic (a UDP connect sends no packets)."""
+    for family, target in ((socket.AF_INET, "192.0.2.1"), (socket.AF_INET6, "2001:db8::1")):
+        try:
+            with socket.socket(family, socket.SOCK_DGRAM) as s:
+                s.connect((target, 9))
+                addr = s.getsockname()[0]
+                if not ipaddress.ip_address(addr).is_loopback:
+                    return addr
+        except OSError:
+            continue
+    return ""
+
+
+def _all_ips() -> list:
+    """Every non-loopback IPv4 address of this computer (several NICs / VPN)."""
+    found = []
+    try:
+        for ai in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            a = ai[4][0]
+            if a not in found and not a.startswith(("127.", "169.254.")):
+                found.append(a)
+    except OSError:
+        pass
+    primary = _primary_ip()
+    if primary and primary not in found:
+        found.insert(0, primary)
+    return found
