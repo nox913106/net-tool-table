@@ -80,7 +80,7 @@ body.modal-open { overflow: hidden; }
   --flip-top: color-mix(in srgb, var(--surface-solid) 92%, var(--text));
   --flip-bottom: var(--surface-solid);
 }
-[data-theme="light"] .flip { --flip-top: #ffffff; --flip-bottom: #f1f3f8; }
+[data-theme="light"] .flip { --flip-top: #f2f4f8; --flip-bottom: #e8ebf1; }
 .flip-half {
   position: absolute;
   left: 0;
