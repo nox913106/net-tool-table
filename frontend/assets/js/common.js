@@ -392,8 +392,9 @@ const TT = (() => {
       location.replace('/login?change=1&next=' + encodeURIComponent(location.pathname + location.hash));
     }
     return m;
-  }).catch(() => ({ user: { username: 'local', display_name: '本機', role: 'superadmin' }, auth: false, is_admin: true })));
-  const ROLE = { superadmin: '本機最高管理員', admin: '管理員', user: '使用者' };
+  }).catch(() => ({ user: { username: 'local', display_name: '本機', role: 'superadmin' }, auth: false, is_admin: true, board: { view: 'all', edit: 'all', depts: [] } })));
+  const ROLE = { superadmin: '本機最高管理員', sysadmin: '系統管理者', board_admin: '看板總管理者（RW）', board_viewer: '看板總管理者（RO）',
+    dept_admin: '部門看板管理者（RW）', dept_viewer: '部門看板管理者（RO）', user: '使用者' };
   const nameOf = p => (p && (p.name || p.display_name || p.username)) || '';
   function avatar(person, size = 24) {
     const name = nameOf(person) || '?';
@@ -426,7 +427,8 @@ const TT = (() => {
       pop = el('div', { class: 'user-pop', role: 'menu' },
         el('div', { class: 'user-pop-head' }, avatar(u, 40),
           el('div', {}, el('strong', { text: nameOf(u) }), el('small', { text: [u.username, u.department].filter(Boolean).join(' · ') }),
-            el('span', { class: `role-badge role-${u.role}`, text: ROLE[u.role] || u.role }))),
+            el('span', { class: `role-badge role-${u.role}`, text: ROLE[u.role] || u.role }),
+            ['dept_admin', 'dept_viewer'].includes(u.role) && info.board?.depts?.length ? el('small', { text: '管理部門：' + info.board.depts.join('、') }) : null)),
         info.is_admin && location.pathname !== '/admin' ? item('settings', '管理後台', null, '/admin') : null,
         location.pathname !== '/' ? item('home', '回到入口', null, '/') : null,
         item('layout', '公開進度看板', null, '/dashboard'),

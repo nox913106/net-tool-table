@@ -651,8 +651,11 @@
     const paintWho = () => {
       const people = new Map();
       TTBoard.tasks.forEach(t => [t.owner, ...(t.assignees || [])].forEach(p => { if (p) people.set(String(p.id), p); }));
-      const opts = [['all', state.me?.is_admin ? '全部卡片' : '我看得到的全部'], ['mine', '只看我的']]
-        .concat(state.me?.is_admin ? [...people.values()].sort((a, b) => TT.nameOf(a).localeCompare(TT.nameOf(b), 'zh-Hant'))
+      const view = state.me?.board?.view || 'own';
+      const depts = [...new Set(TTBoard.tasks.flatMap(t => t.departments || []))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+      const opts = [['all', view === 'all' ? '全部卡片' : '我看得到的全部'], ['mine', '只看我的']]
+        .concat(view !== 'own' ? depts.map(d => [`dept:${d}`, `部門：${d}`]) : [])
+        .concat(view !== 'own' ? [...people.values()].sort((a, b) => TT.nameOf(a).localeCompare(TT.nameOf(b), 'zh-Hant'))
           .map(p => [`user:${p.id}`, `${TT.nameOf(p)}${p.department ? '（' + p.department + '）' : ''}`]) : []);
       who.replaceChildren(...opts.map(([v, l]) => el('option', { value: v, text: l })));
       who.value = opts.some(o => o[0] === filter) ? filter : 'all';

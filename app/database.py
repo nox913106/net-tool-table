@@ -151,8 +151,12 @@ async def init_db():
             )
         """)
         cursor = await db.execute("PRAGMA table_info(users)")
-        if "must_change_password" not in {row[1] for row in await cursor.fetchall()}:
+        user_cols = {row[1] for row in await cursor.fetchall()}
+        if "must_change_password" not in user_cols:
             await db.execute("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0")
+        if "scope_departments" not in user_cols:          # departments a department manager manages (JSON list)
+            await db.execute("ALTER TABLE users ADD COLUMN scope_departments TEXT")
+        await db.execute("UPDATE users SET role = 'sysadmin' WHERE role = 'admin'")   # older two-role model
         await db.execute("CREATE INDEX IF NOT EXISTS idx_members_user ON task_members(user_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_comments_task ON task_comments(task_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_notes_user ON notifications(user_id, read)")

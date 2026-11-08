@@ -1291,7 +1291,7 @@
     }
     const summary = el('div', { class: 'users-summary' },
       el('span', { class: 'badge', text: `${data.users.length} 個帳號` }),
-      el('span', { class: 'badge' + (data.ad_admins ? '' : ' badge-alert'), text: `${data.ad_admins} 位 AD 管理員` }));
+      el('span', { class: 'badge' + (data.ad_admins ? '' : ' badge-alert'), text: `${data.ad_admins} 位 AD 系統管理者` }));
     const list = el('div', { class: 'users-list panel' });
     const paint = () => {
       const q = filter.value.trim().toLowerCase();
@@ -1300,12 +1300,39 @@
         el('span', { text: '帳號' }), el('span', { text: '部門' }), el('span', { text: '卡片' }), el('span', { text: '最後登入' }), el('span', { text: '權限' }), el('span', { text: '啟用' })),
         ...rows.map(u => {
           const local = u.role === 'superadmin';
-          const role = local ? el('span', { class: 'role-badge role-superadmin', text: '本機最高管理員' })
-            : segmented([['user', '使用者'], ['admin', '管理員']], u.role, async v => {
-              try { Object.assign(u, await api(`/api/users/${u.id}`, { method: 'PUT', body: { role: v } })); toast(`${u.display_name || u.username} → ${v === 'admin' ? '管理員' : '使用者'}`); }
-              catch (e) { toast(e.message, true); role.setValue(u.role); }
-              data = await api('/api/users'); summary.lastChild.textContent = `${data.ad_admins} 位 AD 管理員`; summary.lastChild.classList.toggle('badge-alert', !data.ad_admins);
+          const label = k => (data.roles.find(r => r.key === k) || {}).label || k;
+          let role;
+          if (local) role = el('span', { class: 'role-badge role-superadmin', text: '本機最高管理員' });
+          else {
+            const sel = el('select', { class: 'select role-select' }, data.roles.map(r => el('option', { value: r.key, text: r.label })));
+            sel.value = u.role;
+            const scope = el('div', { class: 'scope-box', hidden: !['dept_admin', 'dept_viewer'].includes(u.role) });
+            const paintScope = () => {
+              const mine = (u.scope_departments && u.scope_departments.length) ? u.scope_departments : (u.department ? [u.department] : []);
+              const all = [...new Set([...data.departments, ...mine])];
+              scope.replaceChildren(...[el('span', { class: 'scope-label', text: '管理部門：' }), ...all.map(d => {
+                const b = el('button', { type: 'button', class: 'scope-chip', 'aria-pressed': String(mine.includes(d)), text: d });
+                b.addEventListener('click', async () => {
+                  const next = mine.includes(d) ? mine.filter(x => x !== d) : [...mine, d];
+                  try { Object.assign(u, await api(`/api/users/${u.id}`, { method: 'PUT', body: { scope_departments: next } })); paintScope(); }
+                  catch (e) { toast(e.message, true); }
+                });
+                return b;
+              }), all.length ? null : el('span', { class: 'hint', text: '此帳號在 AD 沒有部門，請勾選要管理的部門' })].filter(Boolean));
+            };
+            paintScope();
+            sel.addEventListener('change', async () => {
+              try {
+                Object.assign(u, await api(`/api/users/${u.id}`, { method: 'PUT', body: { role: sel.value } }));
+                toast(`${u.display_name || u.username} → ${label(u.role)}`);
+                scope.hidden = !['dept_admin', 'dept_viewer'].includes(u.role);
+                paintScope();
+              } catch (e) { toast(e.message, true); sel.value = u.role; }
+              data = { ...data, ...(await api('/api/users')) };
+              summary.lastChild.textContent = `${data.ad_admins} 位 AD 系統管理者`; summary.lastChild.classList.toggle('badge-alert', !data.ad_admins);
             });
+            role = el('div', { class: 'role-cell' }, sel, scope);
+          }
           const active = local ? el('span') : switchInput(!!u.active, async v => {
             try { Object.assign(u, await api(`/api/users/${u.id}`, { method: 'PUT', body: { active: v } })); toast(v ? '已啟用' : '已停用（已登出）'); }
             catch (e) { toast(e.message, true); paint(); }
@@ -1324,7 +1351,17 @@
       el('div', { class: 'users-tools' }, filter, summary),
       addBox,
       list,
-      el('p', { class: 'hint', html: `管理員：看得到所有看板卡片，可以新增、刪除、修改與指派，也能編輯入口與後台。<br>使用者：只看得到自己建立、被指派或被 @ 提到的卡片，可以編輯；入口只能瀏覽。<br>至少要保留一位 AD 管理員。本機最高管理員（${esc((data.users.find(u => u.role === 'superadmin') || {}).username || 'localadmin')}）只在緊急時使用，密碼可在右上角選單修改，或在伺服器執行 <code>tool-table.sh reset-admin</code>。` }));
+      el('table', { class: 'role-table' },
+        el('thead', {}, el('tr', {}, ...['權限', '後台', '看板：看得到', '看板：可編輯 / 刪除 / 指派'].map(t => el('th', { text: t })))),
+        el('tbody', {}, ...[
+          ['系統管理者', '全部設定', '所有卡片', '所有卡片'],
+          ['看板總管理者（RW）', '—', '所有卡片', '所有卡片'],
+          ['看板總管理者（RO）', '—', '所有部門的卡片', '只有自己的卡片；其他卡片可留言'],
+          ['部門看板管理者（RW）', '—', '管理部門的卡片 ＋ 自己的', '管理部門的卡片（只能指派該部門的人）＋ 自己的'],
+          ['部門看板管理者（RO）', '—', '管理部門的卡片 ＋ 自己的', '只有自己的卡片；其他卡片可留言'],
+          ['使用者', '—', '自己建立、被指派、被 @ 的卡片', '同左（不能指派）'],
+        ].map(r => el('tr', {}, ...r.map(c => el('td', { text: c })))))),
+      el('p', { class: 'hint', html: `卡片屬於「建立者」與「負責人」所在的部門（AD 的 department）。部門看板管理者預設管理自己的部門，可以在上面勾選其他部門。<br>至少要保留一位 AD 系統管理者。本機最高管理員（${esc((data.users.find(u => u.role === 'superadmin') || {}).username || 'localadmin')}）只在緊急時使用，密碼可在右上角選單修改，或在伺服器執行 <code>tool-table.sh reset-admin</code>。` }));
     paint();
   }
 

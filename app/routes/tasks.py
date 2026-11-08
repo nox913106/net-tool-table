@@ -29,6 +29,7 @@ from pydantic import BaseModel, field_validator
 
 from .. import ldapauth
 from ..auth import current_user, is_admin
+from ..roles import board_access
 from ..database import get_db
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -348,12 +349,63 @@ async def _get(db, task_id: int) -> dict:
 
 
 # ------------------------------------------------------------ who sees what
-# admin / superadmin: every card.  user: cards they created, are assigned to, or were @mentioned on.
-def _visible_sql(user: dict, alias: str = "t"):
-    if is_admin(user) or user.get("id") is None:
-        return "1 = 1", []
+# Roles (app/roles.py): view / edit is "all", "dept" (cards whose creator or an assignee is in a
+# managed department) or "own" (cards the viewer created, is assigned to or was @mentioned on).
+def _involved_sql(alias: str, uid):
     return (f"({alias}.owner_id = ? OR EXISTS (SELECT 1 FROM task_members vm WHERE vm.task_id = {alias}.id AND vm.user_id = ?))",
-            [user["id"], user["id"]])
+            [uid, uid])
+
+
+def _dept_sql(alias: str, depts: List[str]):
+    marks = ",".join("?" * len(depts))
+    return (f"(EXISTS (SELECT 1 FROM users ou WHERE ou.id = {alias}.owner_id AND ou.department IN ({marks})) "
+            f"OR EXISTS (SELECT 1 FROM task_members dm JOIN users du ON du.id = dm.user_id "
+            f"WHERE dm.task_id = {alias}.id AND dm.role = 'assignee' AND du.department IN ({marks})))", [*depts, *depts])
+
+
+def _scope_sql(user: dict, level: str, alias: str = "t"):
+    acc = board_access(user)
+    if acc[level] == "all":
+        return "1 = 1", []
+    inv, args = _involved_sql(alias, user.get("id"))
+    if acc[level] == "dept" and acc["depts"]:
+        d, dargs = _dept_sql(alias, acc["depts"])
+        return f"({inv} OR {d})", args + dargs
+    return inv, args
+
+
+def _visible_sql(user: dict, alias: str = "t"):
+    return _scope_sql(user, "view", alias)
+
+
+async def _require_edit(db, task_id: int, user: dict):
+    where, args = _scope_sql(user, "edit")
+    cur = await db.execute(f"SELECT 1 FROM tasks t WHERE t.id = ? AND {where}", (task_id, *args))
+    if not await cur.fetchone():
+        raise HTTPException(status_code=403, detail="這張卡片你只能檢視（唯讀），可以留言")
+
+
+async def _members_of(db, user_ids) -> dict:
+    ids = [u for u in user_ids if u]
+    if not ids:
+        return {}
+    cur = await db.execute(f"SELECT id, department FROM users WHERE id IN ({','.join('?' * len(ids))})", ids)
+    return {r["id"]: r["department"] for r in await cur.fetchall()}
+
+
+async def _check_assignees(db, user: dict, task_id: Optional[int], people: List[dict]):
+    """Board admins assign anyone; department managers only people of the departments they manage."""
+    acc = board_access(user)
+    if acc["edit"] == "all":
+        return
+    if acc["edit"] != "dept":
+        raise HTTPException(status_code=403, detail="只有看板管理者可以指派負責人")
+    before = await _members(db, task_id, "assignee") if task_id else set()
+    depts = await _members_of(db, [p["id"] for p in people])
+    outside = [p for p in people if p["id"] not in before and depts.get(p["id"]) not in acc["depts"]]
+    if outside:
+        raise HTTPException(status_code=403, detail="只能指派你管理的部門（" + "、".join(acc["depts"]) + "）的人："
+                            + "、".join(p.get("display_name") or p["username"] for p in outside) + " 不在範圍內")
 
 
 async def _get_visible(db, task_id: int, user: dict) -> dict:
@@ -381,12 +433,13 @@ async def _enrich(db, rows: List[dict], user: dict) -> List[dict]:
     owners = {}
     owner_ids = list({r["owner_id"] for r in rows if r.get("owner_id")})
     if owner_ids:
-        cur = await db.execute(f"SELECT id, username, display_name FROM users WHERE id IN ({','.join('?' * len(owner_ids))})", owner_ids)
-        owners = {u["id"]: {"id": u["id"], "username": u["username"], "name": u["display_name"] or u["username"]}
-                  for u in await cur.fetchall()}
+        cur = await db.execute(f"SELECT id, username, display_name, department FROM users WHERE id IN ({','.join('?' * len(owner_ids))})", owner_ids)
+        owners = {u["id"]: {"id": u["id"], "username": u["username"], "name": u["display_name"] or u["username"],
+                            "department": u["department"]} for u in await cur.fetchall()}
     cur = await db.execute(f"SELECT task_id, COUNT(*) AS c FROM task_comments WHERE task_id IN ({marks}) GROUP BY task_id", ids)
     comments = {c["task_id"]: c["c"] for c in await cur.fetchall()}
-    me, admin = user.get("id"), is_admin(user)
+    me = user.get("id")
+    acc = board_access(user)
     for r in rows:
         p = people.get(r["id"], {"assignee": [], "mention": []})
         r["owner"] = owners.get(r.get("owner_id"))
@@ -394,10 +447,15 @@ async def _enrich(db, rows: List[dict], user: dict) -> List[dict]:
         r["mentions"] = p["mention"]
         r["comments"] = comments.get(r["id"], 0)
         involved = me is None or r.get("owner_id") == me or any(x["id"] == me for x in p["assignee"] + p["mention"])
+        owner = owners.get(r.get("owner_id"))
+        card_depts = {d for d in [owner["department"] if owner else None, *[a["department"] for a in p["assignee"]]] if d}
+        r["departments"] = sorted(card_depts)
+        in_scope = acc["edit"] == "all" or (acc["edit"] == "dept" and bool(card_depts & set(acc["depts"])))
         r["mine"] = involved
-        r["can_edit"] = True                      # only visible cards are ever returned
-        r["can_delete"] = admin or (me is not None and r.get("owner_id") == me)
-        r["can_assign"] = admin
+        r["can_edit"] = in_scope or involved
+        r["can_delete"] = in_scope or (me is not None and r.get("owner_id") == me)
+        r["can_assign"] = in_scope
+        r["can_comment"] = True                   # only visible cards are ever returned
     return rows
 
 
@@ -496,7 +554,8 @@ async def create_task(t: TaskIn, request: Request):
              order, user.get("id"), t.status))
         task_id = cur.lastrowid
         if user.get("id") is not None:
-            if is_admin(user) and t.assignees is not None:
+            if t.assignees is not None and board_access(user)["edit"] in ("all", "dept"):
+                await _check_assignees(db, user, None, await _resolve_people(db, t.assignees))
                 await set_assignees(db, task_id, t.assignees, user, t.title)
             elif user.get("source") == "ldap":
                 # a user's own card is assigned to them (counts on the dashboard under their name)
@@ -514,10 +573,17 @@ async def update_task(task_id: int, t: TaskUpdate, request: Request):
     db = await get_db()
     try:
         cur_task = await _get_visible(db, task_id, user)
+        await _require_edit(db, task_id, user)
         changes = {k: getattr(t, k) for k in t.model_fields_set if k != "assignees"}
         assignees = t.assignees if "assignees" in t.model_fields_set else None
-        if assignees is not None and not is_admin(user):
-            raise HTTPException(status_code=403, detail="只有管理員可以指派負責人")
+        if assignees is not None:
+            acc = board_access(user)
+            if acc["edit"] == "dept":
+                d, dargs = _dept_sql("t", acc["depts"])
+                cur = await db.execute(f"SELECT 1 FROM tasks t WHERE t.id = ? AND {d}", (task_id, *dargs))
+                if not await cur.fetchone():
+                    raise HTTPException(status_code=403, detail="這張卡片不屬於你管理的部門，不能改負責人")
+            await _check_assignees(db, user, task_id, await _resolve_people(db, assignees))
         for k in ("title", "status", "priority"):
             if k in changes and changes[k] is None:
                 raise HTTPException(status_code=400, detail=f"{k} 不能是空的")
@@ -562,7 +628,13 @@ async def delete_task(task_id: int, request: Request):
     db = await get_db()
     try:
         t = await _get_visible(db, task_id, user)
-        if not is_admin(user) and t.get("owner_id") != user.get("id"):
+        acc = board_access(user)
+        allowed = acc["edit"] == "all" or (user.get("id") is not None and t.get("owner_id") == user.get("id"))
+        if not allowed and acc["edit"] == "dept" and acc["depts"]:
+            d, dargs = _dept_sql("t", acc["depts"])
+            cur = await db.execute(f"SELECT 1 FROM tasks t WHERE t.id = ? AND {d}", (task_id, *dargs))
+            allowed = bool(await cur.fetchone())
+        if not allowed:
             raise HTTPException(status_code=403, detail="只能刪除自己建立的卡片（其他卡片可以改成 Canceled）")
         await db.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
         await db.commit()
@@ -577,11 +649,11 @@ async def reorder(r: Reorder, request: Request):
     user = current_user(request)
     db = await get_db()
     try:
-        where, args = _visible_sql(user)
+        where, args = _scope_sql(user, "edit")
         if r.ids:
             cur = await db.execute(f"SELECT t.id FROM tasks t WHERE t.id IN ({','.join('?' * len(r.ids))}) AND {where}", (*r.ids, *args))
             allowed = {row["id"] for row in await cur.fetchall()}
-            ids = [i for i in r.ids if i in allowed]       # never touch cards the viewer cannot see
+            ids = [i for i in r.ids if i in allowed]       # never touch cards the viewer cannot edit
         else:
             ids = []
         if r.status != "overdue" and ids:             # dragged out of 過期未結案 by hand
@@ -646,6 +718,7 @@ async def complete_task(task_id: int, request: Request, body: Optional[CompleteI
     db = await get_db()
     try:
         t = await _get_visible(db, task_id, user)
+        await _require_edit(db, task_id, user)
         if t["status"] != "complete":
             cur = await db.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tasks WHERE status = 'complete'")
             order = (await cur.fetchone())["n"]
@@ -683,7 +756,7 @@ async def list_comments(task_id: int, request: Request):
                                   WHERE c.task_id = ? ORDER BY c.id""", (task_id,))
         return [{"id": c["id"], "body": c["body"], "created_at": c["created_at"],
                  "author": {"id": c["user_id"], "username": c["username"], "name": c["display_name"] or c["username"] or "本機"},
-                 "can_delete": is_admin(user) or (c["user_id"] is not None and c["user_id"] == user.get("id"))}
+                 "can_delete": board_access(user)["edit"] == "all" or (c["user_id"] is not None and c["user_id"] == user.get("id"))}
                 for c in await cur.fetchall()]
     finally:
         await db.close()
@@ -722,7 +795,7 @@ async def delete_comment(task_id: int, comment_id: int, request: Request):
         c = await cur.fetchone()
         if not c:
             raise HTTPException(status_code=404, detail="找不到這則留言")
-        if not is_admin(user) and c["user_id"] != user.get("id"):
+        if board_access(user)["edit"] != "all" and c["user_id"] != user.get("id"):
             raise HTTPException(status_code=403, detail="只能刪除自己的留言")
         await db.execute("DELETE FROM task_comments WHERE id = ?", (comment_id,))
         await db.commit()

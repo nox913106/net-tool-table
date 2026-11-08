@@ -450,7 +450,7 @@ const TTBoard = (() => {
 
   // ------------------------------------------------------------------ init
   let started = false;
-  let meInfo = { auth: false, is_admin: true, user: {} };
+  let meInfo = { auth: false, is_admin: true, user: {}, board: { view: 'all', edit: 'all', depts: [] } };
   let notes = [];
   async function loadNotes() {
     if (!meInfo.auth) return;
@@ -500,7 +500,8 @@ const TTBoard = (() => {
     let hideClosed = !!opts.hideClosed;
     let filter = opts.filter || 'all';                          // all | mine | user:<id>
     const pass = t => filter === 'all' ? true : filter === 'mine' ? t.mine !== false
-      : filter.startsWith('user:') ? [t.owner, ...(t.assignees || [])].some(p => p && String(p.id) === filter.slice(5)) : true;
+      : filter.startsWith('user:') ? [t.owner, ...(t.assignees || [])].some(p => p && String(p.id) === filter.slice(5))
+      : filter.startsWith('dept:') ? (t.departments || []).includes(filter.slice(5)) : true;
     const colItems = key => byStatus(key).filter(pass);
     let drag = null;                                           // { id, from }
     const placeholder = el('div', { class: 'kb-placeholder' });
@@ -567,7 +568,8 @@ const TTBoard = (() => {
       }
       const c = el('article', {
         class: `kb-card prio-${t.priority}` + (tm.due ? ` is-${tm.due}` : '') + (tm.start === 'due' ? ' is-start' : '') + (CLOSED.has(t.status) ? ' is-closed' : ''),
-        draggable: 'true', tabindex: '0', dataset: { id: t.id },
+        draggable: t.can_edit === false ? 'false' : 'true', tabindex: '0', dataset: { id: t.id },
+        title: t.can_edit === false ? '唯讀：你可以檢視與留言' : null,
       },
         el('div', { class: 'kb-card-title' },
           t.priority === 'high' ? el('span', { class: 'kb-flag', title: '高優先', html: svg('flag') }) : null,
@@ -578,6 +580,7 @@ const TTBoard = (() => {
       c.addEventListener('click', () => openEditor(t));
       c.addEventListener('keydown', e => { if (e.key === 'Enter') openEditor(t); });
       c.addEventListener('dragstart', e => {
+        if (t.can_edit === false) { e.preventDefault(); return; }
         drag = { id: t.id };
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('application/x-tool-table-task', String(t.id));
@@ -649,7 +652,8 @@ const TTBoard = (() => {
     if (meInfo.auth) TT.mentionInput(desc);
 
     // --- people (server edition)
-    const canAssign = meInfo.auth && meInfo.is_admin;
+    const canAssign = meInfo.auth && (task ? task.can_assign : meInfo.board?.edit !== 'own');
+    const readOnly = !!task && task.can_edit === false;          // RO managers: view + comment
     let assignees = (t.assignees || []).map(p => ({ ...p }));
     const assignBox = el('div', { class: 'kb-assignees' });
     const assignInput = canAssign ? TT.mentionInput(el('input', { class: 'input kb-assign-input', placeholder: '輸入姓名或帳號，指派負責人…' }), {
@@ -870,10 +874,20 @@ const TTBoard = (() => {
     }
     ok.addEventListener('click', submit);
 
+    if (readOnly) {                                               // view + comment only
+      wrap.querySelectorAll('.modal-body input, .modal-body select, .modal-body textarea:not(.kb-comment-input), .modal-body .segmented button, .kb-date-chip, .kb-wd, .kb-person-x')
+        .forEach(x => { x.disabled = true; });
+      ok.hidden = true;
+      cancel.textContent = '關閉';
+      wrap.querySelector('.modal-head h3').innerHTML = svg('kanban') + '檢視卡片';
+      wrap.querySelector('.modal-body').prepend(el('div', { class: 'kb-readonly', html: svg('lock') + '<span>唯讀：這張卡片你可以檢視與留言，不能修改。</span>' }));
+      if (comments) comments.querySelectorAll('input, textarea, button').forEach(x => { x.disabled = false; });
+    }
+
     document.addEventListener('keydown', onKey);
     document.body.append(wrap);
     document.body.classList.add('modal-open');
-    setTimeout(() => title.focus(), 30);
+    setTimeout(() => (readOnly ? wrap.querySelector('.kb-comment-input') || cancel : title).focus(), 30);
   }
 
   /** Ask once for desktop notifications (must come from a click) */

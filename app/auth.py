@@ -49,7 +49,9 @@ SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 
 
 def is_admin(user: dict) -> bool:
-    return user.get("role") in ("admin", "superadmin")
+    """System administrator: may use the admin panel. Board rights: see app/roles.py."""
+    from .roles import is_sysadmin
+    return is_sysadmin(user)
 
 
 def _starts(path: str, prefixes) -> bool:
@@ -134,8 +136,15 @@ async def end_session(token: Optional[str]):
 
 def public_user(row) -> dict:
     keys = ("id", "username", "source", "display_name", "email", "department", "role", "active", "last_login", "created_at",
-            "must_change_password")
-    return {k: row[k] for k in keys if k in row.keys()}
+            "must_change_password", "scope_departments")
+    out = {k: row[k] for k in keys if k in row.keys()}
+    if isinstance(out.get("scope_departments"), str):
+        import json
+        try:
+            out["scope_departments"] = json.loads(out["scope_departments"])
+        except ValueError:
+            out["scope_departments"] = []
+    return out
 
 
 def set_cookie(response, request: Request, token: str):

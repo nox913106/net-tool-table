@@ -387,7 +387,7 @@ body.link-dragging .quick-admin { outline: 2px dashed var(--accent-line); outlin
 .users-add { display: flex; gap: 8px; margin-bottom: 14px; max-width: 640px; }
 .users-add .input { flex: 1; }
 .users-list { padding: 6px; margin-bottom: 14px; overflow-x: auto; }
-.users-row { display: grid; grid-template-columns: minmax(220px, 2fr) minmax(90px, 1fr) 120px 130px 168px 56px; align-items: center; gap: 14px; padding: 10px 12px; border-radius: 12px; min-width: 760px; }
+.users-row { display: grid; grid-template-columns: minmax(200px, 2fr) minmax(80px, 1fr) 110px 120px minmax(220px, 1.4fr) 56px; align-items: center; gap: 14px; padding: 10px 12px; border-radius: 12px; min-width: 760px; }
 .users-row + .users-row { border-top: 1px solid var(--border); }
 .users-row:not(.users-head):hover { background: var(--surface-2); }
 .users-head { font-size: 12px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
@@ -444,3 +444,14 @@ body.link-dragging .quick-admin { outline: 2px dashed var(--accent-line); outlin
   .bk-row { grid-template-columns: 1fr auto; }
   .bk-kind, .bk-size { display: none; }
 }
+
+.role-cell { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.role-select { height: 34px; font-size: 13px; }
+.scope-box { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.scope-label { font-size: 11.5px; color: var(--text-3); }
+.scope-chip { height: 24px; padding: 0 9px; border-radius: 99px; font-size: 12px; font-weight: 600; color: var(--text-2); background: var(--surface-2); border: 1px solid var(--border); }
+.scope-chip[aria-pressed="true"] { color: #fff; background: var(--accent); border-color: transparent; }
+.role-table { width: 100%; max-width: 980px; border-collapse: collapse; font-size: 13px; margin-bottom: 10px; }
+.role-table th, .role-table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+.role-table th { font-size: 12px; color: var(--text-3); font-weight: 700; }
+.role-table td:first-child { font-weight: 650; white-space: nowrap; }

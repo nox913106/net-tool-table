@@ -12,7 +12,8 @@ Sign-in, account and user-management API.
   GET  /api/people?q=            (signed in) people for @mentions and assignees
 """
 import asyncio
-from typing import Optional
+import json
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -24,6 +25,7 @@ from ..auth import (ANON, COOKIE, clear_failures, client_ip, create_session, cur
                     hash_password, is_admin, public_user, record_failure, require_admin, set_cookie,
                     too_many, verify_password)
 from ..database import get_db
+from ..roles import ASSIGNABLE, LABELS, board_access
 
 router = APIRouter(tags=["auth"])
 
@@ -41,6 +43,7 @@ class PasswordIn(BaseModel):
 class UserUpdate(BaseModel):
     role: Optional[str] = None
     active: Optional[bool] = None
+    scope_departments: Optional[List[str]] = None     # department managers; [] = their own AD department
 
 
 class UserAdd(BaseModel):
@@ -54,7 +57,7 @@ async def status():
 
 
 async def ad_admin_count(db) -> int:
-    cur = await db.execute("SELECT COUNT(*) AS c FROM users WHERE source = 'ldap' AND role = 'admin' AND active = 1")
+    cur = await db.execute("SELECT COUNT(*) AS c FROM users WHERE source = 'ldap' AND role = 'sysadmin' AND active = 1")
     return (await cur.fetchone())["c"]
 
 
@@ -134,7 +137,8 @@ async def logout(request: Request):
 
 @router.get("/api/auth/me")
 async def me(user: dict = Depends(current_user)):
-    out = {"user": user, "auth": C.AUTH, "is_admin": is_admin(user)}
+    out = {"user": user, "auth": C.AUTH, "is_admin": is_admin(user), "board": board_access(user),
+           "role_label": LABELS.get(user.get("role"), user.get("role"))}
     if C.AUTH and is_admin(user):
         db = await get_db()
         try:
@@ -176,8 +180,11 @@ async def list_users(_: dict = Depends(require_admin)):
             FROM users u ORDER BY (u.role = 'superadmin') DESC, u.department, u.display_name, u.username""")
         rows = [{**public_user(r), "created_cards": r["created_cards"], "assigned_cards": r["assigned_cards"]}
                 for r in await cur.fetchall()]
+        cur = await db.execute("SELECT DISTINCT department FROM users WHERE department IS NOT NULL AND department != '' ORDER BY department")
+        departments = [r["department"] for r in await cur.fetchall()]
         return {"users": rows, "ad_admins": await ad_admin_count(db), "directory": ldapauth.directory_enabled(),
-                "ldap": ldapauth.enabled()}
+                "ldap": ldapauth.enabled(), "roles": [{"key": k, "label": LABELS[k]} for k in ASSIGNABLE],
+                "departments": departments}
     finally:
         await db.close()
 
@@ -208,15 +215,19 @@ async def update_user(user_id: int, body: UserUpdate, me_: dict = Depends(requir
             raise HTTPException(status_code=400, detail="本機最高管理員帳號不能在這裡修改")
         role = body.role if body.role is not None else row["role"]
         active = int(body.active) if body.active is not None else row["active"]
-        if role not in ("admin", "user"):
-            raise HTTPException(status_code=400, detail="權限只能是 admin 或 user")
-        was_ad_admin = row["source"] == "ldap" and row["role"] == "admin" and row["active"]
-        if was_ad_admin and (role != "admin" or not active) and await ad_admin_count(db) <= 1:
-            raise HTTPException(status_code=400, detail="至少要保留一個 AD 帳號是管理員")
-        if user_id == me_.get("id") and (role != "admin" or not active):
-            raise HTTPException(status_code=400, detail="不能取消自己的管理員權限或停用自己")
-        await db.execute("UPDATE users SET role = ?, active = ? WHERE id = ?", (role, active, user_id))
-        if not active or role != row["role"]:
+        if role not in ASSIGNABLE:
+            raise HTTPException(status_code=400, detail="權限無效")
+        was_ad_admin = row["source"] == "ldap" and row["role"] == "sysadmin" and row["active"]
+        if was_ad_admin and (role != "sysadmin" or not active) and await ad_admin_count(db) <= 1:
+            raise HTTPException(status_code=400, detail="至少要保留一個 AD 帳號是系統管理者")
+        if user_id == me_.get("id") and (role != "sysadmin" or not active):
+            raise HTTPException(status_code=400, detail="不能取消自己的系統管理者權限或停用自己")
+        scope = row["scope_departments"]
+        if body.scope_departments is not None:
+            clean = sorted({d.strip()[:100] for d in body.scope_departments if isinstance(d, str) and d.strip()})
+            scope = json.dumps(clean, ensure_ascii=False) if clean else None
+        await db.execute("UPDATE users SET role = ?, active = ?, scope_departments = ? WHERE id = ?", (role, active, scope, user_id))
+        if not active or role != row["role"] or scope != row["scope_departments"]:
             await db.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))   # takes effect immediately
         await db.commit()
         cur = await db.execute("SELECT * FROM users WHERE id = ?", (user_id,))
