@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import ENABLE_DOCS, ICON_DIR, PROJECT_ROOT
 from .database import init_db
-from .routes import auth_links, local, nodes, search, settings
+from .routes import auth_links, local, nodes, search, settings, tasks
 
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 VERSION = "3.0.0"
@@ -39,6 +39,7 @@ app.include_router(auth_links.router)
 app.include_router(search.router)
 app.include_router(settings.router)
 app.include_router(local.router)
+app.include_router(tasks.router)
 
 
 @app.middleware("http")

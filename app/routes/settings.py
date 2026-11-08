@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from ..database import get_db
 from ..localapps import is_file_url, local_allowed
 from ..models import unsafe_url
+from .tasks import export_tasks, import_tasks
 
 router = APIRouter(prefix="/api", tags=["settings"])
 
@@ -50,11 +51,12 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "quick_filters_auto_limit": 8,
 
     # --- Home page (ordered sections) ---
-    # type: message | quick_links | favorites | recent | roots | folder
+    # type: message | quick_links | favorites | recent | roots | folder | board
     # optional: title, node_id (folder), style (grid | compact), limit
     "home_sections": [
         {"type": "message"},
         {"type": "quick_links"},
+        {"type": "board"},
         {"type": "favorites"},
         {"type": "recent"},
         {"type": "roots"},
@@ -72,6 +74,11 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "enable_recent": True,              # recently opened (stored per browser)
     "allow_drop_add": True,             # drag a web link onto the portal to add it
     "favicon_web_fallback": True,       # public sites: use a favicon service when the site blocks direct fetches
+
+    # --- Task board ---
+    "board_enabled": True,              # sidebar entry, header reminder bell
+    "board_notify": True,               # desktop notifications for reminders (viewer must allow)
+    "board_due_soon_days": 2,           # cards due within N days are highlighted
 }
 
 ENUMS = {
@@ -81,7 +88,7 @@ ENUMS = {
     "default_view": {"grid", "list"},
     "clock_style": {"flip", "simple"},
 }
-SECTION_TYPES = {"message", "quick_links", "favorites", "recent", "roots", "folder"}
+SECTION_TYPES = {"message", "quick_links", "favorites", "recent", "roots", "folder", "board"}
 
 
 class SettingsUpdate(BaseModel):
@@ -121,6 +128,8 @@ def validate_setting(key: str, value: Any) -> Any:
                 item["node_id"] = sec["node_id"]
             if sec.get("style") in ("grid", "compact"):
                 item["style"] = sec["style"]
+            if sec["type"] == "board" and isinstance(sec.get("hide_closed"), bool):
+                item["hide_closed"] = sec["hide_closed"]
             if isinstance(sec.get("limit"), int) and sec["limit"] > 0:
                 item["limit"] = sec["limit"]
             clean.append(item)
@@ -245,6 +254,7 @@ async def export_all():
             "settings": {k: v for k, v in settings.items() if k in stored_keys},
             "nodes": await export_subtree(db, None),
             "quick_links": links,
+            "tasks": await export_tasks(db),
         }
     finally:
         await db.close()
@@ -316,6 +326,8 @@ async def import_all(payload: ImportPayload, request: Request):
             await db.execute("DELETE FROM nodes")
             await db.execute("DELETE FROM auth_links")
             await db.execute("DELETE FROM settings")
+            if isinstance(data.get("tasks"), list):     # older backups have no tasks: keep the board
+                await db.execute("DELETE FROM tasks")
         id_map: Dict[int, int] = {}
         await import_subtree(db, data.get("nodes", []), None, None, id_map,
                              allow_local=local_allowed(request) and request.headers.get("x-tool-table") == "1")
@@ -331,6 +343,7 @@ async def import_all(payload: ImportPayload, request: Request):
                     remapped.append(sec)
                 incoming["home_sections"] = remapped
             await write_settings(db, incoming)
+        tasks = await import_tasks(db, data.get("tasks"))
         for i, link in enumerate(data.get("quick_links", [])):
             if not link.get("name") or not link.get("url") or unsafe_url(link["url"]):
                 continue
@@ -344,7 +357,7 @@ async def import_all(payload: ImportPayload, request: Request):
         nodes = (await cursor.fetchone())["c"]
         cursor = await db.execute("SELECT COUNT(*) AS c FROM auth_links")
         links = (await cursor.fetchone())["c"]
-        return {"success": True, "nodes": nodes, "quick_links": links}
+        return {"success": True, "nodes": nodes, "quick_links": links, "tasks": tasks}
     except Exception:
         await db.rollback()
         raise

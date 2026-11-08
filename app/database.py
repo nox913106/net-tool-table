@@ -67,6 +67,25 @@ async def init_db():
             )
         """)
 
+        # Task board (kanban cards)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT,
+                status TEXT NOT NULL DEFAULT 'new',
+                priority TEXT NOT NULL DEFAULT 'normal',
+                start_at TEXT,
+                due_at TEXT,
+                remind INTEGER,
+                sort_order INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status, sort_order)")
+
         # Lightweight schema migration for columns added later
         cursor = await db.execute("PRAGMA table_info(nodes)")
         node_cols = {row[1] for row in await cursor.fetchall()}
@@ -87,6 +106,22 @@ async def init_db():
         await db.execute("CREATE INDEX IF NOT EXISTS idx_nodes_type ON nodes(node_type)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_auth_region ON auth_links(region)")
         
+        # One-time: put the new task board on home pages that were customised before it existed
+        cursor = await db.execute("SELECT value FROM settings WHERE key = 'home_sections'")
+        row = await cursor.fetchone()
+        cursor = await db.execute("SELECT 1 FROM settings WHERE key = '_migr_board_section'")
+        if row and not await cursor.fetchone():
+            import json
+            try:
+                sections = json.loads(row[0])
+                if isinstance(sections, list) and not any(isinstance(x, dict) and x.get("type") == "board" for x in sections):
+                    sections.insert(0, {"type": "board"})
+                    await db.execute("UPDATE settings SET value = ? WHERE key = 'home_sections'", (json.dumps(sections, ensure_ascii=False),))
+            except (TypeError, ValueError):
+                pass
+        if row:
+            await db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('_migr_board_section', '1')")
+
         # Purge orphan nodes left behind before foreign keys were enforced
         while True:
             cursor = await db.execute(

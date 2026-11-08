@@ -8,6 +8,15 @@ const TTClock = (() => {
   const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
   let offset = 0;
 
+  /** ISO-8601 week number (weeks start on Monday; week 1 contains the first Thursday) */
+  function isoWeek(date) {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const day = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - day);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return { year: d.getUTCFullYear(), week: Math.ceil(((d - yearStart) / 86400000 + 1) / 7) };
+  }
+
   async function sync() {
     try {
       const t0 = Date.now();
@@ -73,7 +82,15 @@ const TTClock = (() => {
 
     const now = () => new Date(Date.now() + offset);
     const parts = d => [pad(d.getHours()), pad(d.getMinutes()), ...(showSec ? [pad(d.getSeconds())] : [])];
-    const dateText = d => `${d.getMonth() + 1}/${d.getDate()} 週${WEEK[d.getDay()]}`;
+    const ymd = TT.el('span', { class: 'clock-ymd' });
+    const wk = TT.el('span', { class: 'clock-wk' });
+    date.append(ymd, wk);
+    const paintDate = d => {
+      const w = isoWeek(d);
+      ymd.textContent = `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())}`;
+      wk.textContent = `第 ${w.week} 週 · 星期${WEEK[d.getDay()]}`;
+      date.title = `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日，星期${WEEK[d.getDay()]}\nISO 週次：${w.year} 年第 ${w.week} 週`;
+    };
 
     let digits = null;
     if (settings.clock_style !== 'simple') {
@@ -86,11 +103,12 @@ const TTClock = (() => {
       });
     }
 
+    let lastDay = -1;
     const tick = () => {
       const d = now();
       if (digits) parts(d).join('').split('').forEach((ch, i) => setDigit(digits[i], ch));
       else time.textContent = parts(d).join(':');
-      date.textContent = dateText(d);
+      if (d.getDate() !== lastDay) { lastDay = d.getDate(); paintDate(d); }
     };
     tick();
     // align ticks to the second boundary
@@ -139,5 +157,5 @@ const TTClock = (() => {
     }));
   }
 
-  return { mount, mountNetInfo, secretAdmin };
+  return { mount, mountNetInfo, secretAdmin, isoWeek, now: () => new Date(Date.now() + offset) };
 })();

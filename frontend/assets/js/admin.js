@@ -878,6 +878,7 @@
     recent: { icon: 'history', label: '最近使用', desc: '每位使用者最近開過的連結（存在瀏覽器）' },
     roots: { icon: 'layout', label: '所有分類', desc: '最上層的資料夾卡片' },
     folder: { icon: 'folder', label: '指定資料夾', desc: '把某個資料夾的內容直接攤在首頁' },
+    board: { icon: 'kanban', label: '待辦看板', desc: 'New / On going / Pending / On hold / Complete / Canceled 卡片看板' },
   };
 
   function renderHome() {
@@ -923,6 +924,10 @@
         if (sec.type === 'folder' || sec.type === 'roots') {
           opts.append(el('div', { class: 'field' }, el('span', { class: 'field-label', text: '卡片大小' }),
             segmented([['grid', '一般'], ['compact', '精簡']], sec.style || 'grid', v => { sec.style = v; bar.mark(); })));
+        }
+        if (sec.type === 'board') {
+          opts.append(el('div', { class: 'field' }, el('span', { class: 'field-label', text: '完成／取消欄位' }),
+            segmented([['show', '顯示'], ['hide', '隱藏']], sec.hide_closed ? 'hide' : 'show', v => { sec.hide_closed = v === 'hide'; bar.mark(); })));
         }
         if (['favorites', 'recent', 'folder'].includes(sec.type)) {
           const lim = el('input', { class: 'input', type: 'number', min: '1', max: '99', placeholder: '不限', value: sec.limit || '' });
@@ -1138,6 +1143,11 @@
       { key: 'show_public_ip', label: '顯示對外 IP 與所在地（瀏覽器會連線 ipinfo.io）', type: 'switch' },
       { key: 'show_admin_button', label: '顯示 ⚙ 後台按鈕', type: 'switch', hint: '關閉時：快速點 Logo 或時鐘 5 次進入後台' },
     ] },
+    { title: '待辦看板', icon: 'kanban', fields: [
+      { key: 'board_enabled', label: '啟用待辦看板（側邊欄入口與右上角 🔔 提醒）', type: 'switch' },
+      { key: 'board_notify', label: '桌面通知', type: 'switch', hint: '到期、提醒時間或開始日到了會跳出系統通知；每位使用者第一次要在瀏覽器按「允許」' },
+      { key: 'board_due_soon_days', label: '幾天內到期算「即將到期」', type: 'number' },
+    ] },
     { title: '導覽與搜尋', icon: 'search', fields: [
       { key: 'search_placeholder', label: '搜尋框提示文字', type: 'text' },
       { key: 'sidebar_show_icons', label: '側邊欄顯示圖示', type: 'switch' },
@@ -1267,7 +1277,7 @@
       try { data = JSON.parse(await f.text()); } catch { return toast('不是有效的 JSON 檔', true); }
       const nodes = (function count(list) { return (list || []).reduce((s, n) => s + 1 + count(n.children), 0); })(data.nodes);
       const msg = mode === 'replace'
-        ? `會刪除目前所有內容、快速連結與設定，換成檔案中的 ${nodes} 個項目。建議先下載備份。`
+        ? `會刪除目前所有內容、快速連結與設定（檔案內有待辦卡片時也會取代看板），換成檔案中的 ${nodes} 個項目。建議先下載備份。`
         : `會把檔案中的 ${nodes} 個項目與快速連結加到現有內容後面；檔案裡的設定會覆蓋目前設定。`;
       if (!(await confirmDialog(mode === 'replace' ? '取代全部內容？' : '附加匯入？', msg, mode === 'replace' ? '取代' : '匯入', mode === 'replace'))) return;
       try {
@@ -1276,7 +1286,7 @@
         TT.applyAppearance(state.settings); paintBrand();
         state.selected = null;
         await loadTree();
-        toast(`匯入完成：${r.nodes} 個項目、${r.quick_links} 個快速連結`);
+        toast(`匯入完成：${r.nodes} 個項目、${r.quick_links} 個快速連結` + (r.tasks ? `、${r.tasks} 張待辦卡片` : ''));
       } catch (e) { toast(e.message, true); }
     });
 

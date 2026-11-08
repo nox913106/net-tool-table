@@ -56,6 +56,7 @@
     TTClock.mountNetInfo($('netinfo'), s);
     TTClock.secretAdmin($('clock'), $('brand-mark'));
     if (s.allow_drop_add !== false) setupLinkDrop();
+    if (boardOn()) { TTBoard.init(s); TTBoard.mountBell($('bell-btn')); }
 
     window.addEventListener('hashchange', route);
     route();
@@ -200,13 +201,16 @@
       { href: '#/', icon: 'home', label: '首頁' },
       s.enable_favorites !== false && { href: '#/favorites', icon: 'star', label: '我的最愛', count: favorites().length },
       s.enable_recent !== false && { href: '#/recent', icon: 'history', label: '最近使用' },
+      boardOn() && { href: '#/board', icon: 'kanban', label: '待辦看板', board: true },
     ].filter(Boolean);
     $('nav-main').replaceChildren(...items.map(it =>
       el('a', { class: 'nav-item', href: it.href, dataset: { route: it.href } },
         el('span', { class: 'nav-icon', html: svg(it.icon) }),
         el('span', { class: 'nav-label', text: it.label }),
-        it.count ? el('span', { class: 'badge', text: it.count }) : null)));
+        it.count ? el('span', { class: 'badge', text: it.count }) : null,
+        it.board ? el('span', { class: 'badge badge-alert', dataset: { boardBadge: '' }, hidden: true, title: '需要注意的待辦' }) : null)));
   }
+  const boardOn = () => state.settings.board_enabled !== false && typeof TTBoard !== 'undefined';
 
   function buildTree() {
     const s = state.settings;
@@ -321,6 +325,7 @@
     else if ((m = hash.match(/^#\/icon\/(.+)/))) renderIconFilter(m[1]);
     else if (hash === '#/favorites') renderFavorites();
     else if (hash === '#/recent') renderRecent();
+    else if (hash === '#/board' && boardOn()) renderBoard();
     else renderHome();
 
     highlightNav();
@@ -482,12 +487,6 @@
         el('p', { class: 'hero-kicker', text: greeting() }),
         el('h1', { class: 'hero-title', text: s.site_title || 'Tool Table' }),
         s.site_subtitle ? el('p', { class: 'hero-sub', text: s.site_subtitle }) : null));
-    const heroSearch = el('button', { class: 'hero-search', type: 'button' },
-      el('span', { class: 'hero-search-icon', html: svg('search') }),
-      el('span', { class: 'hero-search-text', text: s.search_placeholder || '搜尋…' }),
-      el('span', { class: 'hero-search-keys', html: `<kbd>${$('mod-key').textContent}</kbd><kbd>K</kbd>` }));
-    heroSearch.addEventListener('click', openPalette);
-    hero.append(heroSearch);
     frag.append(hero);
 
     if (!state.tree.length) {
@@ -549,6 +548,17 @@
           action: el('a', { class: 'section-link', href: '#/recent', html: '全部' + svg('chevron-right') }) });
       }
 
+      case 'board': {
+        if (!boardOn()) return null;
+        const box = el('div');
+        TTBoard.mount(box, { hideClosed: !!sec.hide_closed });
+        const add = el('button', { class: 'section-link', type: 'button', html: svg('plus') + '新增' });
+        add.addEventListener('click', () => TTBoard.openEditor(null));
+        return section({ icon: svg('kanban'), title: sec.title || '待辦看板', body: box, cls: 'section-board',
+          action: el('div', { class: 'section-actions' }, add,
+            el('a', { class: 'section-link', href: '#/board', html: '開啟' + svg('chevron-right') })) });
+      }
+
       case 'roots':
         return section({ icon: svg('layout'), title: sec.title || '所有分類', body: cardGrid(state.tree, { compact, mode: 'grid' }) });
 
@@ -567,6 +577,32 @@
       default:
         return null;
     }
+  }
+
+  function renderBoard() {
+    const frag = document.createDocumentFragment();
+    let hideClosed = !!store.get('board-hide-closed', false);
+    const toggle = el('label', { class: 'switch' },
+      el('input', { type: 'checkbox', checked: hideClosed }), el('span', { class: 'track' }), el('span', { text: '隱藏完成／取消' }));
+    const add = el('button', { class: 'btn btn-primary', type: 'button', html: svg('plus') + '新增卡片' });
+    add.addEventListener('click', () => TTBoard.openEditor(null));
+    const meta = el('span');
+    frag.append(pageHead({
+      tileNode: el('span', { class: 'page-icon', html: svg('kanban') }),
+      title: '待辦看板',
+      desc: '拖曳卡片換狀態；設定開始日與到期日，時間到會在右上角 🔔 提醒。',
+      meta: ' ',
+      tools: el('div', { class: 'board-tools' }, toggle, add),
+    }));
+    const box = el('div');
+    const board = TTBoard.mount(box, { hideClosed, full: true });
+    toggle.querySelector('input').addEventListener('change', e => { hideClosed = e.target.checked; store.set('board-hide-closed', hideClosed); board.setHideClosed(hideClosed); });
+    frag.append(box);
+    $('view').replaceChildren(frag);
+    const metaEl = $('view').querySelector('.page-meta');
+    const paintMeta = () => { if (metaEl.isConnected) metaEl.textContent = TTBoard.summary(); };
+    TTBoard.load().then(paintMeta).catch(() => {});
+    paintMeta();
   }
 
   function renderFolder(node) {
