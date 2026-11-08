@@ -499,11 +499,11 @@ const TTBoard = (() => {
         : !('Notification' in window) || !window.isSecureContext ? el('p', { class: 'hint', text: '這個連線無法使用桌面通知（需要 HTTPS 或本機），提醒會顯示在頁面上。' }) : null;
       const go = el('a', { class: 'btn btn-sm btn-ghost', href: '/#/board', html: svg('kanban') + '開啟看板' });
       go.addEventListener('click', close);
-      pop.replaceChildren(
+      pop.replaceChildren(...[      // DOM replaceChildren() would print a null as the text "null"
         el('div', { class: 'bell-head' }, el('strong', { text: '待辦提醒' }), el('span', { class: 'badge', text: list.length })),
         el('div', { class: 'bell-list' }, items),
         permHint,
-        el('div', { class: 'bell-foot' }, enable, el('span', { class: 'spacer' }), go));
+        el('div', { class: 'bell-foot' }, enable, el('span', { class: 'spacer' }), go)].filter(Boolean));
     };
     btn.addEventListener('click', () => {
       if (pop) return close();
