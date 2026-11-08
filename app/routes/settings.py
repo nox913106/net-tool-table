@@ -43,6 +43,8 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     # --- Navigation ---
     "search_placeholder": "搜尋…",
     "sidebar_show_links": False,
+    "sidebar_default": "expanded",      # expanded | collapsed (icon rail); each viewer's toggle is remembered
+    "sidebar_hover_expand": True,       # collapsed rail opens while the pointer is over it
     "sidebar_show_icons": True,
     "sidebar_show_counts": True,
     "show_quick_filters": True,
@@ -87,6 +89,7 @@ ENUMS = {
     "density": {"comfortable", "compact"},
     "default_view": {"grid", "list"},
     "clock_style": {"flip", "simple"},
+    "sidebar_default": {"expanded", "collapsed"},
 }
 SECTION_TYPES = {"message", "quick_links", "favorites", "recent", "roots", "folder", "board"}
 

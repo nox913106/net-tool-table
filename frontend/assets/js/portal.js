@@ -105,8 +105,60 @@
     $('admin-btn').hidden = !s.show_admin_button;
   }
 
+  /**
+   * Sidebar: phones → slide-in drawer; desktop → full width or a collapsed icon rail.
+   * Collapsed rail opens as an overlay while hovered / focused / while a link is dragged over it.
+   */
+  function setupSidebar() {
+    const s = state.settings;
+    const btn = $('menu-btn');
+    const bar = $('sidebar');
+    const phone = matchMedia('(max-width: 900px)');
+    const collapsed = () => document.body.classList.contains('nav-collapsed');
+    const paint = () => {
+      const c = collapsed();
+      btn.innerHTML = svg(phone.matches ? 'menu' : c ? 'sidebar-open' : 'sidebar');
+      btn.title = phone.matches ? '開啟選單' : `${c ? '展開' : '收合'}側邊欄（Ctrl+B）`;
+      btn.setAttribute('aria-expanded', String(phone.matches ? document.body.classList.contains('nav-open') : !c));
+    };
+    const setCollapsed = (v, save = true) => {
+      document.body.classList.toggle('nav-collapsed', v);
+      bar.classList.remove('peek');
+      if (save) store.set('sidebar', v ? 'collapsed' : 'expanded');
+      paint();
+    };
+    setCollapsed((store.get('sidebar') || s.sidebar_default) === 'collapsed', false);
+    phone.addEventListener('change', paint);
+    btn.addEventListener('click', () => {
+      if (phone.matches) { document.body.classList.toggle('nav-open'); paint(); }
+      else setCollapsed(!collapsed());
+    });
+
+    // "trigger": the rail opens on its own while you point at it
+    let timer = null;
+    const peek = (on, delay) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (on && !(collapsed() && !phone.matches)) return;
+        bar.classList.toggle('peek', on);
+      }, delay);
+    };
+    if (s.sidebar_hover_expand !== false) {
+      bar.addEventListener('mouseenter', () => peek(true, 140));
+      bar.addEventListener('mouseleave', () => peek(false, 280));
+      bar.addEventListener('focusin', () => peek(true, 0));
+      bar.addEventListener('focusout', e => { if (!bar.contains(e.relatedTarget)) peek(false, 0); });
+    }
+    // dragging a link onto the rail opens it so folders can be targeted
+    bar.addEventListener('dragenter', () => { if (collapsed()) peek(true, 0); });
+    bar.addEventListener('dragleave', e => { if (!bar.contains(e.relatedTarget)) peek(false, 200); });
+    document.addEventListener('drop', () => peek(false, 0));
+    document.addEventListener('dragend', () => peek(false, 0));
+    // after picking a folder in the overlay, let it close
+    bar.addEventListener('click', e => { if (e.target.closest('a.tree-row, a.nav-item') && bar.classList.contains('peek') && s.sidebar_hover_expand === false) peek(false, 0); });
+  }
+
   function setupChrome() {
-    $('menu-btn').innerHTML = svg('menu');
     $('search-trigger-icon').innerHTML = svg('search');
     $('palette-icon').innerHTML = svg('search');
     $('admin-btn').innerHTML = svg('settings');
@@ -137,7 +189,7 @@
       installBtn.addEventListener('click', () => TT.installApp());
     }
 
-    $('menu-btn').addEventListener('click', () => document.body.classList.toggle('nav-open'));
+    setupSidebar();
     $('scrim').addEventListener('click', () => document.body.classList.remove('nav-open'));
     $('search-trigger').addEventListener('click', openPalette);
 
@@ -146,6 +198,7 @@
       if ((e.key === 'k' || e.key === 'K') && (e.ctrlKey || e.metaKey)) { e.preventDefault(); openPalette(); }
       else if (e.key === '/' && !typing) { e.preventDefault(); openPalette(); }
       else if (e.key === 'Escape' && document.body.classList.contains('nav-open')) document.body.classList.remove('nav-open');
+      else if ((e.key === 'b' || e.key === 'B') && (e.ctrlKey || e.metaKey) && !typing) { e.preventDefault(); $('menu-btn').click(); }
     });
 
     // Record "recently opened" for any link card / row / chip in the page
@@ -204,7 +257,7 @@
       boardOn() && { href: '#/board', icon: 'kanban', label: '待辦看板', board: true },
     ].filter(Boolean);
     $('nav-main').replaceChildren(...items.map(it =>
-      el('a', { class: 'nav-item', href: it.href, dataset: { route: it.href } },
+      el('a', { class: 'nav-item', href: it.href, title: it.label, dataset: { route: it.href } },
         el('span', { class: 'nav-icon', html: svg(it.icon) }),
         el('span', { class: 'nav-label', text: it.label }),
         it.count ? el('span', { class: 'badge', text: it.count }) : null,
@@ -232,6 +285,7 @@
           class: 'tree-row' + (folder ? '' : ' is-link'),
           href: folder ? `#/f/${n.id}` : program ? '#' : n.url,
           role: 'treeitem',
+          title: n.name,
           'aria-expanded': hasKids ? String(open) : null,
           dataset: folder ? { id: n.id, dropFolder: n.id }
             : { node: n.id, launch: program ? n.id : null, dropFolder: state.parent.get(n.id)?.id ?? null },
@@ -243,6 +297,7 @@
         if (hasKids) caret.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); toggleExpand(n.id); });
         row.append(caret);
         if (showIcons) row.append(tile({ icon: n.icon, name: n.name, color: colorOf(n), folder, size: 24 }));
+        else row.append(el('span', { class: 'rail-only' }, tile({ icon: n.icon, name: n.name, color: colorOf(n), folder, size: 24 })));   // icon rail needs something to show
         row.append(el('span', { class: 'tree-label', text: n.name }));
         if (folder && showCounts && n.children?.length) row.append(el('span', { class: 'tree-count', text: n.children.length }));
 

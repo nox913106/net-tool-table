@@ -21,7 +21,7 @@ body.modal-open { overflow: hidden; }
 }
 .menu-btn { display: none; }
 
-.brand { display: flex; align-items: center; gap: 12px; min-width: 0; width: calc(var(--sidebar-w) - 34px); }
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0; width: calc(var(--sidebar-w) - 82px); }
 .brand-mark { flex: none; cursor: pointer; }
 .brand-mark .tile { box-shadow: 0 6px 18px -8px var(--accent); }
 .brand-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
@@ -785,4 +785,55 @@ body.link-dragging .drop-overlay { display: grid; }
 @media (max-width: 640px) {
   .kb { grid-auto-columns: 84%; }
   .kb-row { grid-template-columns: 1fr; }
+}
+
+/* ======================================================= collapsible sidebar */
+.menu-btn { display: inline-grid; margin-left: -6px; }
+.rail-only { display: none; }
+.layout { transition: grid-template-columns .22s var(--ease); }
+.sidebar { transition: width .22s var(--ease), box-shadow .22s var(--ease), background .22s; }
+
+@media (min-width: 901px) {
+  body.nav-collapsed { --rail-w: 68px; }
+  body.nav-collapsed .layout { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
+  body.nav-collapsed .sidebar {
+    z-index: 45;
+    width: var(--rail-w);
+    padding: 18px 10px 32px;
+    overflow-x: hidden;
+    scrollbar-width: none;
+  }
+  body.nav-collapsed .sidebar::-webkit-scrollbar { display: none; }
+
+  /* --- rail (not peeking): icons only --- */
+  body.nav-collapsed .sidebar:not(.peek) :is(.nav-label, .nav-title, .tree-label, .tree-count, .tree-caret, #filters-section) { display: none; }
+  body.nav-collapsed .sidebar:not(.peek) :is(.nav-item, .tree-row) { justify-content: center; padding: 0; gap: 0; min-height: 42px; }
+  body.nav-collapsed .sidebar:not(.peek) .tree-children { display: none; }
+  body.nav-collapsed .sidebar:not(.peek) .rail-only { display: contents; }
+  body.nav-collapsed .sidebar:not(.peek) .nav-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+  body.nav-collapsed .sidebar:not(.peek) .nav-item.active::before,
+  body.nav-collapsed .sidebar:not(.peek) .tree-row.active::before { left: -10px; }
+  body.nav-collapsed .sidebar:not(.peek) .nav-item .badge {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    height: 16px;
+    min-width: 16px;
+    padding: 0 4px;
+    font-size: 10px;
+    justify-content: center;
+  }
+  body.nav-collapsed .sidebar:not(.peek) .nav-item .badge:not(.badge-alert) { display: none; }
+
+  /* --- peek: full sidebar floating over the page --- */
+  body.nav-collapsed .sidebar.peek {
+    width: var(--sidebar-w);
+    padding: 18px 12px 32px;
+    background: var(--surface-solid);
+    box-shadow: var(--shadow-lg);
+    border-right-color: var(--border-strong);
+  }
+}
+@media (max-width: 900px) {
+  .layout { transition: none; }
 }

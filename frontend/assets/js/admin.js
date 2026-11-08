@@ -1150,6 +1150,8 @@
     ] },
     { title: '導覽與搜尋', icon: 'search', fields: [
       { key: 'search_placeholder', label: '搜尋框提示文字', type: 'text' },
+      { key: 'sidebar_default', label: '側邊欄預設', type: 'seg', options: [['expanded', '展開'], ['collapsed', '收合成圖示列']], hint: '每位使用者按左上角按鈕（或 Ctrl+B）切換後，會記住自己的選擇' },
+      { key: 'sidebar_hover_expand', label: '收合時，滑鼠移到圖示列上自動展開', type: 'switch' },
       { key: 'sidebar_show_icons', label: '側邊欄顯示圖示', type: 'switch' },
       { key: 'sidebar_show_counts', label: '側邊欄顯示項目數', type: 'switch' },
       { key: 'sidebar_show_links', label: '側邊欄也列出連結（不只資料夾）', type: 'switch' },
