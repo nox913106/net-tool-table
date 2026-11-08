@@ -87,7 +87,8 @@ async def init_db():
         await db.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status, sort_order)")
         cursor = await db.execute("PRAGMA table_info(tasks)")
         task_cols = {row[1] for row in await cursor.fetchall()}
-        for col, decl in (("repeat", "TEXT"), ("repeat_every", "INTEGER DEFAULT 1"), ("next_id", "INTEGER")):
+        for col, decl in (("repeat", "TEXT"), ("repeat_every", "INTEGER DEFAULT 1"), ("next_id", "INTEGER"),
+                          ("overdue_from", "TEXT"), ("overdue_ack", "TEXT")):
             if col not in task_cols:                       # recurring cards (added later)
                 await db.execute(f"ALTER TABLE tasks ADD COLUMN {col} {decl}")
 

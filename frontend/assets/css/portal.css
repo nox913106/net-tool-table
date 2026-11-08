@@ -867,3 +867,16 @@ body.link-dragging .drop-overlay { display: grid; }
 .kb-close-title { display: flex; align-items: flex-start; gap: 8px; font-size: 18px; line-height: 1.35; }
 .kb-close-desc { color: var(--text-2); font-size: 13.5px; white-space: pre-line; margin-top: -6px; }
 .kb-close-q { font-weight: 650; margin-top: 2px; }
+
+/* --- overdue one-off cards --- */
+.kb-col[data-status="overdue"] { background: color-mix(in srgb, #e11d48 6%, var(--surface)); border-color: color-mix(in srgb, #e11d48 35%, var(--border)); }
+.kb-col-note { font-size: 11.5px; line-height: 1.45; color: var(--text-3); padding: 0 2px 2px; }
+.kb-od-card { width: min(560px, 100%); border-color: color-mix(in srgb, #e11d48 45%, var(--border-strong)); box-shadow: 0 0 0 4px color-mix(in srgb, #e11d48 12%, transparent), var(--shadow-lg); }
+.kb-od-card .modal-head h3 svg { color: #e11d48; }
+.kb-od-list { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow-y: auto; }
+.kb-od-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--border); }
+.kb-od-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.kb-od-text strong { display: flex; align-items: center; gap: 6px; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kb-od-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--text-3); }
+.kb-od-actions { display: flex; gap: 6px; flex: none; }
+@media (max-width: 640px) { .kb-od-row { flex-direction: column; align-items: stretch; } .kb-od-actions { justify-content: flex-end; } }

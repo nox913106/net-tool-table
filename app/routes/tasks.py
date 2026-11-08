@@ -5,6 +5,11 @@ Recurring cards ("repeat" rule) are anchored on their due date. When one is clos
 (status → complete, by the close prompt, the editor or a drag) the next occurrence is
 created once, in the "recurring" column (週期工作).
 
+One-off cards that pass their due date while still open are moved to the "overdue"
+column (過期未結案) by /sweep, which the browser calls with its local time. If you move
+a card out of that column yourself it stays where you put it (until its due date
+changes); pushing the due date into the future moves it back to where it came from.
+
 Dates are local wall-clock strings: "YYYY-MM-DD" (all day) or "YYYY-MM-DDTHH:MM".
 The browser works out what is overdue / due soon and shows the reminders, so the
 server never has to guess the viewer's time zone.
@@ -21,13 +26,14 @@ from ..database import get_db
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
-STATUSES = ("recurring", "new", "ongoing", "pending", "onhold", "complete", "canceled")
+STATUSES = ("recurring", "overdue", "new", "ongoing", "pending", "onhold", "complete", "canceled")
+CLOSED = ("complete", "canceled")
 PRIORITIES = ("low", "normal", "high")
 REMINDS = (0, 15, 60, 1440, 2880, 10080)       # minutes before due; None = no reminder
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$")
 REPEAT_RE = re.compile(r"^(daily|weekdays|weekly:[1-7](,[1-7]){0,6}|monthly(:\d{1,2})?|yearly)$")
 COLUMNS = ("id, title, description, status, priority, start_at, due_at, remind, repeat, repeat_every, next_id, "
-           "sort_order, created_at, updated_at, completed_at")
+           "overdue_from, overdue_ack, sort_order, created_at, updated_at, completed_at")
 
 
 def _repeat(v):
@@ -291,6 +297,23 @@ def _check_dates(start, due, repeat=None):
         raise HTTPException(status_code=400, detail="重複的卡片需要設定到期日（下一次依到期日推算）")
 
 
+class SweepIn(BaseModel):
+    now: str                         # viewer's local time "YYYY-MM-DDTHH:MM"
+
+    @field_validator("now")
+    @classmethod
+    def v_now(cls, v):
+        v = _date(v)
+        if not v or len(v) != 16:
+            raise ValueError("now 必須是 YYYY-MM-DDTHH:MM")
+        return v
+
+
+def is_past(due_at: str, now: str) -> bool:
+    """All-day cards are overdue the day after; timed cards right after their time."""
+    return due_at[:10] < now[:10] if len(due_at) == 10 else due_at < now
+
+
 class CompleteIn(BaseModel):
     today: Optional[str] = None      # viewer's local date, so missed periods are skipped correctly
 
@@ -364,6 +387,10 @@ async def update_task(task_id: int, t: TaskUpdate):
         sets = [f"{k} = ?" for k in changes]
         vals = list(changes.values())
         if "status" in changes and changes["status"] != cur_task["status"]:
+            if cur_task["status"] == "overdue":           # moved out by hand: don't pull it back for this due date
+                sets.append("overdue_ack = ?")
+                vals.append(merged["due_at"])
+                sets.append("overdue_from = NULL")
             cur = await db.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tasks WHERE status = ?", (changes["status"],))
             sets.append("sort_order = ?")
             vals.append((await cur.fetchone())["n"])
@@ -396,6 +423,10 @@ async def reorder(r: Reorder):
     """Put `ids` (in this order) into column `status` — used after a drag and drop."""
     db = await get_db()
     try:
+        if r.status != "overdue" and r.ids:             # dragged out of 過期未結案 by hand
+            marks = ",".join("?" * len(r.ids))
+            await db.execute(f"""UPDATE tasks SET overdue_ack = due_at, overdue_from = NULL
+                                 WHERE status = 'overdue' AND id IN ({marks})""", r.ids)
         closing = []
         if r.status == "complete":
             marks = ",".join("?" * len(r.ids)) or "NULL"
@@ -412,6 +443,36 @@ async def reorder(r: Reorder):
         created = [n for n in [await spawn_next(db, tid) for tid in closing] if n]
         await db.commit()
         return {"success": True, "created": created}
+    finally:
+        await db.close()
+
+
+@router.post("/sweep")
+async def sweep(body: SweepIn):
+    """Move open one-off cards past their due date to 過期未結案, and move cards whose due
+    date was pushed into the future back out. Idempotent; safe to call often."""
+    db = await get_db()
+    try:
+        cur = await db.execute(f"SELECT {COLUMNS} FROM tasks WHERE due_at IS NOT NULL AND status NOT IN ('complete', 'canceled')")
+        rows = [row_dict(r) for r in await cur.fetchall()]
+        cur = await db.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tasks WHERE status = 'overdue'")
+        order = (await cur.fetchone())["n"]
+        moved, restored = [], []
+        for t in rows:
+            past = is_past(t["due_at"], body.now)
+            if t["status"] == "overdue":
+                if not past:
+                    back = t["overdue_from"] if t["overdue_from"] in STATUSES and t["overdue_from"] not in ("overdue",) + CLOSED else "new"
+                    await db.execute("""UPDATE tasks SET status = ?, overdue_from = NULL, updated_at = CURRENT_TIMESTAMP
+                                        WHERE id = ?""", (back, t["id"]))
+                    restored.append(t["id"])
+            elif past and not t["repeat"] and t["overdue_ack"] != t["due_at"]:
+                await db.execute("""UPDATE tasks SET status = 'overdue', overdue_from = ?, sort_order = ?,
+                                    updated_at = CURRENT_TIMESTAMP WHERE id = ?""", (t["status"], order, t["id"]))
+                order += 1
+                moved.append(t["id"])
+        await db.commit()
+        return {"moved": moved, "restored": restored}
     finally:
         await db.close()
 

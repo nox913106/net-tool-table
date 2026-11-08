@@ -878,7 +878,7 @@
     recent: { icon: 'history', label: '最近使用', desc: '每位使用者最近開過的連結（存在瀏覽器）' },
     roots: { icon: 'layout', label: '所有分類', desc: '最上層的資料夾卡片' },
     folder: { icon: 'folder', label: '指定資料夾', desc: '把某個資料夾的內容直接攤在首頁' },
-    board: { icon: 'kanban', label: '待辦看板', desc: '週期工作 / New / On going / Pending / On hold / Complete / Canceled 卡片看板' },
+    board: { icon: 'kanban', label: '待辦看板', desc: '週期工作 / 過期未結案 / New / On going / Pending / On hold / Complete / Canceled 卡片看板' },
   };
 
   function renderHome() {
@@ -1147,6 +1147,7 @@
       { key: 'board_enabled', label: '啟用待辦看板（側邊欄入口與右上角 🔔 提醒）', type: 'switch' },
       { key: 'board_notify', label: '桌面通知', type: 'switch', hint: '到期、提醒時間或開始日到了會跳出系統通知；每位使用者第一次要在瀏覽器按「允許」' },
       { key: 'board_due_soon_days', label: '幾天內到期算「即將到期」', type: 'number' },
+      { key: 'board_overdue_remind_time', label: '過期未結案：每天提醒時間', type: 'text', hint: '格式 HH:MM（預設 09:30）。單次卡片過了到期日還沒結案，會移到「過期未結案」，每天這個時間跳出提醒直到結案' },
     ] },
     { title: '導覽與搜尋', icon: 'search', fields: [
       { key: 'search_placeholder', label: '搜尋框提示文字', type: 'text' },

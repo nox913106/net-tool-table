@@ -3,6 +3,8 @@
    Columns: 週期工作 (recurring) / New / On going / Pending / On hold / Complete / Canceled.
    Recurring cards: at their deadline a prompt asks whether to close them; closing
    creates the next occurrence (server side, once) in the 週期工作 column.
+   One-off cards past due move to 過期未結案 (server /sweep with the viewer's local time)
+   and are listed in a reminder every day at board_overdue_remind_time (09:30) until closed.
    Cards have optional start and due dates ("YYYY-MM-DD" = all day, or with a time)
    and a reminder relative to the due date. Reminders show as a badge on the header
    bell, in the sidebar, as highlighted cards and — when allowed — as desktop
@@ -15,6 +17,7 @@ const TTBoard = (() => {
 
   const STATUSES = [
     { key: 'recurring', label: 'Recurring', zh: '週期工作', color: '#14b8a6' },
+    { key: 'overdue', label: 'Overdue', zh: '過期未結案', color: '#e11d48' },
     { key: 'new', label: 'New', zh: '新建', color: '#64748b' },
     { key: 'ongoing', label: 'On going', zh: '進行中', color: '#3b82f6' },
     { key: 'pending', label: 'Pending', zh: '待確認', color: '#f59e0b' },
@@ -62,6 +65,7 @@ const TTBoard = (() => {
       await load(true);
       announceNext(t);
     }
+    if (body.due_at !== undefined || body.status) sweep();
     return t;
   }
   async function remove(id) {
@@ -83,6 +87,28 @@ const TTBoard = (() => {
       if (r.created && r.created.length) { await load(true); announceNext(t); }
       else if (status === 'complete' && !wasClosed) toast(`「${t.title}」完成 🎉`);
     } catch (err) { toast(err.message, true); load(true); }
+  }
+
+  const localNow = () => { const d = now(); return `${isoDate(d)}T${hm(d)}`; };
+  const isPast = (dueAt, at = now()) => {
+    if (!dueAt) return false;
+    const n = `${isoDate(at)}T${hm(at)}`;
+    return dueAt.length === 10 ? dueAt < n.slice(0, 10) : dueAt < n;
+  };
+  /** Ask the server to move past-due one-off cards to 過期未結案 (and back when postponed) */
+  let sweeping = null;
+  function sweep() {
+    if (sweeping) return sweeping;
+    sweeping = api('/api/tasks/sweep', { method: 'POST', body: { now: localNow() } })
+      .then(async r => {
+        if (r.moved.length || r.restored.length) {
+          await load(true);
+          if (r.moved.length) toast(`⏰ ${r.moved.length} 張卡片已過期未結案，移到「過期未結案」`);
+        }
+      })
+      .catch(() => {})
+      .finally(() => { sweeping = null; });
+    return sweeping;
   }
 
   /** Close a card through the server (recurring → next occurrence is created once) */
@@ -265,6 +291,82 @@ const TTBoard = (() => {
     if (document.querySelector('.modal:not([hidden])')) return;                        // never interrupt another dialog
     const t = dueForClose()[0];
     if (t) showClosePrompt(t);
+    else checkOverdueDaily();
+  }
+
+  // ------------------------------------- one-off cards past due: daily reminder
+  const overdueOpen = () => tasks.filter(t => !t.repeat && t.due_at && !CLOSED.has(t.status) && isPast(t.due_at))
+    .sort((a, b) => a.due_at.localeCompare(b.due_at));
+  function remindTimeToday(at = now()) {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(settings.board_overdue_remind_time || '') || [0, 9, 30];
+    return new Date(at.getFullYear(), at.getMonth(), at.getDate(), Number(m[1]), Number(m[2]));
+  }
+  function checkOverdueDaily() {
+    const at = now();
+    const list = overdueOpen();
+    if (!list.length || at < remindTimeToday(at) || store.get('board-overdue-day') === isoDate(at)) return;
+    if (document.querySelector('.modal:not([hidden])')) return;
+    showOverdueDialog(list);
+  }
+
+  function showOverdueDialog(list) {
+    store.set('board-overdue-day', isoDate(now()));            // once a day (also when the page is reloaded)
+    const rows = el('div', { class: 'kb-od-list' });
+    const paintRows = () => {
+      const open = overdueOpen().filter(t => list.some(x => x.id === t.id));
+      if (!open.length) { close(); toast('過期的卡片都結案了 🎉'); return; }
+      count.textContent = open.length;
+      rows.replaceChildren(...open.map(t => {
+        const tm = timing(t);
+        const doneBtn = el('button', { class: 'btn btn-sm btn-primary', type: 'button', html: svg('check') + '結案' });
+        const openBtn = el('button', { class: 'btn btn-sm', type: 'button', html: svg('edit') + '開啟' });
+        doneBtn.addEventListener('click', async () => {
+          doneBtn.disabled = openBtn.disabled = true;
+          try { await complete(t); paintRows(); } catch (err) { toast(err.message, true); doneBtn.disabled = openBtn.disabled = false; }
+        });
+        openBtn.addEventListener('click', () => { close(); openEditor(t); });
+        return el('div', { class: 'kb-od-row' },
+          el('div', { class: 'kb-od-text' },
+            el('strong', {}, t.priority === 'high' ? el('span', { class: 'kb-flag', html: svg('flag') }) : null, t.title),
+            el('span', { class: 'kb-od-meta' },
+              el('span', { class: 'kb-chip due-overdue', html: svg('clock') + `<span>${tm.dueText}</span>` }),
+              el('span', { text: `到期 ${fmt(t.due_at, true)} · ${STATUS[t.status]?.zh || ''}` }))),
+          el('div', { class: 'kb-od-actions' }, openBtn, doneBtn));
+      }));
+    };
+    const count = el('span', { class: 'badge badge-alert' });
+    const ok = el('button', { class: 'btn btn-primary', type: 'button', text: '知道了' });
+    const goBoard = el('a', { class: 'btn btn-ghost', href: '/#/board', html: svg('kanban') + '開啟看板' });
+    const time = settings.board_overdue_remind_time || '09:30';
+    const wrap = el('div', { class: 'modal kb-close kb-od' },
+      el('div', { class: 'modal-card kb-close-card kb-od-card', role: 'alertdialog', 'aria-modal': 'true', 'aria-label': '過期未結案提醒' },
+        el('div', { class: 'modal-head' }, el('h3', { html: svg('bell') + '過期未結案提醒' }), count),
+        el('div', { class: 'modal-body' },
+          el('p', { class: 'kb-close-q', text: '這些卡片已經過了到期日，還沒結案：' }),
+          rows,
+          el('p', { class: 'hint', text: `每天 ${time} 會再提醒一次，直到結案為止。若要延後，請在卡片裡改到期日。` })),
+        el('div', { class: 'modal-foot' }, goBoard, el('span', { class: 'spacer' }), ok)));
+    function close() {
+      if (!wrap.isConnected) return;
+      wrap.remove();
+      document.removeEventListener('keydown', onKey);
+      if (!document.querySelector('.modal:not([hidden])')) document.body.classList.remove('modal-open');
+    }
+    const onKey = e => { if (e.key === 'Escape') close(); };
+    ok.addEventListener('click', close);
+    goBoard.addEventListener('click', close);
+    document.addEventListener('keydown', onKey);
+    document.body.append(wrap);
+    document.body.classList.add('modal-open');
+    paintRows();
+    setTimeout(() => ok.focus(), 30);
+    if (canNotify()) {
+      const n = new Notification(`過期未結案：${list.length} 張卡片`, {
+        body: list.slice(0, 4).map(t => `• ${t.title}（${timing(t).dueText}）`).join('\n') + (list.length > 4 ? '\n…' : ''),
+        tag: 'tt-overdue-daily', icon: '/assets/app/icon-192.png', requireInteraction: true,
+      });
+      n.onclick = () => { window.focus(); n.close(); };
+    }
   }
 
   function showClosePrompt(t) {
@@ -351,8 +453,9 @@ const TTBoard = (() => {
     settings = s || {};
     if (started) return;
     started = true;
-    load().catch(() => {});
+    load().then(sweep).catch(() => {});
     setInterval(refreshAlerts, 30 * 1000);                     // time moves on: re-evaluate
+    setInterval(sweep, 60 * 1000);
     setInterval(() => load(true).catch(() => {}), 5 * 60 * 1000); // pick up edits from other people
     document.addEventListener('visibilitychange', () => { if (!document.hidden) load(true).catch(() => {}); });
   }
@@ -372,7 +475,7 @@ const TTBoard = (() => {
     const render = () => {
       if (!root.isConnected && root.dataset.mounted) { boards.delete(render); return; }
       root.dataset.mounted = '1';
-      const cols = STATUSES.filter(s => !(hideClosed && CLOSED.has(s.key)));
+      const cols = STATUSES.filter(s => !(hideClosed && CLOSED.has(s.key)) && !(s.key === 'overdue' && !byStatus('overdue').length));
       root.style.setProperty('--kb-cols', cols.length);
       root.replaceChildren(...cols.map(column));
     };
@@ -381,6 +484,7 @@ const TTBoard = (() => {
       const items = byStatus(s.key);
       const list = el('div', { class: 'kb-list', dataset: { status: s.key } }, items.map(card));
       if (!items.length) list.append(el('div', { class: 'kb-empty', text: s.key === 'recurring' ? '重複性工作會排在這裡' : CLOSED.has(s.key) ? '—' : '拖曳卡片到這裡' }));
+      if (s.key === 'overdue' && items.length) list.prepend(el('p', { class: 'kb-col-note', text: '過了到期日還沒結案的卡片。拖到其他欄就不會再被移回來。' }));
       const add = el('button', { class: 'kb-add', type: 'button', html: svg('plus') + '<span>新增卡片</span>' });
       add.addEventListener('click', () => s.key === 'recurring'
         ? openEditor(null, { status: 'recurring', repeat: 'weekly' })
@@ -391,7 +495,7 @@ const TTBoard = (() => {
           el('span', { class: 'kb-name' }, el('strong', { text: s.label }), el('span', { class: 'kb-zh', text: s.zh })),
           el('span', { class: 'kb-count', text: items.length })),
         list,
-        CLOSED.has(s.key) ? null : add);
+        CLOSED.has(s.key) || s.key === 'overdue' ? null : add);
       list.addEventListener('dragover', e => {
         if (!drag) return;
         e.preventDefault();

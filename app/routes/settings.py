@@ -81,6 +81,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "board_enabled": True,              # sidebar entry, header reminder bell
     "board_notify": True,               # desktop notifications for reminders (viewer must allow)
     "board_due_soon_days": 2,           # cards due within N days are highlighted
+    "board_overdue_remind_time": "09:30",  # daily reminder for one-off cards past due (viewer's local time)
 }
 
 ENUMS = {
@@ -104,6 +105,8 @@ def validate_setting(key: str, value: Any) -> Any:
     default = DEFAULT_SETTINGS[key]
     if key in ENUMS and value not in ENUMS[key]:
         raise HTTPException(status_code=400, detail=f"{key} 的值無效：{value}")
+    if key == "board_overdue_remind_time" and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(value)):
+        raise HTTPException(status_code=400, detail="每日提醒時間格式為 HH:MM，例如 09:30")
     if key == "accent_color" and not re.fullmatch(r"#[0-9a-fA-F]{6}", str(value)):
         raise HTTPException(status_code=400, detail="主題色必須是 #RRGGBB")
     if isinstance(default, bool):
