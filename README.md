@@ -54,6 +54,7 @@
 | | Linux 伺服器版 | Windows 單機版 |
 |---|---|---|
 | 登入 | 整站需要登入：AD 帳號（LDAP / LDAPS）＋ 安裝時建立的本機管理員（緊急用） | 不需要登入 |
+| 設定方式 | **全部在網頁後台**：AD 登入（含測試）、登入安全、HTTPS 憑證、連線埠、自動備份與還原；安裝後不需再登入伺服器 | 全部在網頁後台 |
 | 權限 | 管理員（後台指定）／使用者（AD 預設）；至少一位 AD 管理員 | 只有自己 |
 | 待辦看板 | 每個帳號各自的卡片；管理員看全部並可指派；@ 同事協作、留言、通知 | 單人看板 |
 | 公開進度看板 `/dashboard` | 不需登入、唯讀：部門 → 帳號 → 各狀態卡片數，不顯示內容、不含週期工作，自動刷新 | — |
@@ -117,7 +118,7 @@ Windows 用 `run.bat`。開在 `http://127.0.0.1:8080`，後台在 `/admin`。
 - 或在「外觀與設定 → 頁首」打開「顯示 ⚙ 後台按鈕」
 - 伺服器版：管理員右上角的帳號選單也有「管理後台」；使用者進不了後台
 
-開發時預設不登入（和單機版一樣）。要測帳號功能：`TOOL_TABLE_AUTH=1 python -m app.cli local-admin` 建立本機管理員，再以 `TOOL_TABLE_AUTH=1 ./run.sh` 啟動；AD 設定見 [docs/INSTALL.md](docs/INSTALL.md#26-帳號與-ad-登入)。
+開發時預設不登入（和單機版一樣）。要測帳號功能：`TOOL_TABLE_AUTH=1 python -m app.cli local-admin` 建立本機管理員，再以 `TOOL_TABLE_AUTH=1 ./run.sh` 啟動，AD 在後台「系統設定」設定。
 
 ---
 
@@ -180,6 +181,7 @@ docs/INSTALL.md             安裝與運維 SOP
 | GET / POST | `/api/tasks/{id}/comments` | 卡片留言（`@帳號` 會通知對方） |
 | GET / POST | `/api/notifications`、`/api/notifications/read` | 通知（被指派、被提到、新留言） |
 | GET | `/api/public/dashboard` | 公開進度看板資料（不需登入；只有數量） |
+| GET / PUT / POST | `/api/system/*` | （管理員）AD 設定與測試、登入安全、HTTPS 憑證、連線埠、自動備份 / 還原 |
 | GET | `/api/health`、`/api/time`、`/api/whoami` | 健康檢查、伺服器時間、使用者 IP |
 
 開發模式可在 `/docs` 看互動式 API 文件（正式環境預設關閉）。

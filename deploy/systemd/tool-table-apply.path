@@ -1,0 +1,11 @@
+# Apply settings changed in the admin UI that need root (HTTPS certificate, ports, name).
+# The app (unprivileged) drops a request file; this starts tool-table-apply.service.
+[Unit]
+Description=Tool Table: apply admin UI changes that need root
+
+[Path]
+PathExists=/var/lib/tool-table/requests/request.json
+Unit=tool-table-apply.service
+
+[Install]
+WantedBy=paths.target

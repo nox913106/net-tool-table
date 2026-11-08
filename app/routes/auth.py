@@ -155,7 +155,9 @@ async def change_password(body: PasswordIn, user: dict = Depends(current_user)):
         cur = await db.execute("SELECT password_hash FROM users WHERE id = ?", (user["id"],))
         if not verify_password(body.current, (await cur.fetchone())["password_hash"]):
             raise HTTPException(status_code=400, detail="目前的密碼不正確")
-        await db.execute("UPDATE users SET password_hash = ? WHERE id = ?", (hash_password(body.new), user["id"]))
+        if verify_password(body.new, (await (await db.execute("SELECT password_hash FROM users WHERE id = ?", (user["id"],))).fetchone())["password_hash"]):
+            raise HTTPException(status_code=400, detail="新密碼不能和目前的密碼相同")
+        await db.execute("UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?", (hash_password(body.new), user["id"]))
         await db.commit()
         return {"success": True}
     finally:

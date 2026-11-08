@@ -387,7 +387,12 @@ const TT = (() => {
   /* ---------- accounts (server edition) ---------- */
   let mePromise = null;
   /** { user, auth, is_admin, needs_ad_admin } — portable / no-login: an implicit local admin */
-  const me = () => (mePromise ||= api('/api/auth/me').catch(() => ({ user: { username: 'local', display_name: '本機', role: 'superadmin' }, auth: false, is_admin: true })));
+  const me = () => (mePromise ||= api('/api/auth/me').then(m => {
+    if (m.user?.must_change_password && location.pathname !== '/login') {     // first sign-in of the local admin
+      location.replace('/login?change=1&next=' + encodeURIComponent(location.pathname + location.hash));
+    }
+    return m;
+  }).catch(() => ({ user: { username: 'local', display_name: '本機', role: 'superadmin' }, auth: false, is_admin: true })));
   const ROLE = { superadmin: '本機最高管理員', admin: '管理員', user: '使用者' };
   const nameOf = p => (p && (p.name || p.display_name || p.username)) || '';
   function avatar(person, size = 24) {

@@ -14,16 +14,32 @@ from fastapi.staticfiles import StaticFiles
 from .config import ENABLE_DOCS, ICON_DIR, PROJECT_ROOT
 from .database import init_db
 from . import auth as auth_mod
-from .routes import auth as auth_routes, auth_links, dashboard, local, nodes, search, settings, tasks
+from .routes import auth as auth_routes, auth_links, dashboard, local, nodes, search, settings, system, tasks
 
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 VERSION = "3.0.0"
 
 
+async def _scheduler():
+    """Background jobs that need no cron: the daily backup (settings in the admin UI)."""
+    import asyncio
+    from . import backup
+    loop = asyncio.get_running_loop()
+    while True:
+        try:
+            await loop.run_in_executor(None, backup.run_scheduled)
+        except Exception:
+            pass
+        await asyncio.sleep(60)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import asyncio
     await init_db()
+    task = asyncio.create_task(_scheduler())
     yield
+    task.cancel()
 
 
 app = FastAPI(
@@ -44,6 +60,7 @@ app.include_router(tasks.router)
 app.include_router(tasks.notes_router)
 app.include_router(auth_routes.router)
 app.include_router(dashboard.router)
+app.include_router(system.router)
 
 
 @app.middleware("http")

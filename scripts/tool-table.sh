@@ -11,6 +11,8 @@
 #   tool-table.sh backup    [--quiet]
 #   tool-table.sh restore   <backup-file.tar.gz>
 #   tool-table.sh renew-cert
+#   tool-table.sh apply-request          (run by tool-table-apply.path) apply a certificate /
+#                                        port change requested from the admin UI
 #   tool-table.sh reset-admin            new password for the local break-glass admin
 #   tool-table.sh users                  list accounts and roles
 #   tool-table.sh ldap-check             test the AD connection / service account
@@ -165,7 +167,13 @@ install_units() {
     install -m 0644 "$APP_DIR/deploy/systemd/tool-table.service"        "$UNIT_DIR/tool-table.service"
     install -m 0644 "$APP_DIR/deploy/systemd/tool-table-backup.service" "$UNIT_DIR/tool-table-backup.service"
     install -m 0644 "$APP_DIR/deploy/systemd/tool-table-backup.timer"   "$UNIT_DIR/tool-table-backup.timer"
+    install -m 0644 "$APP_DIR/deploy/systemd/tool-table-apply.path"     "$UNIT_DIR/tool-table-apply.path"
+    install -m 0644 "$APP_DIR/deploy/systemd/tool-table-apply.service"  "$UNIT_DIR/tool-table-apply.service"
+    # Request drop box for the admin UI (certificate / ports); the marker tells the app it is served
+    install -d -m 0750 -o "$APP_USER" -g "$APP_USER" "$DATA_DIR_DEFAULT/requests"
+    install -m 0644 -o root -g root /dev/null "$DATA_DIR_DEFAULT/requests/.helper"
     systemctl daemon-reload
+    systemctl enable --now tool-table-apply.path >/dev/null 2>&1 || true
 }
 
 setup_python() {
@@ -212,13 +220,13 @@ print_summary() {
     if [[ -n "$ADMIN_NOTE" ]]; then
     echo "  ---- 本機管理員（最高權限，平常不用）----"
     sed 's/^/  /' <<<"$ADMIN_NOTE"
-    echo "  （也存在 $ETC_DIR/initial-admin.txt，僅 root 可讀；記下後可刪除）"
+    echo "  （也存在 $ETC_DIR/initial-admin.txt，僅 root 可讀；第一次登入改完密碼後可刪除）"
     fi
-    if [[ -z "$(env_get TOOL_TABLE_LDAP_URL)" ]]; then
-    echo "  AD 登入：在 $ENV_FILE 填好 TOOL_TABLE_LDAP_*，再執行"
-    echo "           sudo systemctl restart tool-table && sudo bash $APP_DIR/scripts/tool-table.sh ldap-check"
-    fi
-    echo "  然後用本機管理員登入後台「帳號與權限」，至少指定一位 AD 帳號為管理員。"
+    echo
+    echo "  接下來都在網頁後台完成，不需要再登入這台伺服器："
+    echo "    1. 用本機管理員登入，設定自己的密碼"
+    echo "    2. 後台「系統設定」：AD 登入（可先測試再儲存）、HTTPS 憑證、連線埠"
+    echo "    3. 後台「帳號與權限」：至少指定一位 AD 帳號為管理員"
     fi
     echo
     echo "  憑證為自簽，瀏覽器第一次會警告，確認後即可使用。"
@@ -309,6 +317,7 @@ cmd_install() {
 
     log "安裝 systemd 服務"
     install_units
+    req_state
     systemctl enable --now tool-table.service >/dev/null
     systemctl restart tool-table.service
     systemctl enable --now tool-table-backup.timer >/dev/null
@@ -351,6 +360,7 @@ cmd_upgrade() {
 
     setup_python
     install_units
+    req_state
     # Upgrading from a version without accounts: turn sign-in on and create the local admin
     if [[ -z "$(env_get TOOL_TABLE_AUTH)" ]]; then
         env_set TOOL_TABLE_AUTH true
@@ -373,7 +383,7 @@ cmd_upgrade() {
     if [[ -n "$ADMIN_NOTE" ]]; then
         echo; echo "  ---- 本機管理員（最高權限，平常不用）----"; sed 's/^/  /' <<<"$ADMIN_NOTE"
         echo "  （也存在 $ETC_DIR/initial-admin.txt，僅 root 可讀）"
-        echo "  登入後到後台「帳號與權限」至少指定一位 AD 管理員；AD 設定見 docs/INSTALL.md"
+        echo "  登入後在後台「系統設定」設定 AD，並在「帳號與權限」至少指定一位 AD 管理員"
     fi
 }
 
@@ -390,8 +400,9 @@ cmd_uninstall() {
     require_root
 
     log "停用並移除服務"
-    systemctl disable --now tool-table.service tool-table-backup.timer >/dev/null 2>&1 || true
-    rm -f "$UNIT_DIR/tool-table.service" "$UNIT_DIR/tool-table-backup.service" "$UNIT_DIR/tool-table-backup.timer"
+    systemctl disable --now tool-table.service tool-table-backup.timer tool-table-apply.path >/dev/null 2>&1 || true
+    rm -f "$UNIT_DIR/tool-table.service" "$UNIT_DIR/tool-table-backup.service" "$UNIT_DIR/tool-table-backup.timer" \
+          "$UNIT_DIR/tool-table-apply.path" "$UNIT_DIR/tool-table-apply.service"
     systemctl daemon-reload
 
     log "移除 nginx 站台"
@@ -582,21 +593,154 @@ cmd_doctor() {
             local users
             users="$(app_cli users 2>/dev/null || true)"
             if grep -q " superadmin " <<<"$users"; then ok "本機管理員帳號存在"
+                [[ -f "$ETC_DIR/initial-admin.txt" ]] && info "初始密碼檔 $ETC_DIR/initial-admin.txt 還在：改完密碼後可刪除"
             else bad "沒有本機管理員帳號" "sudo bash $APP_DIR/scripts/tool-table.sh reset-admin"; fi
             if grep -qE "^[^ ]+ +ldap +admin +啟用" <<<"$users"; then ok "已有 AD 管理員"
             else info "還沒有 AD 管理員：用本機管理員登入後台「帳號與權限」指定"; fi
-            if [[ -n "$(env_get TOOL_TABLE_LDAP_URL)" ]]; then
-                if app_cli ldap-check >/dev/null 2>&1; then ok "AD 連線正常（$(env_get TOOL_TABLE_LDAP_URL)）"
-                else bad "AD 連線失敗" "sudo bash $APP_DIR/scripts/tool-table.sh ldap-check"; fi
-            else
-                info "尚未設定 AD（TOOL_TABLE_LDAP_URL），目前只能用本機管理員登入"
-            fi
+            local ldap_out ldap_rc=0
+            ldap_out="$(app_cli ldap-check 2>&1)" || ldap_rc=$?
+            if [[ $ldap_rc -eq 0 ]] && grep -q "✔ 服務帳號登入成功\|沒有服務帳號" <<<"$ldap_out"; then ok "AD 連線正常"
+            elif grep -q "尚未啟用\|未設定" <<<"$ldap_out"; then info "尚未啟用 AD：在後台「系統設定 → AD 登入」設定"
+            else bad "AD 連線失敗：$(tail -1 <<<"$ldap_out")" "後台「系統設定 → AD 登入」按「測試」查看細節"; fi
         fi
     else
         info "帳號登入未開啟（TOOL_TABLE_AUTH）：任何人都能修改內容"
     fi
 
+    if systemctl is-enabled --quiet tool-table-apply.path 2>/dev/null; then ok "後台設定套用服務（tool-table-apply.path）已啟用"
+    else bad "後台無法套用憑證 / 連線埠變更" "sudo bash $APP_DIR/scripts/tool-table.sh upgrade --no-pull"; fi
+
     if (( fails == 0 )); then log "全部通過"; else warn "$fails 項需要處理（見上方 → 修法）"; return 1; fi
+}
+
+# ------------------------------------------------- admin UI requests (root) ---
+# The app cannot touch nginx or /etc. It writes $REQ_DIR/request.json (+ cert.pem/key.pem);
+# tool-table-apply.path runs this. Everything in the request is treated as untrusted.
+REQ_DIR="$DATA_DIR_DEFAULT/requests"
+
+req_result() {   # ok(true|false) message
+    local ok="$1" msg="$2" tmp
+    tmp="$(mktemp)"
+    python3 - "$ok" "$msg" "$REQ_ID" > "$tmp" <<'PY'
+import json, sys, datetime
+print(json.dumps({"id": sys.argv[3], "ok": sys.argv[1] == "true", "message": sys.argv[2],
+                  "at": datetime.datetime.now().isoformat(timespec="seconds")}, ensure_ascii=False))
+PY
+    install -m 0640 -o "$APP_USER" -g "$APP_USER" "$tmp" "$REQ_DIR/result.json"
+    rm -f "$tmp"
+}
+
+req_state() {    # current network settings for the admin UI
+    local tmp; tmp="$(mktemp)"
+    python3 - "$(env_get TOOL_TABLE_HTTPS_PORT)" "$(env_get TOOL_TABLE_HTTP_PORT)" "$(env_get TOOL_TABLE_FQDN)" > "$tmp" <<'PY'
+import json, sys
+print(json.dumps({"https_port": int(sys.argv[1] or 33443), "http_port": int(sys.argv[2] or 0), "fqdn": sys.argv[3]}))
+PY
+    install -m 0640 -o "$APP_USER" -g "$APP_USER" "$tmp" "$REQ_DIR/state.json"
+    rm -f "$tmp"
+}
+
+cmd_apply_request() {
+    require_root
+    local req="$REQ_DIR/request.json"
+    [[ -f "$req" && ! -L "$req" ]] || exit 0
+    # One request at a time (the path unit can fire again while we are working)
+    exec 9>"/run/tool-table-apply.lock"
+    flock -n 9 || exit 0
+    # Parse with python into fixed, validated fields (never eval the file)
+    local parsed
+    parsed="$(python3 - "$req" <<'PY'
+import json, re, sys
+try:
+    r = json.load(open(sys.argv[1]))
+except Exception:
+    print("bad"); sys.exit()
+kind = r.get("type")
+rid = str(r.get("id", ""))
+if not re.fullmatch(r"[A-Za-z0-9-]{1,40}", rid):
+    print("bad"); sys.exit()
+if kind in ("tls_upload", "tls_selfsigned"):
+    print(f"{kind} {rid}")
+elif kind == "network":
+    hp, p80, fq = r.get("https_port"), r.get("http_port"), r.get("fqdn") or ""
+    ok = isinstance(hp, int) and 1 <= hp <= 65535 and isinstance(p80, int) and 0 <= p80 <= 65535 and hp != p80 \
+         and re.fullmatch(r"(|[A-Za-z0-9]([A-Za-z0-9-]{0,62}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,62}[A-Za-z0-9])?)*)", fq)
+    print(f"network {rid} {hp} {p80} {fq or '-'}" if ok else "bad")
+else:
+    print("bad")
+PY
+)"
+    local kind REQ_ID a b c
+    read -r kind REQ_ID a b c <<<"$parsed"
+    REQ_ID="${REQ_ID:-unknown}"
+    rm -f "$req"
+    case "$kind" in
+        tls_upload)     apply_tls_upload ;;
+        tls_selfsigned) apply_tls_selfsigned ;;
+        network)        apply_network "$a" "$b" "$([[ "$c" == - ]] && echo "" || echo "$c")" ;;
+        *)              req_result false "無法辨識的要求" ;;
+    esac
+    rm -f "$REQ_DIR/cert.pem" "$REQ_DIR/key.pem"
+    req_state
+}
+
+tls_backup()  { install -d -m 0755 "$TLS_DIR/previous"; cp -p "$TLS_DIR/server.crt" "$TLS_DIR/server.key" "$TLS_DIR/previous/" 2>/dev/null || true; }
+tls_restore() { cp -p "$TLS_DIR/previous/server.crt" "$TLS_DIR/previous/server.key" "$TLS_DIR/" 2>/dev/null || true; }
+
+apply_tls_upload() {
+    local crt="$REQ_DIR/cert.pem" key="$REQ_DIR/key.pem"
+    [[ -f "$crt" && -f "$key" && ! -L "$crt" && ! -L "$key" ]] || { req_result false "缺少憑證或私鑰檔"; return; }
+    openssl x509 -in "$crt" -noout >/dev/null 2>&1 || { req_result false "憑證不是有效的 PEM"; return; }
+    openssl pkey -in "$key" -noout >/dev/null 2>&1 || { req_result false "私鑰不是有效的 PEM（或有密碼保護）"; return; }
+    [[ "$(openssl x509 -in "$crt" -noout -pubkey | openssl sha256)" == "$(openssl pkey -in "$key" -pubout | openssl sha256)" ]] \
+        || { req_result false "私鑰與憑證不成對"; return; }
+    openssl x509 -in "$crt" -noout -checkend 0 >/dev/null 2>&1 || { req_result false "憑證已過期"; return; }
+    tls_backup
+    install -m 0644 -o root -g root "$crt" "$TLS_DIR/server.crt"
+    install -m 0600 -o root -g root "$key" "$TLS_DIR/server.key"
+    if nginx -t >/dev/null 2>&1; then
+        systemctl reload nginx
+        req_result true "已換上新憑證：$(openssl x509 -in "$TLS_DIR/server.crt" -noout -subject | sed 's/^subject=//')"
+    else
+        tls_restore; systemctl reload nginx 2>/dev/null || true
+        req_result false "nginx 不接受這張憑證，已換回原本的"
+    fi
+}
+
+apply_tls_selfsigned() {
+    tls_backup
+    if bash "$APP_DIR/scripts/generate-self-signed-cert.sh" --out-dir "$TLS_DIR" --force \
+            $( [[ -n "$(env_get TOOL_TABLE_FQDN)" ]] && echo "--cn $(env_get TOOL_TABLE_FQDN)" ) >/dev/null 2>&1 && nginx -t >/dev/null 2>&1; then
+        systemctl reload nginx
+        req_result true "已重新產生自簽憑證"
+    else
+        tls_restore; systemctl reload nginx 2>/dev/null || true
+        req_result false "產生自簽憑證失敗，已保留原本的"
+    fi
+}
+
+apply_network() {
+    local https_port="$1" http_port="$2" fqdn="$3" app_port owner p
+    app_port="$(env_get TOOL_TABLE_APP_PORT)"; app_port="${app_port:-$DEFAULT_APP_PORT}"
+    [[ "$https_port" != "$app_port" && "$http_port" != "$app_port" ]] || { req_result false "不能使用服務內部埠 $app_port"; return; }
+    for p in "$https_port" "$http_port"; do
+        [[ "$p" == 0 ]] && continue
+        owner="$(port_owner "$p")"
+        [[ -z "$owner" || "$owner" == nginx ]] || { req_result false "埠 $p 已被 $owner 使用"; return; }
+    done
+    local old_https old_http old_fqdn
+    old_https="$(env_get TOOL_TABLE_HTTPS_PORT)"; old_http="$(env_get TOOL_TABLE_HTTP_PORT)"; old_fqdn="$(env_get TOOL_TABLE_FQDN)"
+    cp -p "$NGINX_SITE" "$NGINX_SITE.previous" 2>/dev/null || true
+    env_set TOOL_TABLE_HTTPS_PORT "$https_port"; env_set TOOL_TABLE_HTTP_PORT "$http_port"; env_set TOOL_TABLE_FQDN "$fqdn"
+    if ( render_nginx "$https_port" "$http_port" "$app_port" "$fqdn" ) >/dev/null 2>&1 && systemctl reload nginx; then
+        open_firewall "$https_port" "$http_port" >/dev/null 2>&1 || true
+        req_result true "已套用：HTTPS :$https_port$( [[ "$http_port" != 0 ]] && echo "，HTTP :$http_port → HTTPS")${fqdn:+，名稱 $fqdn}"
+    else
+        env_set TOOL_TABLE_HTTPS_PORT "$old_https"; env_set TOOL_TABLE_HTTP_PORT "$old_http"; env_set TOOL_TABLE_FQDN "$old_fqdn"
+        cp -p "$NGINX_SITE.previous" "$NGINX_SITE" 2>/dev/null || true
+        systemctl reload nginx 2>/dev/null || true
+        req_result false "nginx 無法套用新設定，已還原原本的埠與名稱"
+    fi
 }
 
 # --------------------------------------------------------- accounts / AD ---
@@ -633,6 +777,7 @@ main() {
         restore)    shift; cmd_restore "$@" ;;
         renew-cert) shift; cmd_renew_cert "$@" ;;
         reset-admin) shift; cmd_reset_admin "$@" ;;
+        apply-request) shift; cmd_apply_request "$@" ;;
         users)      shift; cmd_users "$@" ;;
         ldap-check) shift; cmd_ldap_check "$@" ;;
         ldap-test)  shift; cmd_ldap_test "$@" ;;

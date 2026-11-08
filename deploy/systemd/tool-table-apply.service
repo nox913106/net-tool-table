@@ -1,0 +1,10 @@
+[Unit]
+Description=Tool Table: apply a request from the admin UI (certificate / ports)
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/tool-table/scripts/tool-table.sh apply-request
+# The request file is untrusted input: tool-table.sh re-validates every value,
+# never evaluates it, and rolls back if nginx does not accept the result.
+TimeoutStartSec=120

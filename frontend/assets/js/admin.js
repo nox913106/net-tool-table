@@ -20,6 +20,7 @@
     { id: 'settings', icon: 'palette', label: '外觀與設定', desc: '品牌、配色、頁首元件、導覽與卡片。' },
     { id: 'backup', icon: 'database', label: '備份與匯入', desc: '把全部內容匯出成 JSON，或從 JSON 匯入。' },
     { id: 'users', icon: 'users', label: '帳號與權限', desc: 'AD 帳號第一次登入後會出現在這裡，預設是「使用者」；在這裡指定管理員。', auth: true },
+    { id: 'system', icon: 'settings', label: '系統設定', desc: 'AD 登入、登入安全、HTTPS 憑證、連線埠。所有設定都在這裡完成，不需要登入伺服器。' },
   ];
 
   const state = {
@@ -243,7 +244,7 @@
     stage.replaceChildren(head, body);
     stage.classList.remove('enter'); void stage.offsetWidth; stage.classList.add('enter');
 
-    ({ content: renderContent, home: renderHome, quick: renderQuick, icons: renderIcons, settings: renderSettings, backup: renderBackup, users: renderUsers })[panel.id]();
+    ({ content: renderContent, home: renderHome, quick: renderQuick, icons: renderIcons, settings: renderSettings, backup: renderBackup, users: renderUsers, system: renderSystem })[panel.id]();
   }
 
   // ======================================================================
@@ -1327,6 +1328,267 @@
     paint();
   }
 
+  async function renderAutoBackup(box) {
+    let B;
+    try { B = await api('/api/system/backup'); } catch (e) { box.replaceChildren(el('p', { class: 'hint', text: e.message })); return; }
+    const on = switchCtl(B.enabled, '每天自動備份', () => {});
+    const time = input(B.time, { type: 'time' });
+    const keep = input(B.keep_days, { type: 'number', min: '1', max: '3650' });
+    const save = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + '儲存排程' });
+    save.addEventListener('click', async () => {
+      try { B = await api('/api/system/backup', { method: 'PUT', body: { enabled: on.querySelector('input').checked, time: time.value, keep_days: Number(keep.value) } }); toast('已儲存'); }
+      catch (e) { toast(e.message, true); }
+    });
+    const now = el('button', { class: 'btn', type: 'button', html: svg('database') + '立即備份' });
+    now.addEventListener('click', async () => {
+      now.disabled = true;
+      try { const b = await api('/api/system/backups', { method: 'POST' }); toast(`已備份：${b.name}`); renderAutoBackup(box); } catch (e) { toast(e.message, true); now.disabled = false; }
+    });
+    const upFile = el('input', { type: 'file', accept: '.gz,.tgz,application/gzip', hidden: true });
+    const upBtn = el('button', { class: 'btn btn-ghost', type: 'button', html: svg('upload') + '上傳備份檔' });
+    upBtn.addEventListener('click', () => upFile.click());
+    upFile.addEventListener('change', async () => {
+      const f = upFile.files[0]; upFile.value = '';
+      if (!f) return;
+      const form = new FormData(); form.append('file', f);
+      try { const b = await api('/api/system/backups/upload', { method: 'POST', form }); toast(`已上傳：${b.name}，可以按「還原」`); renderAutoBackup(box); }
+      catch (e) { toast(e.message, true); }
+    });
+    const size = n => n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+    const rows = B.backups.length ? B.backups.map(b => {
+      const restore = el('button', { class: 'btn btn-sm', type: 'button', html: svg('refresh') + '還原' });
+      const del = el('button', { class: 'icon-btn danger', type: 'button', title: '刪除', html: svg('trash') });
+      restore.addEventListener('click', async () => {
+        if (!(await confirmDialog(`還原 ${b.created.replace('T', ' ')} 的備份？`, '資料庫、圖示與加密設定會換成這份備份的內容（帳號、看板、連結、設定）。還原前會自動再備份一次目前的狀態。還原後需要重新登入。', '還原'))) return;
+        try { const r = await api(`/api/system/backups/${encodeURIComponent(b.name)}/restore`, { method: 'POST' }); toast(`已還原（還原前的狀態存成 ${r.safety_backup}）`); setTimeout(() => location.reload(), 1200); }
+        catch (e) { toast(e.message, true); }
+      });
+      del.addEventListener('click', async () => {
+        if (!(await confirmDialog('刪除這份備份？', b.name, '刪除'))) return;
+        try { await api(`/api/system/backups/${encodeURIComponent(b.name)}`, { method: 'DELETE' }); renderAutoBackup(box); } catch (e) { toast(e.message, true); }
+      });
+      return el('div', { class: 'bk-row' },
+        el('span', { class: 'bk-when', text: b.created.replace('T', ' ') }),
+        el('span', { class: 'bk-kind', text: b.kind }),
+        el('span', { class: 'bk-size', text: size(b.size) }),
+        el('span', { class: 'bk-actions' }, el('a', { class: 'btn btn-sm btn-ghost', href: `/api/system/backups/${encodeURIComponent(b.name)}`, download: b.name, html: svg('download') + '下載' }), restore, del));
+    }) : [el('p', { class: 'hint', text: '還沒有備份' })];
+    box.replaceChildren(
+      el('h3', { class: 'settings-card-title', html: svg('database') + '自動備份（完整：資料庫、圖示、帳號與加密設定）' }),
+      el('div', { class: 'sys-form' }, el('div', { class: 'field' }, on), field('每天幾點', time), field('保留天數', keep)),
+      el('p', { class: 'hint', text: B.last_run ? `上次自動備份：${B.last_run.replace('T', ' ')}　${B.last_result}` : '尚未執行過自動備份' }),
+      el('div', { class: 'sys-actions' }, now, upBtn, upFile, el('span', { class: 'spacer' }), save),
+      el('div', { class: 'bk-list' }, rows),
+      el('p', { class: 'hint', text: `備份存放在伺服器的 ${B.dir}。下載的備份檔含有解密金鑰，請妥善保管。` }));
+  }
+
+  // ======================================================================
+  // System settings (AD, sign-in security, HTTPS certificate, ports)
+  // ======================================================================
+  function sysCard(icon, title, intro, ...body) {
+    return el('section', { class: 'panel settings-card sys-card' },
+      el('h3', { class: 'settings-card-title', html: svg(icon) + esc(title) }),
+      intro ? el('p', { class: 'hint sys-intro', html: intro }) : null, ...body);
+  }
+  const input = (value, attrs = {}) => { const i = el('input', { class: 'input', ...attrs }); i.value = value ?? ''; return i; };
+  const resultBox = () => el('div', { class: 'sys-result', hidden: true });
+  function showSteps(box, res) {
+    box.hidden = false;
+    box.replaceChildren(...res.steps.map(st => el('div', { class: `sys-step is-${st.status}`, html: svg(st.status === 'ok' ? 'check' : st.status === 'fail' ? 'x' : 'sparkles') + `<span>${esc(st.text)}</span>` })));
+  }
+  async function waitApply(id, box, done) {
+    box.hidden = false;
+    box.replaceChildren(el('div', { class: 'sys-step is-info', html: svg('refresh') + '<span>套用中…（由伺服器的管理服務執行，通常幾秒內完成）</span>' }));
+    for (let i = 0; i < 40; i++) {
+      await new Promise(r => setTimeout(r, 1500));
+      let r;
+      try { r = await api(`/api/system/apply/${id}`); } catch { continue; }      // nginx may be reloading
+      if (r.pending) continue;
+      box.replaceChildren(el('div', { class: `sys-step is-${r.ok ? 'ok' : 'fail'}`, html: svg(r.ok ? 'check' : 'x') + `<span>${esc(r.message)}</span>` }));
+      done?.(r);
+      return r;
+    }
+    box.replaceChildren(el('div', { class: 'sys-step is-fail', html: svg('x') + '<span>等候逾時：伺服器的管理服務（tool-table-apply.path）沒有回應。請重新執行一次升級（upgrade）讓它安裝。</span>' }));
+  }
+
+  async function renderSystem() {
+    const body = $('stage-body');
+    const grid = el('div', { class: 'sys-grid' });
+    body.append(grid);
+    const auth = state.me?.auth;
+
+    // ---------------- AD / LDAP
+    if (auth) {
+      let L;
+      try { L = await api('/api/system/ldap'); } catch (e) { grid.append(el('p', { class: 'hint', text: e.message })); return; }
+      const f = {
+        enabled: switchCtl(L.enabled, '啟用 AD 登入', () => {}),
+        url: input(L.url, { placeholder: 'ldaps://dc1.corp.local' }),
+        base_dn: input(L.base_dn, { placeholder: 'DC=corp,DC=local' }),
+        bind_dn: input(L.bind_dn, { placeholder: 'CN=svc-tooltable,OU=Service Accounts,DC=corp,DC=local' }),
+        bind_password: input('', { type: 'password', autocomplete: 'new-password', placeholder: L.bind_password_set ? '••••••••（已設定；留空 = 不變）' : '服務帳號密碼' }),
+        domain: input(L.domain, { placeholder: 'corp.local' }),
+        user_filter: input(L.user_filter, { placeholder: '(memberOf=CN=ToolTable-Users,OU=Groups,DC=corp,DC=local)' }),
+        login_attr: input(L.login_attr), name_attr: input(L.name_attr), dept_attr: input(L.dept_attr), mail_attr: input(L.mail_attr),
+        starttls: switchCtl(L.starttls, 'ldap:// 時使用 StartTLS 加密', () => {}),
+        tls_verify: switchCtl(L.tls_verify, '驗證網域控制站憑證（建議）', () => {}),
+        ca_pem: el('textarea', { class: 'textarea mono', rows: '4', placeholder: '-----BEGIN CERTIFICATE-----\n（內部 CA 簽發時貼上，可多張）' }),
+        timeout: input(L.timeout, { type: 'number', min: '2', max: '30' }),
+      };
+      f.ca_pem.value = L.ca_pem || '';
+      let clearPw = false;
+      const clearBtn = L.bind_password_set ? el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '清除已存的密碼' }) : null;
+      clearBtn?.addEventListener('click', () => { clearPw = true; f.bind_password.placeholder = '（儲存後清除）'; toast('儲存後會清除服務帳號密碼'); });
+      const chk = el => el.querySelector('input').checked;
+      const values = () => ({
+        enabled: chk(f.enabled), url: f.url.value.trim(), base_dn: f.base_dn.value.trim(), bind_dn: f.bind_dn.value.trim(),
+        bind_password: f.bind_password.value ? f.bind_password.value : (clearPw ? '' : null),
+        domain: f.domain.value.trim(), user_filter: f.user_filter.value.trim(),
+        login_attr: f.login_attr.value.trim(), name_attr: f.name_attr.value.trim(), dept_attr: f.dept_attr.value.trim(), mail_attr: f.mail_attr.value.trim(),
+        starttls: chk(f.starttls), tls_verify: chk(f.tls_verify), ca_pem: f.ca_pem.value, timeout: Number(f.timeout.value) || 6,
+      });
+      const res = resultBox();
+      const tUser = input('', { placeholder: '測試帳號（選填）', autocomplete: 'off' });
+      const tPass = input('', { type: 'password', placeholder: '密碼', autocomplete: 'new-password' });
+      const tSearch = input('', { placeholder: '搜尋目錄（選填，例如 王）' });
+      const testBtn = el('button', { class: 'btn', type: 'button', html: svg('zap') + '測試' });
+      const saveBtn = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + '儲存 AD 設定' });
+      testBtn.addEventListener('click', async () => {
+        testBtn.disabled = true;
+        res.hidden = false; res.replaceChildren(el('div', { class: 'sys-step is-info', html: svg('refresh') + '<span>連線中…</span>' }));
+        try { showSteps(res, await api('/api/system/ldap/test', { method: 'POST', body: { ...values(), username: tUser.value.trim(), password: tPass.value, search: tSearch.value.trim() } })); }
+        catch (e) { showSteps(res, { steps: [{ status: 'fail', text: e.message }] }); }
+        testBtn.disabled = false;
+      });
+      saveBtn.addEventListener('click', async () => {
+        try {
+          L = await api('/api/system/ldap', { method: 'PUT', body: values() });
+          f.bind_password.value = ''; clearPw = false;
+          f.bind_password.placeholder = L.bind_password_set ? '••••••••（已設定；留空 = 不變）' : '服務帳號密碼';
+          toast(L.enabled ? 'AD 設定已儲存並啟用' : 'AD 設定已儲存（未啟用）');
+        } catch (e) { toast(e.message, true); }
+      });
+      grid.append(sysCard('users', 'AD 登入（LDAP）',
+        '使用者用 Windows / AD 帳號密碼登入；第一次登入自動建立為「使用者」。服務帳號密碼加密保存，不會再顯示。<br>建議使用 <b>ldaps://</b>（636）；用 <b>ldap://</b>（389）時請開 StartTLS，否則密碼以明文傳送。',
+        f.enabled,
+        el('div', { class: 'sys-form' },
+          field('伺服器', f.url, '可填多台中的一台；IP 或主機名稱皆可'),
+          field('Base DN（搜尋起點）', f.base_dn),
+          field('服務帳號 DN（建議）', f.bind_dn, '唯讀帳號即可。有它才能在看板 @ 還沒登入過的同事、在「帳號與權限」預先加入帳號'),
+          el('div', { class: 'field' }, el('span', { class: 'field-label', text: '服務帳號密碼' }), f.bind_password, clearBtn),
+          field('或：網域（不用服務帳號時）', f.domain, '以「帳號@網域」直接登入，例如 corp.local'),
+          field('只允許這些帳號登入（選填）', f.user_filter, 'LDAP 篩選，例如某個群組的成員'),
+          el('details', { class: 'sys-advanced' }, el('summary', { text: '進階：屬性名稱、TLS、逾時' }),
+            el('div', { class: 'sys-form' },
+              field('帳號屬性', f.login_attr), field('姓名屬性', f.name_attr), field('部門屬性（公開看板分組）', f.dept_attr), field('信箱屬性', f.mail_attr),
+              el('div', { class: 'field span-all' }, f.starttls, f.tls_verify),
+              el('div', { class: 'span-all' }, field('內部 CA 憑證（PEM）', f.ca_pem, L.ca_subjects?.length ? '目前信任：' + L.ca_subjects.join('；') : '網域控制站的憑證由內部 CA 簽發時才需要')),
+              field('逾時（秒）', f.timeout)))),
+        el('div', { class: 'sys-test' }, el('span', { class: 'field-label', text: '測試（用目前表單的內容，不必先儲存）' }), el('div', { class: 'sys-test-row' }, tUser, tPass, tSearch, testBtn)),
+        res,
+        el('div', { class: 'sys-actions' }, saveBtn)));
+
+      // ---------------- sign-in security
+      const S = await api('/api/system/security');
+      const sf = {
+        session_hours: input(S.session_hours, { type: 'number', min: '0.25', step: '0.25' }),
+        session_max_days: input(S.session_max_days, { type: 'number', min: '0.1', step: '0.5' }),
+        lock_attempts: input(S.lock_attempts, { type: 'number', min: '3' }),
+        lock_minutes: input(S.lock_minutes, { type: 'number', min: '1' }),
+        ip_attempts: input(S.ip_attempts, { type: 'number', min: '5' }),
+      };
+      const secSave = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + '儲存' });
+      secSave.addEventListener('click', async () => {
+        try { await api('/api/system/security', { method: 'PUT', body: Object.fromEntries(Object.entries(sf).map(([k, i]) => [k, Number(i.value)])) }); toast('已儲存'); }
+        catch (e) { toast(e.message, true); }
+      });
+      grid.append(sysCard('lock', '登入安全', '工作階段與密碼錯誤鎖定。本機管理員的密碼請從右上角帳號選單修改。',
+        el('div', { class: 'sys-form' },
+          field('閒置多久自動登出（小時）', sf.session_hours), field('最長登入天數', sf.session_max_days),
+          field('同一帳號連續錯幾次就鎖定', sf.lock_attempts), field('鎖定 / 計算時間（分鐘）', sf.lock_minutes),
+          field('同一來源 IP 最多錯幾次', sf.ip_attempts)),
+        el('div', { class: 'sys-actions' }, secSave)));
+    }
+
+    // ---------------- HTTPS certificate
+    let T;
+    try { T = await api('/api/system/tls'); } catch { T = { helper: false }; }
+    if (!T.helper) {
+      grid.append(sysCard('globe', 'HTTPS 憑證與連線埠', '這個環境沒有由安裝腳本設定的 nginx（Windows 單機版或開發模式），這一區不適用。'));
+    } else {
+      const c = T.cert;
+      const info = c ? el('div', { class: 'cert-info' },
+        el('div', {}, el('strong', { text: c.self_signed ? '自簽憑證' : '正式憑證' }), el('span', { class: 'badge' + (c.days_left < 30 ? ' badge-alert' : ''), text: `剩 ${c.days_left} 天` })),
+        el('small', { text: `主旨：${c.subject}` }),
+        c.self_signed ? null : el('small', { text: `簽發者：${c.issuer}` }),
+        el('small', { text: `名稱：${c.names.join('、') || '—'}` }),
+        el('small', { text: `到期：${c.not_after.slice(0, 10)}` })) : el('p', { class: 'hint', text: '讀不到目前的憑證' });
+      const crt = el('textarea', { class: 'textarea mono', rows: '4', placeholder: '-----BEGIN CERTIFICATE-----（伺服器憑證在前，接著中繼憑證：fullchain）' });
+      const key = el('textarea', { class: 'textarea mono', rows: '4', placeholder: '-----BEGIN PRIVATE KEY-----（不能有密碼保護）' });
+      const fileBtn = (target, label) => {
+        const fi = el('input', { type: 'file', accept: '.pem,.crt,.cer,.key,.txt', hidden: true });
+        fi.addEventListener('change', async () => { if (fi.files[0]) target.value = await fi.files[0].text(); fi.value = ''; });
+        const b = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', html: svg('upload') + label });
+        b.addEventListener('click', () => fi.click());
+        return [b, fi];
+      };
+      const res = resultBox();
+      const up = el('button', { class: 'btn btn-primary', type: 'button', html: svg('upload') + '套用新憑證' });
+      const self = el('button', { class: 'btn', type: 'button', html: svg('refresh') + '重新產生自簽憑證' });
+      const reload = () => setTimeout(() => route(), 1200);
+      up.addEventListener('click', async () => {
+        try { const r = await api('/api/system/tls', { method: 'POST', body: { cert_pem: crt.value, key_pem: key.value } }); crt.value = key.value = ''; waitApply(r.id, res, x => x.ok && reload()); }
+        catch (e) { toast(e.message, true); }
+      });
+      self.addEventListener('click', async () => {
+        if (!(await confirmDialog('重新產生自簽憑證？', '會換掉目前使用中的憑證（舊的會留一份在 previous/）。', '產生', false))) return;
+        try { const r = await api('/api/system/tls', { method: 'POST', body: { selfsigned: true } }); waitApply(r.id, res, x => x.ok && reload()); }
+        catch (e) { toast(e.message, true); }
+      });
+      grid.append(sysCard('lock', 'HTTPS 憑證', '貼上或選擇正式憑證（PEM），會先檢查憑證與私鑰是否成對、是否過期；nginx 不接受時自動換回原本的。',
+        info,
+        el('div', { class: 'sys-form' },
+          el('div', { class: 'field span-all' }, el('span', { class: 'field-label', text: '憑證（fullchain）' }), crt, el('div', {}, ...fileBtn(crt, '從檔案讀取'))),
+          el('div', { class: 'field span-all' }, el('span', { class: 'field-label', text: '私鑰' }), key, el('div', {}, ...fileBtn(key, '從檔案讀取')))),
+        res,
+        el('div', { class: 'sys-actions' }, self, el('span', { class: 'spacer' }), up)));
+
+      // ---------------- ports / name
+      const N = await api('/api/system/network');
+      const nf = { https: input(N.https_port, { type: 'number', min: '1', max: '65535' }), http: input(N.http_port, { type: 'number', min: '0', max: '65535' }), fqdn: input(N.fqdn, { placeholder: 'portal.corp.local（留空 = 任何名稱）' }) };
+      const nres = resultBox();
+      const nsave = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + '套用' });
+      nsave.addEventListener('click', async () => {
+        const https = Number(nf.https.value), http = Number(nf.http.value), fqdn = nf.fqdn.value.trim();
+        if (!(await confirmDialog('變更連線埠與名稱？', `套用後網址會變成 https://${fqdn || location.hostname}:${https}/。若埠號被占用或 nginx 不接受，會自動還原。`, '套用', false))) return;
+        try {
+          const r = await api('/api/system/network', { method: 'PUT', body: { https_port: https, http_port: http, fqdn } });
+          const host = fqdn || location.hostname;
+          waitApply(r.id, nres, x => {
+            if (x.ok && (String(https) !== location.port || (fqdn && fqdn !== location.hostname))) {
+              nres.append(el('a', { class: 'btn btn-sm', href: `https://${host}:${https}/admin#system`, html: svg('external') + `前往新網址 https://${host}:${https}/` }));
+            }
+          });
+        } catch (e) { toast(e.message, true); }
+      });
+      grid.append(sysCard('globe', '連線埠與名稱', `HTTP 一律轉到 HTTPS。服務本身只聽 127.0.0.1:${N.app_port}，不對外開放。`,
+        el('div', { class: 'sys-form' }, field('HTTPS 埠', nf.https), field('HTTP 埠（0 = 不開，只用 HTTPS）', nf.http), field('伺服器名稱（FQDN）', nf.fqdn, '用於 nginx server_name；重新產生自簽憑證時也會用它')),
+        nres,
+        el('div', { class: 'sys-actions' }, nsave)));
+    }
+
+    // ---------------- info
+    try {
+      const I = await api('/api/system/info');
+      grid.append(sysCard('database', '服務資訊', '',
+        el('dl', { class: 'sys-info' },
+          el('dt', { text: '版本' }), el('dd', { text: I.version }),
+          el('dt', { text: '版本型態' }), el('dd', { text: I.auth ? '伺服器版（需要登入）' : '單機 / 開發模式（不需登入）' }),
+          el('dt', { text: '資料位置' }), el('dd', { text: I.data_dir }),
+          el('dt', { text: '圖示位置' }), el('dd', { text: I.icon_dir }))));
+    } catch { /* ignore */ }
+  }
+
   function switchInput(checked, onChange) {
     const input = el('input', { type: 'checkbox', checked });
     input.addEventListener('change', () => onChange(input.checked));
@@ -1379,7 +1641,9 @@
       el('div', { class: 'backup-text' }, el('h3', { text: title }), el('p', { text })),
       el('div', { class: 'backup-actions' }, actions));
 
-    $('stage-body').append(el('div', { class: 'backup-grid' },
+    const auto = el('section', { class: 'panel settings-card sys-card auto-backup' });
+    renderAutoBackup(auto);
+    $('stage-body').append(auto, el('div', { class: 'backup-grid' },
       card('download', '匯出', '設定、首頁版面、所有資料夾與連結、快速連結，打包成一個 JSON。可用來備份、搬家，或做成範本給別人直接套用。（圖示檔案不包含在內）', exportBtn),
       card('upload', '匯入', '從 JSON 匯入。「取代全部」會先清空；「附加」會加在現有內容之後。', appendBtn, replaceBtn, file)));
   }

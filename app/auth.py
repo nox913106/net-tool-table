@@ -28,6 +28,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from . import config as C
+from . import sysconfig
 from .database import get_db
 
 COOKIE = "tt_session"
@@ -41,7 +42,8 @@ PUBLIC_EXACT = {
 }
 PUBLIC_PREFIX = ("/assets/", "/resource/icon/")
 ADMIN_PAGES = ("/admin", "/admin.html")
-ADMIN_ANY_METHOD = ("/api/export", "/api/import", "/api/users", "/api/local", "/api/settings/reset", "/api/settings/defaults")
+ADMIN_ANY_METHOD = ("/api/export", "/api/import", "/api/users", "/api/local", "/api/settings/reset", "/api/settings/defaults",
+                    "/api/system")
 ADMIN_WRITE = ("/api/nodes", "/api/auth-links", "/api/icons", "/api/settings")
 SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 
@@ -88,8 +90,9 @@ async def create_session(db, user_id: int, request: Request) -> str:
     now = time.time()
     await db.execute("INSERT INTO sessions (token_hash, user_id, created, last_seen, ip, user_agent) VALUES (?, ?, ?, ?, ?, ?)",
                      (_token_hash(token), user_id, now, now, client_ip(request), (request.headers.get("user-agent") or "")[:200]))
+    sec = sysconfig.security()
     await db.execute("DELETE FROM sessions WHERE last_seen < ? OR created < ?",
-                     (now - C.SESSION_HOURS * 3600, now - C.SESSION_MAX_DAYS * 86400))
+                     (now - sec.session_hours * 3600, now - sec.session_max_days * 86400))
     return token
 
 
@@ -105,7 +108,8 @@ async def session_user(token: Optional[str]) -> Optional[dict]:
         if not row:
             return None
         now = time.time()
-        if not row["active"] or now - row["last_seen"] > C.SESSION_HOURS * 3600 or now - row["s_created"] > C.SESSION_MAX_DAYS * 86400:
+        sec = sysconfig.security()
+        if not row["active"] or now - row["last_seen"] > sec.session_hours * 3600 or now - row["s_created"] > sec.session_max_days * 86400:
             await db.execute("DELETE FROM sessions WHERE token_hash = ?", (_token_hash(token),))
             await db.commit()
             return None
@@ -129,14 +133,15 @@ async def end_session(token: Optional[str]):
 
 
 def public_user(row) -> dict:
-    keys = ("id", "username", "source", "display_name", "email", "department", "role", "active", "last_login", "created_at")
+    keys = ("id", "username", "source", "display_name", "email", "department", "role", "active", "last_login", "created_at",
+            "must_change_password")
     return {k: row[k] for k in keys if k in row.keys()}
 
 
 def set_cookie(response, request: Request, token: str):
     secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
     response.set_cookie(COOKIE, token, httponly=True, samesite="lax", secure=secure, path="/",
-                        max_age=int(C.SESSION_MAX_DAYS * 86400))
+                        max_age=int(sysconfig.security().session_max_days * 86400))
 
 
 def client_ip(request: Request) -> str:
@@ -145,14 +150,15 @@ def client_ip(request: Request) -> str:
 
 # ------------------------------------------------------------- rate limiting
 _fails = defaultdict(deque)          # key → timestamps of failed logins
-WINDOW = 15 * 60
 
 
 def too_many(ip: str, username: str) -> bool:
     now = time.time()
-    for key, limit in ((f"ip:{ip}", 20), (f"user:{username}", 8)):
+    sec = sysconfig.security()
+    window = max(1, int(sec.lock_minutes)) * 60
+    for key, limit in ((f"ip:{ip}", int(sec.ip_attempts)), (f"user:{username}", int(sec.lock_attempts))):
         q = _fails[key]
-        while q and now - q[0] > WINDOW:
+        while q and now - q[0] > window:
             q.popleft()
         if len(q) >= limit:
             return True
@@ -204,6 +210,10 @@ async def gate(request: Request, call_next):
             return JSONResponse({"detail": "請先登入"}, status_code=401)
         nxt = path + (("?" + request.url.query) if request.url.query else "")
         return RedirectResponse(f"/login?next={quote(nxt)}", status_code=303)
+
+    if user is not None and user.get("must_change_password") and path.startswith("/api/") \
+            and path not in ("/api/auth/me", "/api/auth/password", "/api/auth/logout", "/api/public/branding", "/api/settings"):
+        return JSONResponse({"detail": "請先變更本機管理員的預設密碼"}, status_code=403)
 
     if user is not None and not is_admin(user):
         if path in ADMIN_PAGES:

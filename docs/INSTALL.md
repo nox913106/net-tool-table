@@ -95,8 +95,8 @@ sudo bash /opt/tool-table/scripts/tool-table.sh install --https-port 443 --http-
 ### 2.4 第一次使用
 
 1. 瀏覽 `https://<伺服器IP>:33443/`，瀏覽器會警告自簽憑證，確認後繼續
-2. 用安裝結束時印出的**本機管理員**（`localadmin` ＋ 密碼）登入；密碼也存在 `/etc/tool-table/initial-admin.txt`（僅 root 可讀）
-3. 照第 2.6 節設定 AD，再到後台「帳號與權限」指定至少一位 AD 管理員；之後平常都用 AD 帳號
+2. 用安裝結束時印出的**本機管理員**（`localadmin` ＋ 密碼）登入，第一次登入會要求設定新密碼
+3. 照第 2.5 節在後台設定 AD，並在「帳號與權限」指定至少一位 AD 管理員；之後平常都用 AD 帳號
 4. 首頁是空的，點「前往管理後台新增 →」或開啟 `/admin`
 5. 在「外觀與設定」設定網站名稱、首頁、快速連結等
 6. 在「內容」建立資料夾與連結；或在「備份與匯入」匯入現成的 JSON 範本
@@ -108,67 +108,51 @@ sudo bash /opt/tool-table/scripts/tool-table.sh install --https-port 443 --http-
 想要完整的 App 功能（離線時顯示上次的畫面），請讓用戶端信任這張憑證
 （把 `/etc/tool-table/tls/server.crt` 匯入「受信任的根憑證授權單位」，或用 AD 群組原則派送），或換成正式憑證（第 3 節）。
 
-### 2.6 帳號與 AD 登入
+### 2.5 帳號、AD 與其他設定（全部在後台）
 
-伺服器版整站都需要登入（只有公開進度看板 `/dashboard` 不用）。
+安裝完成後**不需要再登入伺服器或編輯任何設定檔**，所有設定都在網頁後台完成：
+
+| 後台位置 | 可以設定 |
+|----------|----------|
+| 系統設定 → AD 登入 | 網域控制站（ldaps:// / ldap:// + StartTLS）、Base DN、服務帳號與密碼（加密保存）、或用網域直接登入、只允許某群組、屬性名稱、內部 CA 憑證（直接貼上）、逾時。**「測試」按鈕**可用表單內容（不必先儲存）測試服務帳號、目錄搜尋與某個帳號的實際登入 |
+| 系統設定 → 登入安全 | 閒置登出時間、最長登入天數、密碼連續錯誤鎖定（次數 / 分鐘）、每個來源 IP 上限 |
+| 系統設定 → HTTPS 憑證 | 目前憑證資訊與到期天數；貼上或選擇正式憑證（fullchain）與私鑰套用；重新產生自簽憑證 |
+| 系統設定 → 連線埠與名稱 | HTTPS 埠、HTTP 埠（0 = 不開）、伺服器名稱（FQDN） |
+| 備份與匯入 → 自動備份 | 每天幾點、保留天數、立即備份、下載、上傳備份檔、還原 |
+| 帳號與權限 | 指定管理員 / 使用者、停用帳號、預先加入 AD 帳號 |
 
 | 角色 | 怎麼來 | 能做什麼 |
 |------|--------|----------|
-| 本機管理員 `localadmin` | 安裝時建立，密碼只印一次 | 最高權限，**平常不用**，留作 AD 故障時的緊急入口 |
-| 管理員 | 在後台「帳號與權限」把 AD 帳號設為管理員 | 看得到所有看板卡片，可新增、刪除、修改、指派；可編輯入口與後台 |
+| 本機管理員 `localadmin` | 安裝時建立；**第一次登入必須改成自己的密碼** | 最高權限，**平常不用**，留作 AD 故障時的緊急入口 |
+| 管理員 | 在「帳號與權限」把 AD 帳號設為管理員 | 看得到所有看板卡片，可新增、刪除、修改、指派；可使用整個後台 |
 | 使用者 | AD 帳號第一次登入時自動建立（預設） | 只看得到自己建立、被指派或被 @ 的卡片，可以編輯；入口只能瀏覽 |
 
 系統要求**至少保留一位 AD 管理員**（最後一位不能被降級或停用）。
 
-**設定 AD**：編輯 `/etc/tool-table/tool-table.env`，填入 `TOOL_TABLE_LDAP_*`（範本裡有說明）：
+**第一次設定 AD 的順序**
 
-```bash
-TOOL_TABLE_LDAP_URL=ldaps://dc1.corp.local
-TOOL_TABLE_LDAP_BASE_DN=DC=corp,DC=local
-# 建議：唯讀服務帳號（才能在看板 @ 還沒登入過的同事、在後台預先加入帳號）
-TOOL_TABLE_LDAP_BIND_DN=CN=svc-tooltable,OU=Service Accounts,DC=corp,DC=local
-TOOL_TABLE_LDAP_BIND_PASSWORD=服務帳號密碼
-# 或不使用服務帳號：TOOL_TABLE_LDAP_DOMAIN=corp.local（以 帳號@網域 登入）
-# 只允許某個群組登入（選用）：
-# TOOL_TABLE_LDAP_USER_FILTER=(memberOf=CN=ToolTable-Users,OU=Groups,DC=corp,DC=local)
-```
+1. 用本機管理員登入，設定新密碼
+2. 系統設定 → AD 登入：填伺服器、Base DN、服務帳號，按「測試」（可同時輸入一組帳號密碼測試登入）
+3. 測試全部打勾後，打開「啟用 AD 登入」並儲存
+4. 請一位同事用 AD 帳號登入一次，再到「帳號與權限」把他設為管理員（有服務帳號時也可以直接用「加入」預先建立）
 
-```bash
-sudo systemctl restart tool-table
-```
+- 帳號可以輸入 `alice`、`CORP\alice` 或 `alice@corp.local`；姓名取自 `displayName`、部門取自 `department`（公開進度看板依部門分組），每次登入時更新
+- 憑證與連線埠的變更由伺服器上的 `tool-table-apply.path` 套用：網頁服務本身沒有 root 權限，它只留下變更要求，由這個系統服務檢查內容（憑證與私鑰是否成對、埠號是否被占用）後套用；nginx 不接受時自動還原
+- 服務帳號密碼以 AES-256-GCM 加密保存，金鑰在 `/var/lib/tool-table/.secret.key`（安裝時自動產生，僅服務帳號可讀；備份會一併帶上）
 
-```bash
-# 測試連線與服務帳號
-sudo bash /opt/tool-table/scripts/tool-table.sh ldap-check
-```
+**公開進度看板** `https://<伺服器>:33443/dashboard`：不需登入、唯讀，依「部門 → 帳號 → 狀態」顯示卡片數量，
+不顯示任何卡片內容，不含週期工作；每 15 秒自動更新，適合放在牆上的螢幕。可在「外觀與設定 → 待辦看板」關閉。
 
-```bash
-# 實際用某個帳號登入看看（會詢問密碼），並顯示讀到的姓名與部門
-sudo bash /opt/tool-table/scripts/tool-table.sh ldap-test alice
-```
-
-- 帳號可以輸入 `alice`、`CORP\alice` 或 `alice@corp.local`
-- 姓名取自 `displayName`、部門取自 `department`（公開進度看板依部門分組），每次登入時更新
-- 建議用 `ldaps://`（636）；網域控制站若用內部 CA 簽發，設定 `TOOL_TABLE_LDAP_CA_FILE=/etc/tool-table/ad-ca.pem`
-- 停用的帳號會立刻被登出；連續輸錯密碼會暫時鎖定（同帳號 15 分鐘內 8 次），nginx 另外限制每個 IP 每分鐘 10 次登入
-
-**忘記本機管理員密碼**：
+**緊急狀況**（例如 AD 故障又忘了本機管理員密碼）才需要登入伺服器：
 
 ```bash
 sudo bash /opt/tool-table/scripts/tool-table.sh reset-admin
 ```
 
-```bash
-# 列出所有帳號與權限
-sudo bash /opt/tool-table/scripts/tool-table.sh users
-```
-
-**公開進度看板** `https://<伺服器>:33443/dashboard`：不需登入、唯讀，依「部門 → 帳號 → 狀態」顯示卡片數量，
-不顯示任何卡片內容，不含週期工作；每 15 秒自動更新，適合放在牆上的螢幕。可在後台「外觀與設定」關閉。
-
 > 從沒有帳號功能的舊版執行 `upgrade` 時，會自動開啟登入並建立本機管理員（密碼印在畫面上，也存在 `initial-admin.txt`）。
+> 舊版寫在設定檔的 `TOOL_TABLE_LDAP_*` 仍然有效，第一次在後台儲存 AD 設定後就以後台為準。
 
-### 2.5 端對端檢查
+### 2.6 端對端檢查
 
 ```bash
 # 健檢：每一項失敗都會印出修法（→ 開頭那行）
@@ -194,22 +178,12 @@ curl -skI https://127.0.0.1:33443/ | grep -iE 'strict-transport|content-security
 
 ## 3. 換成正式憑證
 
-憑證路徑固定為 `/etc/tool-table/tls/server.crt`、`server.key`，覆蓋後重新載入 nginx：
+在後台「系統設定 → HTTPS 憑證」貼上（或選擇檔案）憑證與私鑰，按「套用新憑證」：
 
-```bash
-sudo cp fullchain.pem /etc/tool-table/tls/server.crt
-sudo cp privkey.pem   /etc/tool-table/tls/server.key
-sudo chmod 600 /etc/tool-table/tls/server.key
-sudo nginx -t && sudo systemctl reload nginx
-```
-
-`server.crt` 請放含中繼憑證的 fullchain。之後執行 upgrade **不會**覆蓋你的憑證。
-
-重新產生自簽憑證（例如主機改了 IP）：
-
-```bash
-sudo bash /opt/tool-table/scripts/tool-table.sh renew-cert
-```
+- 憑證請用含中繼憑證的 **fullchain**（伺服器憑證在最前面）；私鑰不能有密碼保護
+- 套用前會檢查憑證與私鑰是否成對、是否過期；nginx 不接受時自動換回原本的（舊憑證留一份在 `/etc/tool-table/tls/previous/`）
+- 主機改了 IP 或名稱：同一頁按「重新產生自簽憑證」
+- 之後執行 upgrade **不會**覆蓋你的憑證
 
 ---
 
@@ -226,20 +200,17 @@ sudo bash /opt/tool-table/scripts/tool-table.sh upgrade
 
 ## 5. 備份與還原
 
-每天 02:37 自動備份到 `/var/backups/tool-table/`（保留 14 天，可在設定檔調整），
-內容為 SQLite 資料庫的一致性快照、所有圖示與設定檔。
+在後台「備份與匯入 → 自動備份」設定每天幾點備份、保留幾天；也可以「立即備份」、下載、上傳備份檔與還原。
+備份內容是資料庫一致性快照（帳號、看板、連結、設定）、所有圖示與加密金鑰，存在 `/var/lib/tool-table/backups/`。
+還原前會自動再備份一次目前的狀態。下載的備份檔含有解密金鑰，請妥善保管。
+
+另外，「備份與匯入」的「匯出 / 匯入」可以把設定、連結、快速連結與看板卡片匯出成一個 JSON，適合搬家或分享範本（不含帳號、加密設定與圖示檔）。
+
+伺服器另有系統層級的每日備份（含 TLS 憑證與 nginx 設定，`/var/backups/tool-table/`），整台主機重建時使用：
 
 ```bash
-# 立即備份
-sudo bash /opt/tool-table/scripts/tool-table.sh backup
-```
-
-```bash
-# 還原（會先自動備份目前狀態）
 sudo bash /opt/tool-table/scripts/tool-table.sh restore /var/backups/tool-table/tool-table-YYYYmmdd-HHMMSS.tar.gz
 ```
-
-另外，後台「💾 匯出 / 匯入」可以把設定、節點、快速連結匯出成一個 JSON，適合搬家或分享範本（不含圖示檔）。
 
 ---
 
@@ -264,8 +235,11 @@ sudo bash /opt/tool-table/scripts/tool-table.sh uninstall --purge
 | 路徑 | 內容 |
 |------|------|
 | `/opt/tool-table/` | 原始碼（git）與 `.venv` |
-| `/etc/tool-table/tool-table.env` | 設定（埠號、路徑、備份保留天數、AD 連線） |
-| `/etc/tool-table/initial-admin.txt` | 本機管理員密碼（安裝 / reset-admin 時寫入，僅 root 可讀，記下後可刪除） |
+| `/etc/tool-table/tool-table.env` | 安裝時寫入的基本設定（路徑、埠號）；**不需要手動編輯**，後台變更埠號時會自動更新 |
+| `/etc/tool-table/initial-admin.txt` | 本機管理員初始密碼（安裝 / reset-admin 時寫入，僅 root 可讀，第一次登入改完後可刪除） |
+| `/var/lib/tool-table/.secret.key` | 加密金鑰（AD 服務帳號密碼），自動產生 |
+| `/var/lib/tool-table/backups/` | 後台的自動備份 |
+| `/var/lib/tool-table/requests/` | 後台送給 `tool-table-apply.path` 的憑證 / 埠號變更要求 |
 | `/etc/tool-table/tls/` | `server.crt`、`server.key` |
 | `/var/lib/tool-table/tool-table.db` | SQLite 資料庫 |
 | `/var/lib/tool-table/icons/` | 圖示（後台上傳的也在這裡） |

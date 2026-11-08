@@ -41,18 +41,18 @@ def local_admin(reset: bool, password: str = None) -> int:
         print("錯誤：密碼至少 12 個字元", file=sys.stderr)
         return 2
     if row:
-        con.execute("UPDATE users SET password_hash = ?, role = 'superadmin', active = 1 WHERE id = ?",
-                    (hash_password(password), row[0]))
+        con.execute("UPDATE users SET password_hash = ?, role = 'superadmin', active = 1, must_change_password = ? WHERE id = ?",
+                    (hash_password(password), int(generated), row[0]))
         con.execute("DELETE FROM sessions WHERE user_id = ?", (row[0],))
     else:
-        con.execute("""INSERT INTO users (username, source, display_name, role, password_hash)
-                       VALUES (?, 'local', '本機管理員', 'superadmin', ?)""", (C.LOCAL_ADMIN, hash_password(password)))
+        con.execute("""INSERT INTO users (username, source, display_name, role, password_hash, must_change_password)
+                       VALUES (?, 'local', '本機管理員', 'superadmin', ?, ?)""", (C.LOCAL_ADMIN, hash_password(password), int(generated)))
     con.commit()
     con.close()
     print(f"本機管理員帳號：{C.LOCAL_ADMIN}")
     if generated:
         print(f"密碼：{password}")
-        print("（只顯示這一次，請妥善保存；之後可在後台「帳號與權限」修改，或執行 reset-admin 重設）")
+        print("（第一次登入時會要求改成你自己的密碼；之後都在後台操作）")
     return 0
 
 
@@ -69,20 +69,21 @@ def list_users() -> int:
 
 
 def ldap_check() -> int:
-    from . import ldapauth
-    print(f"AD 伺服器   {C.LDAP_URL or '（未設定 TOOL_TABLE_LDAP_URL）'}")
-    print(f"Base DN     {C.LDAP_BASE_DN or '（未設定）'}")
-    print(f"登入方式    {'服務帳號搜尋 + 驗證' if C.LDAP_BIND_DN else ('UPN（帳號@' + C.LDAP_DOMAIN + '）' if C.LDAP_DOMAIN else '（未設定 BIND_DN 或 DOMAIN）')}")
-    if not ldapauth.enabled():
-        print("→ AD 尚未設定完成，目前只能用本機管理員登入")
+    from . import ldapauth, sysconfig
+    c = sysconfig.ldap()
+    print(f"AD 伺服器   {c.url or '（未設定：請在後台「系統設定 → AD 登入」填寫）'}")
+    print(f"Base DN     {c.base_dn or '（未設定）'}")
+    print(f"登入方式    {'服務帳號搜尋 + 驗證' if c.bind_dn else ('UPN（帳號@' + c.domain + '）' if c.domain else '（未設定）')}")
+    if not ldapauth.enabled(c):
+        print("→ AD 尚未啟用或設定不完整，目前只能用本機管理員登入")
         return 1
-    if not C.LDAP_BIND_DN:
-        print("→ 沒有服務帳號，無法預先測試；請用 ldap-test <帳號> 實際登入看看")
+    if not c.bind_dn:
+        print("→ 沒有服務帳號，無法預先測試；請在後台用「測試登入」")
         return 0
     try:
-        ldapauth._connect(C.LDAP_BIND_DN, C.LDAP_BIND_PASSWORD).unbind()
+        ldapauth._connect(c.bind_dn, c.bind_password, c).unbind()
         print("✔ 服務帳號登入成功")
-        found = ldapauth.search_directory("a", limit=5)
+        found = ldapauth.search_directory("a", limit=5, cfg=c)
         print(f"✔ 目錄搜尋可用（例：{', '.join(a['username'] for a in found) or '沒有結果'}）")
         return 0
     except Exception as e:

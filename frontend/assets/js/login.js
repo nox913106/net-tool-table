@@ -27,6 +27,37 @@
       : `尚未設定 AD 連線，目前只能用本機管理員帳號 <code>${TT.esc(st.local_admin)}</code> 登入。`;
   } catch { /* ignore */ }
 
+  // The local admin's generated password must be replaced on first sign-in
+  function changePasswordStep(current) {
+    const old = $('login-form');
+    const card = old.cloneNode(false);              // fresh element: drops the sign-in submit handler
+    old.replaceWith(card);
+    const cur = el('input', { class: 'input', type: 'password', autocomplete: 'current-password' });
+    const nw = el('input', { class: 'input', type: 'password', autocomplete: 'new-password', placeholder: '至少 12 個字元' });
+    const nw2 = el('input', { class: 'input', type: 'password', autocomplete: 'new-password' });
+    if (current) cur.value = current;
+    const err = el('p', { class: 'login-error', hidden: true });
+    const btn = el('button', { class: 'btn btn-primary login-btn', type: 'submit', text: '設定新密碼並繼續' });
+    const field = (t, i) => el('label', { class: 'field' }, el('span', { class: 'field-label', text: t }), i);
+    card.replaceChildren(
+      el('div', { class: 'login-brand' }, el('div', {}, el('h1', { text: '設定新密碼' }), el('p', { text: '這是安裝時產生的密碼，第一次登入請換成你自己的。' }))),
+      current ? null : field('目前的密碼', cur), field('新密碼', nw), field('再輸入一次', nw2), err, btn);
+    setTimeout(() => (current ? nw : cur).focus(), 30);
+    card.onsubmit = async e => {
+      e.preventDefault();
+      err.hidden = true;
+      if (nw.value !== nw2.value) { err.textContent = '兩次輸入的新密碼不一樣'; err.hidden = false; return; }
+      btn.disabled = true;
+      try {
+        await api('/api/auth/password', { method: 'POST', body: { current: cur.value, new: nw.value } });
+        location.replace(nextUrl);
+      } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; }
+    };
+  }
+  if (new URLSearchParams(location.search).get('change') === '1') {
+    try { const m = await api('/api/auth/me'); if (m.user?.must_change_password) { changePasswordStep(''); return; } } catch { /* not signed in */ }
+  }
+
   const form = $('login-form');
   const err = $('login-error');
   const btn = $('login-btn');
@@ -40,7 +71,8 @@
     btn.disabled = true;
     btn.textContent = '登入中…';
     try {
-      await api('/api/auth/login', { method: 'POST', body: { username, password } });
+      const r = await api('/api/auth/login', { method: 'POST', body: { username, password } });
+      if (r.user?.must_change_password) { changePasswordStep(password); return; }
       location.replace(nextUrl);
     } catch (ex) {
       err.textContent = ex.message;

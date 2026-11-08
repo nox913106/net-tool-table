@@ -150,6 +150,9 @@ async def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        cursor = await db.execute("PRAGMA table_info(users)")
+        if "must_change_password" not in {row[1] for row in await cursor.fetchall()}:
+            await db.execute("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_members_user ON task_members(user_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_comments_task ON task_comments(task_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_notes_user ON notifications(user_id, read)")
