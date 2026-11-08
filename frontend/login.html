@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW" data-theme="dark" data-bg="aurora">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <title>登入</title>
+  <link rel="icon" href="/assets/app/favicon-32.png" type="image/png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0a0d1a">
+  <link rel="stylesheet" href="/assets/css/base.css">
+  <link rel="stylesheet" href="/assets/css/login.css">
+  <script src="/assets/js/common.js" defer></script>
+  <script src="/assets/js/login.js" defer></script>
+</head>
+<body class="login-page">
+  <div class="backdrop"><div class="grid-lines"></div></div>
+  <main class="login-wrap">
+    <form class="login-card glass" id="login-form" autocomplete="on" novalidate>
+      <div class="login-brand">
+        <span id="login-mark"></span>
+        <div>
+          <h1 id="login-title">Tool Table</h1>
+          <p id="login-sub">請用公司帳號登入</p>
+        </div>
+      </div>
+      <label class="field">
+        <span class="field-label">帳號</span>
+        <input class="input" id="username" name="username" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="AD 帳號，例如 alice" required>
+      </label>
+      <label class="field">
+        <span class="field-label">密碼</span>
+        <input class="input" id="password" name="password" type="password" autocomplete="current-password" required>
+      </label>
+      <p class="login-error" id="login-error" role="alert" hidden></p>
+      <button class="btn btn-primary login-btn" id="login-btn" type="submit">登入</button>
+      <p class="login-hint" id="login-hint"></p>
+      <a class="login-dash" href="/dashboard" id="login-dash" hidden>不用登入：查看公開進度看板 →</a>
+    </form>
+  </main>
+</body>
+</html>

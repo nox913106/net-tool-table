@@ -30,11 +30,13 @@
   // Boot
   // ======================================================================
   document.addEventListener('DOMContentLoaded', async () => {
+    const mePending = TT.me();
     try {
       state.settings = await api('/api/settings');
     } catch {
       state.settings = {};
     }
+    state.me = await mePending;
     const s = state.settings;
     TT.applyAppearance(s);
     applyBranding();
@@ -55,7 +57,8 @@
     if (s.show_clock !== false) TTClock.mount($('clock'), s);
     TTClock.mountNetInfo($('netinfo'), s);
     TTClock.secretAdmin($('clock'), $('brand-mark'));
-    if (s.allow_drop_add !== false) setupLinkDrop();
+    if (s.allow_drop_add !== false && state.me.is_admin) setupLinkDrop();   // adding links = admins
+    TT.userMenu($('user-menu'));
     if (boardOn()) { TTBoard.init(s); TTBoard.mountBell($('bell-btn')); }
 
     window.addEventListener('hashchange', route);
@@ -102,7 +105,7 @@
     if (s.favicon) TT.setFavicon(s.favicon);
     $('search-trigger-text').textContent = s.search_placeholder || '搜尋…';
     $('palette-input').placeholder = s.search_placeholder || '搜尋…';
-    $('admin-btn').hidden = !s.show_admin_button;
+    $('admin-btn').hidden = !s.show_admin_button || !state.me?.is_admin;
   }
 
   /**
@@ -641,22 +644,37 @@
       el('input', { type: 'checkbox', checked: hideClosed }), el('span', { class: 'track' }), el('span', { text: '隱藏完成／取消' }));
     const add = el('button', { class: 'btn btn-primary', type: 'button', html: svg('plus') + '新增卡片' });
     add.addEventListener('click', () => TTBoard.openEditor(null));
+    // whose cards: everyone I can see / mine / (admins) one person
+    const auth = state.me?.auth;
+    let filter = auth ? store.get('board-filter', state.me.is_admin ? 'all' : 'all') : 'all';
+    const who = el('select', { class: 'select board-who', title: '顯示誰的卡片' });
+    const paintWho = () => {
+      const people = new Map();
+      TTBoard.tasks.forEach(t => [t.owner, ...(t.assignees || [])].forEach(p => { if (p) people.set(String(p.id), p); }));
+      const opts = [['all', state.me?.is_admin ? '全部卡片' : '我看得到的全部'], ['mine', '只看我的']]
+        .concat(state.me?.is_admin ? [...people.values()].sort((a, b) => TT.nameOf(a).localeCompare(TT.nameOf(b), 'zh-Hant'))
+          .map(p => [`user:${p.id}`, `${TT.nameOf(p)}${p.department ? '（' + p.department + '）' : ''}`]) : []);
+      who.replaceChildren(...opts.map(([v, l]) => el('option', { value: v, text: l })));
+      who.value = opts.some(o => o[0] === filter) ? filter : 'all';
+    };
+    who.addEventListener('change', () => { filter = who.value; store.set('board-filter', filter); board.setFilter(filter); });
     const meta = el('span');
     frag.append(pageHead({
       tileNode: el('span', { class: 'page-icon', html: svg('kanban') }),
       title: '待辦看板',
       desc: '拖曳卡片換狀態；設定開始日與到期日，時間到會在右上角 🔔 提醒。',
       meta: ' ',
-      tools: el('div', { class: 'board-tools' }, toggle, add),
+      tools: el('div', { class: 'board-tools' }, auth ? who : null, toggle, add),
     }));
     const box = el('div');
-    const board = TTBoard.mount(box, { hideClosed, full: true });
+    const board = TTBoard.mount(box, { hideClosed, full: true, filter });
     toggle.querySelector('input').addEventListener('change', e => { hideClosed = e.target.checked; store.set('board-hide-closed', hideClosed); board.setHideClosed(hideClosed); });
     frag.append(box);
     $('view').replaceChildren(frag);
     const metaEl = $('view').querySelector('.page-meta');
     const paintMeta = () => { if (metaEl.isConnected) metaEl.textContent = TTBoard.summary(); };
-    TTBoard.load().then(paintMeta).catch(() => {});
+    TTBoard.load().then(() => { paintMeta(); if (auth) { paintWho(); board.setFilter(who.value); } }).catch(() => {});
+    if (auth) paintWho();
     paintMeta();
   }
 

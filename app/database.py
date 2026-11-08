@@ -88,9 +88,72 @@ async def init_db():
         cursor = await db.execute("PRAGMA table_info(tasks)")
         task_cols = {row[1] for row in await cursor.fetchall()}
         for col, decl in (("repeat", "TEXT"), ("repeat_every", "INTEGER DEFAULT 1"), ("next_id", "INTEGER"),
-                          ("overdue_from", "TEXT"), ("overdue_ack", "TEXT")):
+                          ("overdue_from", "TEXT"), ("overdue_ack", "TEXT"),
+                          ("owner_id", "INTEGER REFERENCES users(id) ON DELETE SET NULL")):
             if col not in task_cols:                       # recurring cards (added later)
                 await db.execute(f"ALTER TABLE tasks ADD COLUMN {col} {decl}")
+
+        # Accounts (server edition: local break-glass admin + Active Directory users)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                source TEXT NOT NULL DEFAULT 'ldap',          -- local | ldap
+                display_name TEXT,
+                email TEXT,
+                department TEXT,
+                role TEXT NOT NULL DEFAULT 'user',            -- superadmin | admin | user
+                password_hash TEXT,                           -- local accounts only
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_login TIMESTAMP
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                token_hash TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created REAL NOT NULL,
+                last_seen REAL NOT NULL,
+                ip TEXT,
+                user_agent TEXT
+            )
+        """)
+        # Card people: assignees (set by admins) and @mentioned collaborators
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS task_members (
+                task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                role TEXT NOT NULL,                           -- assignee | mention
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (task_id, user_id, role)
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS task_comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                body TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+                actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                kind TEXT NOT NULL,                           -- assigned | mention | comment
+                text TEXT,
+                read INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_members_user ON task_members(user_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_comments_task ON task_comments(task_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_notes_user ON notifications(user_id, read)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)")
 
         # Lightweight schema migration for columns added later
         cursor = await db.execute("PRAGMA table_info(nodes)")

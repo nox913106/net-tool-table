@@ -11,11 +11,16 @@
 #   tool-table.sh backup    [--quiet]
 #   tool-table.sh restore   <backup-file.tar.gz>
 #   tool-table.sh renew-cert
+#   tool-table.sh reset-admin            new password for the local break-glass admin
+#   tool-table.sh users                  list accounts and roles
+#   tool-table.sh ldap-check             test the AD connection / service account
+#   tool-table.sh ldap-test <account>    try an AD sign-in (asks for the password)
 #   tool-table.sh help
 #
 # Layout:
 #   /opt/tool-table                 source (git) + .venv
-#   /etc/tool-table/tool-table.env  settings (ports, paths)
+#   /etc/tool-table/tool-table.env  settings (ports, paths, AD / LDAP)
+#   /etc/tool-table/initial-admin.txt  local admin password from install / reset-admin (root only)
 #   /etc/tool-table/tls/            server.crt / server.key (self-signed by default)
 #   /var/lib/tool-table/            tool-table.db + icons/   (service user: tooltable)
 #   /var/backups/tool-table/        daily backups (systemd timer)
@@ -66,6 +71,24 @@ env_set() {
         sed -i "s|^$key=.*|$key=$value|" "$ENV_FILE"
     else
         echo "$key=$value" >> "$ENV_FILE"
+    fi
+}
+
+# Run "python -m app.cli ..." as the service user with the service's settings
+app_cli() {
+    runuser -u "$APP_USER" -- bash -c 'cd "$1" && set -a && . "$2" && set +a && shift 2 && exec "$0" -m app.cli "$@"' \
+        "$VENV/bin/python" "$APP_DIR" "$ENV_FILE" "$@"
+}
+
+ADMIN_NOTE=""
+# Create the local break-glass admin once; keep a generated password in a root-only file
+ensure_local_admin() {
+    local out
+    out="$(app_cli local-admin 2>&1)" || { warn "$out"; return 1; }
+    if grep -q "密碼：" <<<"$out"; then
+        install -m 0600 -o root -g root /dev/null "$ETC_DIR/initial-admin.txt"
+        { echo "# Tool Table 本機管理員（緊急用）— $(date '+%F %T')"; echo "$out"; } > "$ETC_DIR/initial-admin.txt"
+        ADMIN_NOTE="$out"
     fi
 }
 
@@ -183,6 +206,21 @@ print_summary() {
     [[ "$http_port" != 0 ]] && \
     echo "  HTTP      http://${host}$( [[ "$http_port" != 80 ]] && echo ":$http_port")/  → 自動轉到 HTTPS"
     echo
+    if [[ "$(env_get TOOL_TABLE_AUTH)" =~ ^(1|true|yes|on)$ ]]; then
+    echo
+    echo "  整站需要登入（公開進度看板 https://${host}:${https_port}/dashboard 除外）"
+    if [[ -n "$ADMIN_NOTE" ]]; then
+    echo "  ---- 本機管理員（最高權限，平常不用）----"
+    sed 's/^/  /' <<<"$ADMIN_NOTE"
+    echo "  （也存在 $ETC_DIR/initial-admin.txt，僅 root 可讀；記下後可刪除）"
+    fi
+    if [[ -z "$(env_get TOOL_TABLE_LDAP_URL)" ]]; then
+    echo "  AD 登入：在 $ENV_FILE 填好 TOOL_TABLE_LDAP_*，再執行"
+    echo "           sudo systemctl restart tool-table && sudo bash $APP_DIR/scripts/tool-table.sh ldap-check"
+    fi
+    echo "  然後用本機管理員登入後台「帳號與權限」，至少指定一位 AD 帳號為管理員。"
+    fi
+    echo
     echo "  憑證為自簽，瀏覽器第一次會警告，確認後即可使用。"
     echo "  換正式憑證：覆蓋 $TLS_DIR/server.crt 與 server.key 後 systemctl reload nginx"
     echo "  健檢：     sudo bash $APP_DIR/scripts/tool-table.sh doctor"
@@ -259,8 +297,12 @@ cmd_install() {
     env_set TOOL_TABLE_FQDN "$fqdn"
     [[ -n "$(env_get TOOL_TABLE_BACKUP_DIR)" ]] || env_set TOOL_TABLE_BACKUP_DIR "$BACKUP_DIR_DEFAULT"
     [[ -n "$(env_get TOOL_TABLE_BACKUP_KEEP_DAYS)" ]] || env_set TOOL_TABLE_BACKUP_KEEP_DAYS 14
+    # Server edition: sign-in for the whole site (keep an explicit "false" if someone set it)
+    [[ -n "$(env_get TOOL_TABLE_AUTH)" ]] || env_set TOOL_TABLE_AUTH true
 
     setup_python
+    log "本機管理員帳號"
+    ensure_local_admin
 
     log "TLS 憑證：$TLS_DIR"
     bash "$APP_DIR/scripts/generate-self-signed-cert.sh" --out-dir "$TLS_DIR" ${fqdn:+--cn "$fqdn"}
@@ -309,6 +351,12 @@ cmd_upgrade() {
 
     setup_python
     install_units
+    # Upgrading from a version without accounts: turn sign-in on and create the local admin
+    if [[ -z "$(env_get TOOL_TABLE_AUTH)" ]]; then
+        env_set TOOL_TABLE_AUTH true
+        log "新版加入帳號登入：已開啟 TOOL_TABLE_AUTH"
+    fi
+    ensure_local_admin
 
     # New bundled icons only (cp -n never overwrites)
     cp -n "$APP_DIR/resource/icon/"* "$(env_get TOOL_TABLE_ICON_DIR)/" 2>/dev/null || true
@@ -322,6 +370,11 @@ cmd_upgrade() {
     wait_until_serving "https://127.0.0.1:$(env_get TOOL_TABLE_HTTPS_PORT)/api/health" 60 \
         || die "升級後服務沒有回應，請執行 doctor；備份在 $(env_get TOOL_TABLE_BACKUP_DIR)"
     log "升級完成"
+    if [[ -n "$ADMIN_NOTE" ]]; then
+        echo; echo "  ---- 本機管理員（最高權限，平常不用）----"; sed 's/^/  /' <<<"$ADMIN_NOTE"
+        echo "  （也存在 $ETC_DIR/initial-admin.txt，僅 root 可讀）"
+        echo "  登入後到後台「帳號與權限」至少指定一位 AD 管理員；AD 設定見 docs/INSTALL.md"
+    fi
 }
 
 # ------------------------------------------------------------- uninstall ---
@@ -522,10 +575,53 @@ cmd_doctor() {
     [[ -n "$last" ]] && info "最近一次備份：$last" || info "尚無備份"
 
     echo
+    # Accounts / AD
+    if [[ "$(env_get TOOL_TABLE_AUTH)" =~ ^(1|true|yes|on)$ ]]; then
+        ok "帳號登入已開啟（公開進度看板 /dashboard 不需登入）"
+        if [[ $EUID -eq 0 && -x "$VENV/bin/python" ]]; then
+            local users
+            users="$(app_cli users 2>/dev/null || true)"
+            if grep -q " superadmin " <<<"$users"; then ok "本機管理員帳號存在"
+            else bad "沒有本機管理員帳號" "sudo bash $APP_DIR/scripts/tool-table.sh reset-admin"; fi
+            if grep -qE "^[^ ]+ +ldap +admin +啟用" <<<"$users"; then ok "已有 AD 管理員"
+            else info "還沒有 AD 管理員：用本機管理員登入後台「帳號與權限」指定"; fi
+            if [[ -n "$(env_get TOOL_TABLE_LDAP_URL)" ]]; then
+                if app_cli ldap-check >/dev/null 2>&1; then ok "AD 連線正常（$(env_get TOOL_TABLE_LDAP_URL)）"
+                else bad "AD 連線失敗" "sudo bash $APP_DIR/scripts/tool-table.sh ldap-check"; fi
+            else
+                info "尚未設定 AD（TOOL_TABLE_LDAP_URL），目前只能用本機管理員登入"
+            fi
+        fi
+    else
+        info "帳號登入未開啟（TOOL_TABLE_AUTH）：任何人都能修改內容"
+    fi
+
     if (( fails == 0 )); then log "全部通過"; else warn "$fails 項需要處理（見上方 → 修法）"; return 1; fi
 }
 
-cmd_help() { sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+# --------------------------------------------------------- accounts / AD ---
+cmd_reset_admin() {
+    require_root
+    [[ -f "$ENV_FILE" ]] || die "尚未安裝"
+    local out
+    out="$(app_cli local-admin --reset)" || die "$out"
+    install -m 0600 -o root -g root /dev/null "$ETC_DIR/initial-admin.txt"
+    { echo "# Tool Table 本機管理員（緊急用）— 重設於 $(date '+%F %T')"; echo "$out"; } > "$ETC_DIR/initial-admin.txt"
+    echo "$out"
+    echo "（已登出這個帳號的所有工作階段；也存在 $ETC_DIR/initial-admin.txt）"
+}
+
+cmd_users() { require_root; app_cli users; }
+cmd_ldap_check() { require_root; app_cli ldap-check; }
+cmd_ldap_test() {
+    require_root
+    [[ -n "${1:-}" ]] || die "用法：tool-table.sh ldap-test <AD 帳號>"
+    local pw
+    read -r -s -p "$1 的密碼：" pw; echo
+    printf '%s\n' "$pw" | app_cli ldap-test "$1"
+}
+
+cmd_help() { sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 main() {
     case "${1:-help}" in
@@ -536,6 +632,10 @@ main() {
         backup)     shift; cmd_backup "$@" ;;
         restore)    shift; cmd_restore "$@" ;;
         renew-cert) shift; cmd_renew_cert "$@" ;;
+        reset-admin) shift; cmd_reset_admin "$@" ;;
+        users)      shift; cmd_users "$@" ;;
+        ldap-check) shift; cmd_ldap_check "$@" ;;
+        ldap-test)  shift; cmd_ldap_test "$@" ;;
         help|-h|--help) cmd_help ;;
         *) cmd_help; exit 2 ;;
     esac

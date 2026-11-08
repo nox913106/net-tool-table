@@ -95,9 +95,11 @@ sudo bash /opt/tool-table/scripts/tool-table.sh install --https-port 443 --http-
 ### 2.4 第一次使用
 
 1. 瀏覽 `https://<伺服器IP>:33443/`，瀏覽器會警告自簽憑證，確認後繼續
-2. 首頁是空的，點「前往管理後台新增 →」或開啟 `/admin`
-3. 在「⚙️ 系統設定」設定網站名稱、首頁、快速連結等
-4. 在「📂 節點」建立資料夾與連結；或在「💾 匯出入」匯入現成的 JSON 範本
+2. 用安裝結束時印出的**本機管理員**（`localadmin` ＋ 密碼）登入；密碼也存在 `/etc/tool-table/initial-admin.txt`（僅 root 可讀）
+3. 照第 2.6 節設定 AD，再到後台「帳號與權限」指定至少一位 AD 管理員；之後平常都用 AD 帳號
+4. 首頁是空的，點「前往管理後台新增 →」或開啟 `/admin`
+5. 在「外觀與設定」設定網站名稱、首頁、快速連結等
+6. 在「內容」建立資料夾與連結；或在「備份與匯入」匯入現成的 JSON 範本
 
 **安裝成 App（Chrome / Edge）**：入口頁頁首右上角會出現「安裝」按鈕（或網址列右側的安裝圖示），
 裝好後就是獨立視窗，有自己的開始功能表與工作列圖示。
@@ -106,8 +108,65 @@ sudo bash /opt/tool-table/scripts/tool-table.sh install --https-port 443 --http-
 想要完整的 App 功能（離線時顯示上次的畫面），請讓用戶端信任這張憑證
 （把 `/etc/tool-table/tls/server.crt` 匯入「受信任的根憑證授權單位」，或用 AD 群組原則派送），或換成正式憑證（第 3 節）。
 
-> ⚠️ 目前管理後台與 API **沒有登入驗證**，能連到 33443 的人都能修改內容。
-> 請只在內網開放，或在防火牆限制可連入的來源網段。
+### 2.6 帳號與 AD 登入
+
+伺服器版整站都需要登入（只有公開進度看板 `/dashboard` 不用）。
+
+| 角色 | 怎麼來 | 能做什麼 |
+|------|--------|----------|
+| 本機管理員 `localadmin` | 安裝時建立，密碼只印一次 | 最高權限，**平常不用**，留作 AD 故障時的緊急入口 |
+| 管理員 | 在後台「帳號與權限」把 AD 帳號設為管理員 | 看得到所有看板卡片，可新增、刪除、修改、指派；可編輯入口與後台 |
+| 使用者 | AD 帳號第一次登入時自動建立（預設） | 只看得到自己建立、被指派或被 @ 的卡片，可以編輯；入口只能瀏覽 |
+
+系統要求**至少保留一位 AD 管理員**（最後一位不能被降級或停用）。
+
+**設定 AD**：編輯 `/etc/tool-table/tool-table.env`，填入 `TOOL_TABLE_LDAP_*`（範本裡有說明）：
+
+```bash
+TOOL_TABLE_LDAP_URL=ldaps://dc1.corp.local
+TOOL_TABLE_LDAP_BASE_DN=DC=corp,DC=local
+# 建議：唯讀服務帳號（才能在看板 @ 還沒登入過的同事、在後台預先加入帳號）
+TOOL_TABLE_LDAP_BIND_DN=CN=svc-tooltable,OU=Service Accounts,DC=corp,DC=local
+TOOL_TABLE_LDAP_BIND_PASSWORD=服務帳號密碼
+# 或不使用服務帳號：TOOL_TABLE_LDAP_DOMAIN=corp.local（以 帳號@網域 登入）
+# 只允許某個群組登入（選用）：
+# TOOL_TABLE_LDAP_USER_FILTER=(memberOf=CN=ToolTable-Users,OU=Groups,DC=corp,DC=local)
+```
+
+```bash
+sudo systemctl restart tool-table
+```
+
+```bash
+# 測試連線與服務帳號
+sudo bash /opt/tool-table/scripts/tool-table.sh ldap-check
+```
+
+```bash
+# 實際用某個帳號登入看看（會詢問密碼），並顯示讀到的姓名與部門
+sudo bash /opt/tool-table/scripts/tool-table.sh ldap-test alice
+```
+
+- 帳號可以輸入 `alice`、`CORP\alice` 或 `alice@corp.local`
+- 姓名取自 `displayName`、部門取自 `department`（公開進度看板依部門分組），每次登入時更新
+- 建議用 `ldaps://`（636）；網域控制站若用內部 CA 簽發，設定 `TOOL_TABLE_LDAP_CA_FILE=/etc/tool-table/ad-ca.pem`
+- 停用的帳號會立刻被登出；連續輸錯密碼會暫時鎖定（同帳號 15 分鐘內 8 次），nginx 另外限制每個 IP 每分鐘 10 次登入
+
+**忘記本機管理員密碼**：
+
+```bash
+sudo bash /opt/tool-table/scripts/tool-table.sh reset-admin
+```
+
+```bash
+# 列出所有帳號與權限
+sudo bash /opt/tool-table/scripts/tool-table.sh users
+```
+
+**公開進度看板** `https://<伺服器>:33443/dashboard`：不需登入、唯讀，依「部門 → 帳號 → 狀態」顯示卡片數量，
+不顯示任何卡片內容，不含週期工作；每 15 秒自動更新，適合放在牆上的螢幕。可在後台「外觀與設定」關閉。
+
+> 從沒有帳號功能的舊版執行 `upgrade` 時，會自動開啟登入並建立本機管理員（密碼印在畫面上，也存在 `initial-admin.txt`）。
 
 ### 2.5 端對端檢查
 
@@ -205,7 +264,8 @@ sudo bash /opt/tool-table/scripts/tool-table.sh uninstall --purge
 | 路徑 | 內容 |
 |------|------|
 | `/opt/tool-table/` | 原始碼（git）與 `.venv` |
-| `/etc/tool-table/tool-table.env` | 設定（埠號、路徑、備份保留天數） |
+| `/etc/tool-table/tool-table.env` | 設定（埠號、路徑、備份保留天數、AD 連線） |
+| `/etc/tool-table/initial-admin.txt` | 本機管理員密碼（安裝 / reset-admin 時寫入，僅 root 可讀，記下後可刪除） |
 | `/etc/tool-table/tls/` | `server.crt`、`server.key` |
 | `/var/lib/tool-table/tool-table.db` | SQLite 資料庫 |
 | `/var/lib/tool-table/icons/` | 圖示（後台上傳的也在這裡） |
@@ -225,7 +285,11 @@ sudo bash /opt/tool-table/scripts/tool-table.sh uninstall --purge
 - 隱藏版本：nginx `server_tokens off`，uvicorn 不送 Server 標頭
 - 正式環境關閉 `/docs`、`/redoc`、`/openapi.json`
 - 上傳的圖示（含 SVG）以 `sandbox` CSP 送出，無法執行 script；檔名經過驗證，無法寫出圖示目錄
-- 寫入 API 以 nginx 限速（每 IP 每分鐘 120 次）
+- 寫入 API 以 nginx 限速（每 IP 每分鐘 120 次）；登入每 IP 每分鐘 10 次，應用程式另外鎖定連續失敗
+- 整站需要登入（公開進度看板除外）：工作階段權杖只存雜湊值，Cookie 為 HttpOnly、Secure、SameSite=Lax；閒置 12 小時、最長 7 天失效
+- 所有寫入 API 都要帶自訂標頭 `X-Tool-Table`（跨站表單無法加上），搭配 SameSite 防 CSRF
+- 本機管理員密碼以 scrypt 雜湊；AD 密碼不落地，只用來向網域控制站驗證；空白密碼一律拒絕（避免 LDAP 匿名繫結）
+- 權限在伺服器端檢查：使用者看不到、也改不了不屬於自己的卡片；只有管理員能指派、能改入口與後台
 - systemd 沙箱：唯讀系統、只能寫 `/var/lib/tool-table`、無特權、限制系統呼叫
 
 ## 9. 疑難排解

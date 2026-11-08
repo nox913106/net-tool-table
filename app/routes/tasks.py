@@ -10,18 +10,25 @@ column (過期未結案) by /sweep, which the browser calls with its local time.
 a card out of that column yourself it stays where you put it (until its due date
 changes); pushing the due date into the future moves it back to where it came from.
 
+Accounts (server edition): every card has an owner (creator), assignees (set by admins;
+a user's own card is assigned to them) and @mentioned collaborators. Admins see every
+card; users see the cards they own, are assigned to or were mentioned on.
+
 Dates are local wall-clock strings: "YYYY-MM-DD" (all day) or "YYYY-MM-DDTHH:MM".
 The browser works out what is overdue / due soon and shows the reminders, so the
 server never has to guess the viewer's time zone.
 """
+import asyncio
 import calendar
 import re
 from datetime import date, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, field_validator
 
+from .. import ldapauth
+from ..auth import current_user, is_admin
 from ..database import get_db
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -31,9 +38,9 @@ CLOSED = ("complete", "canceled")
 PRIORITIES = ("low", "normal", "high")
 REMINDS = (0, 15, 60, 1440, 2880, 10080)       # minutes before due; None = no reminder
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$")
-REPEAT_RE = re.compile(r"^(daily|weekdays|weekly:[1-7](,[1-7]){0,6}|monthly(:\d{1,2})?|yearly)$")
+REPEAT_RE = re.compile(r"^(daily|weekdays|weekly(:[1-7](,[1-7]){0,6})?|monthly(:\d{1,2})?|yearly)$")
 COLUMNS = ("id, title, description, status, priority, start_at, due_at, remind, repeat, repeat_every, next_id, "
-           "overdue_from, overdue_ack, sort_order, created_at, updated_at, completed_at")
+           "overdue_from, overdue_ack, owner_id, sort_order, created_at, updated_at, completed_at")
 
 
 def _repeat(v):
@@ -121,11 +128,13 @@ async def spawn_next(db, task_id: int, today: Optional[date] = None) -> Optional
     cur = await db.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tasks WHERE status = 'recurring'")
     order = (await cur.fetchone())["n"]
     cur = await db.execute(
-        """INSERT INTO tasks (title, description, status, priority, start_at, due_at, remind, repeat, repeat_every, sort_order)
-           VALUES (?, ?, 'recurring', ?, ?, ?, ?, ?, ?, ?)""",
+        """INSERT INTO tasks (title, description, status, priority, start_at, due_at, remind, repeat, repeat_every, sort_order, owner_id)
+           VALUES (?, ?, 'recurring', ?, ?, ?, ?, ?, ?, ?, ?)""",
         (t["title"], t["description"], t["priority"], _shift(t["start_at"], delta), due, t["remind"],
-         t["repeat"], t["repeat_every"] or 1, order))
+         t["repeat"], t["repeat_every"] or 1, order, t["owner_id"]))
     new_id = cur.lastrowid
+    await db.execute("""INSERT INTO task_members (task_id, user_id, role)
+                        SELECT ?, user_id, role FROM task_members WHERE task_id = ?""", (new_id, task_id))
     await db.execute("UPDATE tasks SET next_id = ? WHERE id = ?", (new_id, task_id))
     return new_id
 
@@ -185,6 +194,7 @@ class TaskIn(BaseModel):
     remind: Optional[int] = None
     repeat: Optional[str] = None
     repeat_every: Optional[int] = None
+    assignees: Optional[List[str]] = None          # login names (admins only)
 
     @field_validator("repeat")
     @classmethod
@@ -238,6 +248,7 @@ class TaskUpdate(BaseModel):
     remind: Optional[int] = None
     repeat: Optional[str] = None
     repeat_every: Optional[int] = None
+    assignees: Optional[List[str]] = None          # login names (admins only)
 
     @field_validator("repeat")
     @classmethod
@@ -336,18 +347,141 @@ async def _get(db, task_id: int) -> dict:
     return row_dict(row)
 
 
+# ------------------------------------------------------------ who sees what
+# admin / superadmin: every card.  user: cards they created, are assigned to, or were @mentioned on.
+def _visible_sql(user: dict, alias: str = "t"):
+    if is_admin(user) or user.get("id") is None:
+        return "1 = 1", []
+    return (f"({alias}.owner_id = ? OR EXISTS (SELECT 1 FROM task_members vm WHERE vm.task_id = {alias}.id AND vm.user_id = ?))",
+            [user["id"], user["id"]])
+
+
+async def _get_visible(db, task_id: int, user: dict) -> dict:
+    where, args = _visible_sql(user)
+    cur = await db.execute(f"SELECT {COLUMNS} FROM tasks t WHERE t.id = ? AND {where}", (task_id, *args))
+    row = await cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="找不到這張卡片（或你沒有權限看到它）")
+    return row_dict(row)
+
+
+async def _enrich(db, rows: List[dict], user: dict) -> List[dict]:
+    """Add owner / assignees / mentions / comment count / permissions for the viewer."""
+    if not rows:
+        return rows
+    ids = [r["id"] for r in rows]
+    marks = ",".join("?" * len(ids))
+    people = {}
+    cur = await db.execute(
+        f"""SELECT m.task_id, m.role, u.id, u.username, u.display_name, u.department FROM task_members m
+            JOIN users u ON u.id = m.user_id WHERE m.task_id IN ({marks}) ORDER BY m.created_at""", ids)
+    for m in await cur.fetchall():
+        people.setdefault(m["task_id"], {"assignee": [], "mention": []})[m["role"]].append(
+            {"id": m["id"], "username": m["username"], "name": m["display_name"] or m["username"], "department": m["department"]})
+    owners = {}
+    owner_ids = list({r["owner_id"] for r in rows if r.get("owner_id")})
+    if owner_ids:
+        cur = await db.execute(f"SELECT id, username, display_name FROM users WHERE id IN ({','.join('?' * len(owner_ids))})", owner_ids)
+        owners = {u["id"]: {"id": u["id"], "username": u["username"], "name": u["display_name"] or u["username"]}
+                  for u in await cur.fetchall()}
+    cur = await db.execute(f"SELECT task_id, COUNT(*) AS c FROM task_comments WHERE task_id IN ({marks}) GROUP BY task_id", ids)
+    comments = {c["task_id"]: c["c"] for c in await cur.fetchall()}
+    me, admin = user.get("id"), is_admin(user)
+    for r in rows:
+        p = people.get(r["id"], {"assignee": [], "mention": []})
+        r["owner"] = owners.get(r.get("owner_id"))
+        r["assignees"] = p["assignee"]
+        r["mentions"] = p["mention"]
+        r["comments"] = comments.get(r["id"], 0)
+        involved = me is None or r.get("owner_id") == me or any(x["id"] == me for x in p["assignee"] + p["mention"])
+        r["mine"] = involved
+        r["can_edit"] = True                      # only visible cards are ever returned
+        r["can_delete"] = admin or (me is not None and r.get("owner_id") == me)
+        r["can_assign"] = admin
+    return rows
+
+
+async def _one(db, task_id: int, user: dict) -> dict:
+    return (await _enrich(db, [await _get(db, task_id)], user))[0]
+
+
+# ----------------------------------------------------------- people on cards
+MENTION_RE = re.compile(r"(?<![\w@])@([A-Za-z0-9._\-]{1,64})")
+
+
+async def _resolve_people(db, usernames: List[str]) -> List[dict]:
+    """Known active accounts by login name; AD accounts that never signed in are added (directory)."""
+    out, seen = [], set()
+    for raw in usernames[:20]:
+        name = ldapauth.normalize(raw)
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        cur = await db.execute("SELECT id, username, display_name, active, source FROM users WHERE username = ?", (name,))
+        row = await cur.fetchone()
+        if row is None and ldapauth.directory_enabled():
+            info = await asyncio.get_running_loop().run_in_executor(None, ldapauth.lookup, name)
+            if info:
+                from .auth import upsert_ldap_user
+                row = await upsert_ldap_user(db, info)
+        if row and row["active"] and row["source"] == "ldap":
+            out.append(dict(row))
+    return out
+
+
+async def notify(db, user_ids, task_id: int, actor: dict, kind: str, text: str):
+    for uid in {u for u in user_ids if u and u != actor.get("id")}:
+        await db.execute("INSERT INTO notifications (user_id, task_id, actor_id, kind, text) VALUES (?, ?, ?, ?, ?)",
+                         (uid, task_id, actor.get("id"), kind, text[:300]))
+
+
+def _who(actor: dict) -> str:
+    return actor.get("display_name") or actor.get("username") or "有人"
+
+
+async def _members(db, task_id: int, role: str) -> set:
+    cur = await db.execute("SELECT user_id FROM task_members WHERE task_id = ? AND role = ?", (task_id, role))
+    return {r["user_id"] for r in await cur.fetchall()}
+
+
+async def set_assignees(db, task_id: int, usernames: List[str], actor: dict, title: str):
+    people = await _resolve_people(db, usernames)
+    before = await _members(db, task_id, "assignee")
+    after = {p["id"] for p in people}
+    await db.execute("DELETE FROM task_members WHERE task_id = ? AND role = 'assignee'", (task_id,))
+    for uid in after:
+        await db.execute("INSERT OR IGNORE INTO task_members (task_id, user_id, role) VALUES (?, ?, 'assignee')", (task_id, uid))
+    await notify(db, after - before, task_id, actor, "assigned", f"{_who(actor)} 把「{title}」指派給你")
+
+
+async def add_mentions(db, task_id: int, text: Optional[str], actor: dict, title: str, where: str):
+    names = MENTION_RE.findall(text or "")
+    if not names:
+        return
+    people = await _resolve_people(db, names)
+    before = await _members(db, task_id, "mention")
+    for p in people:
+        await db.execute("INSERT OR IGNORE INTO task_members (task_id, user_id, role) VALUES (?, ?, 'mention')", (task_id, p["id"]))
+    await notify(db, {p["id"] for p in people} - before if where == "說明" else {p["id"] for p in people},
+                 task_id, actor, "mention", f"{_who(actor)} 在「{title}」的{where}提到你")
+
+
+# ---------------------------------------------------------------- endpoints
 @router.get("")
-async def list_tasks():
+async def list_tasks(request: Request):
+    user = current_user(request)
+    where, args = _visible_sql(user)
     db = await get_db()
     try:
-        cur = await db.execute(f"SELECT {COLUMNS} FROM tasks ORDER BY sort_order, id")
-        return [row_dict(r) for r in await cur.fetchall()]
+        cur = await db.execute(f"SELECT {COLUMNS} FROM tasks t WHERE {where} ORDER BY sort_order, id", args)
+        return await _enrich(db, [row_dict(r) for r in await cur.fetchall()], user)
     finally:
         await db.close()
 
 
 @router.post("")
-async def create_task(t: TaskIn):
+async def create_task(t: TaskIn, request: Request):
+    user = current_user(request)
     _check_dates(t.start_at, t.due_at, t.repeat)
     repeat = _monthly_anchor(t.repeat, t.due_at)
     db = await get_db()
@@ -356,22 +490,34 @@ async def create_task(t: TaskIn):
         order = (await cur.fetchone())["n"]
         cur = await db.execute(
             """INSERT INTO tasks (title, description, status, priority, start_at, due_at, remind, repeat, repeat_every,
-                                  sort_order, completed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'complete' THEN CURRENT_TIMESTAMP END)""",
+                                  sort_order, owner_id, completed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'complete' THEN CURRENT_TIMESTAMP END)""",
             (t.title, t.description, t.status, t.priority, t.start_at, t.due_at, t.remind, repeat, t.repeat_every or 1,
-             order, t.status))
+             order, user.get("id"), t.status))
+        task_id = cur.lastrowid
+        if user.get("id") is not None:
+            if is_admin(user) and t.assignees is not None:
+                await set_assignees(db, task_id, t.assignees, user, t.title)
+            elif user.get("source") == "ldap":
+                # a user's own card is assigned to them (counts on the dashboard under their name)
+                await db.execute("INSERT INTO task_members (task_id, user_id, role) VALUES (?, ?, 'assignee')", (task_id, user["id"]))
+            await add_mentions(db, task_id, t.description, user, t.title, "說明")
         await db.commit()
-        return await _get(db, cur.lastrowid)
+        return await _one(db, task_id, user)
     finally:
         await db.close()
 
 
 @router.put("/{task_id}")
-async def update_task(task_id: int, t: TaskUpdate):
+async def update_task(task_id: int, t: TaskUpdate, request: Request):
+    user = current_user(request)
     db = await get_db()
     try:
-        cur_task = await _get(db, task_id)
-        changes = {k: getattr(t, k) for k in t.model_fields_set}
+        cur_task = await _get_visible(db, task_id, user)
+        changes = {k: getattr(t, k) for k in t.model_fields_set if k != "assignees"}
+        assignees = t.assignees if "assignees" in t.model_fields_set else None
+        if assignees is not None and not is_admin(user):
+            raise HTTPException(status_code=403, detail="只有管理員可以指派負責人")
         for k in ("title", "status", "priority"):
             if k in changes and changes[k] is None:
                 raise HTTPException(status_code=400, detail=f"{k} 不能是空的")
@@ -382,35 +528,42 @@ async def update_task(task_id: int, t: TaskUpdate):
         rule = merged["repeat"] or ""
         if rule.startswith("monthly") and ("repeat" in changes or "due_at" in changes):
             changes["repeat"] = _monthly_anchor("monthly", merged["due_at"])   # follow the (new) due day
-        if not changes:
-            return cur_task
-        sets = [f"{k} = ?" for k in changes]
-        vals = list(changes.values())
-        if "status" in changes and changes["status"] != cur_task["status"]:
-            if cur_task["status"] == "overdue":           # moved out by hand: don't pull it back for this due date
-                sets.append("overdue_ack = ?")
-                vals.append(merged["due_at"])
-                sets.append("overdue_from = NULL")
-            cur = await db.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tasks WHERE status = ?", (changes["status"],))
-            sets.append("sort_order = ?")
-            vals.append((await cur.fetchone())["n"])
-            sets.append("completed_at = CASE WHEN ? = 'complete' THEN CURRENT_TIMESTAMP END")
-            vals.append(changes["status"])
-        sets.append("updated_at = CURRENT_TIMESTAMP")
-        await db.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?", (*vals, task_id))
+        if changes:
+            sets = [f"{k} = ?" for k in changes]
+            vals = list(changes.values())
+            if "status" in changes and changes["status"] != cur_task["status"]:
+                if cur_task["status"] == "overdue":           # moved out by hand: don't pull it back for this due date
+                    sets.append("overdue_ack = ?")
+                    vals.append(merged["due_at"])
+                    sets.append("overdue_from = NULL")
+                cur = await db.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tasks WHERE status = ?", (changes["status"],))
+                sets.append("sort_order = ?")
+                vals.append((await cur.fetchone())["n"])
+                sets.append("completed_at = CASE WHEN ? = 'complete' THEN CURRENT_TIMESTAMP END")
+                vals.append(changes["status"])
+            sets.append("updated_at = CURRENT_TIMESTAMP")
+            await db.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?", (*vals, task_id))
+        if user.get("id") is not None:
+            if assignees is not None:
+                await set_assignees(db, task_id, assignees, user, merged["title"])
+            if "description" in changes:
+                await add_mentions(db, task_id, changes["description"], user, merged["title"], "說明")
         if changes.get("status") == "complete" and cur_task["status"] != "complete":
             await spawn_next(db, task_id)
         await db.commit()
-        return await _get(db, task_id)
+        return await _one(db, task_id, user)
     finally:
         await db.close()
 
 
 @router.delete("/{task_id}")
-async def delete_task(task_id: int):
+async def delete_task(task_id: int, request: Request):
+    user = current_user(request)
     db = await get_db()
     try:
-        await _get(db, task_id)
+        t = await _get_visible(db, task_id, user)
+        if not is_admin(user) and t.get("owner_id") != user.get("id"):
+            raise HTTPException(status_code=403, detail="只能刪除自己建立的卡片（其他卡片可以改成 Canceled）")
         await db.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
         await db.commit()
         return {"success": True}
@@ -419,20 +572,28 @@ async def delete_task(task_id: int):
 
 
 @router.post("/reorder")
-async def reorder(r: Reorder):
+async def reorder(r: Reorder, request: Request):
     """Put `ids` (in this order) into column `status` — used after a drag and drop."""
+    user = current_user(request)
     db = await get_db()
     try:
-        if r.status != "overdue" and r.ids:             # dragged out of 過期未結案 by hand
-            marks = ",".join("?" * len(r.ids))
+        where, args = _visible_sql(user)
+        if r.ids:
+            cur = await db.execute(f"SELECT t.id FROM tasks t WHERE t.id IN ({','.join('?' * len(r.ids))}) AND {where}", (*r.ids, *args))
+            allowed = {row["id"] for row in await cur.fetchall()}
+            ids = [i for i in r.ids if i in allowed]       # never touch cards the viewer cannot see
+        else:
+            ids = []
+        if r.status != "overdue" and ids:             # dragged out of 過期未結案 by hand
+            marks = ",".join("?" * len(ids))
             await db.execute(f"""UPDATE tasks SET overdue_ack = due_at, overdue_from = NULL
-                                 WHERE status = 'overdue' AND id IN ({marks})""", r.ids)
+                                 WHERE status = 'overdue' AND id IN ({marks})""", ids)
         closing = []
-        if r.status == "complete":
-            marks = ",".join("?" * len(r.ids)) or "NULL"
-            cur = await db.execute(f"SELECT id FROM tasks WHERE status != 'complete' AND id IN ({marks})", r.ids)
+        if r.status == "complete" and ids:
+            marks = ",".join("?" * len(ids))
+            cur = await db.execute(f"SELECT id FROM tasks WHERE status != 'complete' AND id IN ({marks})", ids)
             closing = [row["id"] for row in await cur.fetchall()]
-        for i, task_id in enumerate(r.ids):
+        for i, task_id in enumerate(ids):
             await db.execute(
                 """UPDATE tasks SET
                        completed_at = CASE WHEN ? = 'complete' THEN COALESCE(CASE WHEN status = 'complete' THEN completed_at END, CURRENT_TIMESTAMP) END,
@@ -448,9 +609,10 @@ async def reorder(r: Reorder):
 
 
 @router.post("/sweep")
-async def sweep(body: SweepIn):
+async def sweep(body: SweepIn, request: Request):
     """Move open one-off cards past their due date to 過期未結案, and move cards whose due
     date was pushed into the future back out. Idempotent; safe to call often."""
+    current_user(request)
     db = await get_db()
     try:
         cur = await db.execute(f"SELECT {COLUMNS} FROM tasks WHERE due_at IS NOT NULL AND status NOT IN ('complete', 'canceled')")
@@ -478,11 +640,12 @@ async def sweep(body: SweepIn):
 
 
 @router.post("/{task_id}/complete")
-async def complete_task(task_id: int, body: Optional[CompleteIn] = None):
+async def complete_task(task_id: int, request: Request, body: Optional[CompleteIn] = None):
     """Close a card; for a recurring card also create the next occurrence (once)."""
+    user = current_user(request)
     db = await get_db()
     try:
-        t = await _get(db, task_id)
+        t = await _get_visible(db, task_id, user)
         if t["status"] != "complete":
             cur = await db.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tasks WHERE status = 'complete'")
             order = (await cur.fetchone())["n"]
@@ -491,7 +654,121 @@ async def complete_task(task_id: int, body: Optional[CompleteIn] = None):
         today = date.fromisoformat(body.today) if body and body.today else None
         next_id = await spawn_next(db, task_id, today)
         await db.commit()
-        return {"task": await _get(db, task_id), "next": await _get(db, next_id) if next_id else None}
+        return {"task": await _one(db, task_id, user), "next": await _one(db, next_id, user) if next_id else None}
+    finally:
+        await db.close()
+
+
+# ------------------------------------------------------------------ comments
+class CommentIn(BaseModel):
+    body: str
+
+    @field_validator("body")
+    @classmethod
+    def v_body(cls, v):
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("請輸入留言")
+        return v[:4000]
+
+
+@router.get("/{task_id}/comments")
+async def list_comments(task_id: int, request: Request):
+    user = current_user(request)
+    db = await get_db()
+    try:
+        await _get_visible(db, task_id, user)
+        cur = await db.execute("""SELECT c.id, c.body, c.created_at, c.user_id, u.username, u.display_name
+                                  FROM task_comments c LEFT JOIN users u ON u.id = c.user_id
+                                  WHERE c.task_id = ? ORDER BY c.id""", (task_id,))
+        return [{"id": c["id"], "body": c["body"], "created_at": c["created_at"],
+                 "author": {"id": c["user_id"], "username": c["username"], "name": c["display_name"] or c["username"] or "本機"},
+                 "can_delete": is_admin(user) or (c["user_id"] is not None and c["user_id"] == user.get("id"))}
+                for c in await cur.fetchall()]
+    finally:
+        await db.close()
+
+
+@router.post("/{task_id}/comments")
+async def add_comment(task_id: int, body: CommentIn, request: Request):
+    user = current_user(request)
+    db = await get_db()
+    try:
+        t = await _get_visible(db, task_id, user)
+        cur = await db.execute("INSERT INTO task_comments (task_id, user_id, body) VALUES (?, ?, ?)", (task_id, user.get("id"), body.body))
+        if user.get("id") is not None:
+            mentioned = MENTION_RE.findall(body.body)
+            await add_mentions(db, task_id, body.body, user, t["title"], "留言")
+            # everyone already on the card hears about the comment (mentioned people got a mention already)
+            people = await _members(db, task_id, "assignee") | await _members(db, task_id, "mention") | {t.get("owner_id")}
+            cur2 = await db.execute(f"SELECT id FROM users WHERE username IN ({','.join('?' * len(mentioned)) or 'NULL'})",
+                                    [ldapauth.normalize(m) for m in mentioned])
+            already = {r["id"] for r in await cur2.fetchall()}
+            await notify(db, people - already, task_id, user, "comment", f"{_who(user)} 在「{t['title']}」留言：{body.body[:60]}")
+        await db.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))
+        await db.commit()
+        return {"id": cur.lastrowid}
+    finally:
+        await db.close()
+
+
+@router.delete("/{task_id}/comments/{comment_id}")
+async def delete_comment(task_id: int, comment_id: int, request: Request):
+    user = current_user(request)
+    db = await get_db()
+    try:
+        await _get_visible(db, task_id, user)
+        cur = await db.execute("SELECT user_id FROM task_comments WHERE id = ? AND task_id = ?", (comment_id, task_id))
+        c = await cur.fetchone()
+        if not c:
+            raise HTTPException(status_code=404, detail="找不到這則留言")
+        if not is_admin(user) and c["user_id"] != user.get("id"):
+            raise HTTPException(status_code=403, detail="只能刪除自己的留言")
+        await db.execute("DELETE FROM task_comments WHERE id = ?", (comment_id,))
+        await db.commit()
+        return {"success": True}
+    finally:
+        await db.close()
+
+
+# ------------------------------------------------------------- notifications
+notes_router = APIRouter(prefix="/api/notifications", tags=["tasks"])
+
+
+class ReadIn(BaseModel):
+    ids: Optional[List[int]] = None              # None = all
+
+
+@notes_router.get("")
+async def list_notifications(request: Request):
+    user = current_user(request)
+    if user.get("id") is None:
+        return []
+    db = await get_db()
+    try:
+        cur = await db.execute("""SELECT n.id, n.task_id, n.kind, n.text, n.read, n.created_at
+                                  FROM notifications n WHERE n.user_id = ? ORDER BY n.read, n.id DESC LIMIT 50""", (user["id"],))
+        return [dict(r) for r in await cur.fetchall()]
+    finally:
+        await db.close()
+
+
+@notes_router.post("/read")
+async def read_notifications(body: ReadIn, request: Request):
+    user = current_user(request)
+    if user.get("id") is None:
+        return {"success": True}
+    db = await get_db()
+    try:
+        if body.ids:
+            await db.execute(f"UPDATE notifications SET read = 1 WHERE user_id = ? AND id IN ({','.join('?' * len(body.ids))})",
+                             (user["id"], *body.ids))
+        else:
+            await db.execute("UPDATE notifications SET read = 1 WHERE user_id = ?", (user["id"],))
+        await db.execute("DELETE FROM notifications WHERE user_id = ? AND read = 1 AND id NOT IN "
+                         "(SELECT id FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 200)", (user["id"], user["id"]))
+        await db.commit()
+        return {"success": True}
     finally:
         await db.close()
 
@@ -502,8 +779,22 @@ EXPORT_FIELDS = ("title", "description", "status", "priority", "start_at", "due_
 
 
 async def export_tasks(db) -> List[dict]:
-    cur = await db.execute(f"SELECT {COLUMNS} FROM tasks ORDER BY status, sort_order, id")
-    return [{k: r[k] for k in EXPORT_FIELDS if r[k] is not None} for r in await cur.fetchall()]
+    cur = await db.execute(f"""SELECT {COLUMNS}, (SELECT username FROM users WHERE id = t.owner_id) AS owner_name
+                               FROM tasks t ORDER BY status, sort_order, id""")
+    rows = await cur.fetchall()
+    out = []
+    for r in rows:
+        item = {k: r[k] for k in EXPORT_FIELDS if r[k] is not None}
+        if r["owner_name"]:
+            item["owner"] = r["owner_name"]
+        cur2 = await db.execute("""SELECT u.username, m.role FROM task_members m JOIN users u ON u.id = m.user_id
+                                   WHERE m.task_id = ?""", (r["id"],))
+        members = await cur2.fetchall()
+        if members:
+            item["assignees"] = [m["username"] for m in members if m["role"] == "assignee"]
+            item["mentions"] = [m["username"] for m in members if m["role"] == "mention"]
+        out.append(item)
+    return out
 
 
 async def import_tasks(db, items) -> int:
@@ -516,12 +807,26 @@ async def import_tasks(db, items) -> int:
                                                    "repeat", "repeat_every") if item.get(k) is not None})
         except Exception:
             continue
-        await db.execute(
+        owner = None
+        if isinstance(item.get("owner"), str):
+            cur = await db.execute("SELECT id FROM users WHERE username = ?", (item["owner"].lower(),))
+            row = await cur.fetchone()
+            owner = row["id"] if row else None
+        cur = await db.execute(
             """INSERT INTO tasks (title, description, status, priority, start_at, due_at, remind, repeat, repeat_every,
-                                  sort_order, completed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                  sort_order, completed_at, owner_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (t.title, t.description, t.status, t.priority, t.start_at, t.due_at, t.remind,
              t.repeat if t.due_at else None, t.repeat_every or 1,
-             item["sort_order"] if isinstance(item.get("sort_order"), int) else n, item.get("completed_at") if t.status == "complete" else None))
+             item["sort_order"] if isinstance(item.get("sort_order"), int) else n,
+             item.get("completed_at") if t.status == "complete" else None, owner))
+        for role, key in (("assignee", "assignees"), ("mention", "mentions")):
+            for name in item.get(key) or []:
+                if isinstance(name, str):
+                    cur2 = await db.execute("SELECT id FROM users WHERE username = ?", (name.lower(),))
+                    u = await cur2.fetchone()
+                    if u:
+                        await db.execute("INSERT OR IGNORE INTO task_members (task_id, user_id, role) VALUES (?, ?, ?)",
+                                         (cur.lastrowid, u["id"], role))
         n += 1
     return n

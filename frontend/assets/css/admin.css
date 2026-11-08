@@ -375,3 +375,27 @@ body.link-dragging .quick-admin { outline: 2px dashed var(--accent-line); outlin
 .icon-field-tools { display: flex; gap: 6px; }
 .input.mono { font-family: var(--mono); font-size: 13px; }
 .akind.is-program { color: var(--success); }
+
+/* ---------------------------------------------------- accounts & roles */
+.rail-user { padding: 10px 4px 0; border-top: 1px solid var(--border); margin-top: auto; }
+.rail-user .user-btn { width: 100%; justify-content: flex-start; }
+.rail-user + .rail-foot { margin-top: 8px; }
+.admin-notice { position: fixed; z-index: 50; left: 50%; bottom: 18px; transform: translateX(-50%); width: min(720px, calc(100vw - 32px)); box-shadow: var(--shadow-lg); background: var(--surface-solid); }
+.users-tools { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.users-tools .input { flex: 1 1 260px; max-width: 420px; }
+.users-summary { display: flex; gap: 6px; }
+.users-add { display: flex; gap: 8px; margin-bottom: 14px; max-width: 640px; }
+.users-add .input { flex: 1; }
+.users-list { padding: 6px; margin-bottom: 14px; overflow-x: auto; }
+.users-row { display: grid; grid-template-columns: minmax(220px, 2fr) minmax(90px, 1fr) 120px 130px 168px 56px; align-items: center; gap: 14px; padding: 10px 12px; border-radius: 12px; min-width: 760px; }
+.users-row + .users-row { border-top: 1px solid var(--border); }
+.users-row:not(.users-head):hover { background: var(--surface-2); }
+.users-head { font-size: 12px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
+.users-row.is-off { opacity: .55; }
+.users-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.users-who > span:last-child { display: flex; flex-direction: column; min-width: 0; }
+.users-who strong { font-size: 14px; }
+.users-who small { font-size: 12px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.users-row .muted { font-size: 12.5px; color: var(--text-3); }
+.users-row .segmented button { height: 28px; padding: 0 10px; font-size: 12.5px; }
+.hint code { font-family: var(--mono); font-size: 12px; }

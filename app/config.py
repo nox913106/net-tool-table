@@ -33,5 +33,32 @@ ENABLE_DOCS = _bool("TOOL_TABLE_ENABLE_DOCS", True)
 # portable/launcher.py sets it). Never enable this on a shared server.
 LOCAL_APPS = _bool("TOOL_TABLE_LOCAL_APPS", False)
 
+# ---- Accounts (server edition) -------------------------------------------------
+# Login for the whole site except the public task dashboard. The installer turns this on
+# and creates the local break-glass account; the portable edition leaves it off.
+AUTH = _bool("TOOL_TABLE_AUTH", False)
+SESSION_HOURS = float(os.environ.get("TOOL_TABLE_SESSION_HOURS") or 12)     # idle timeout (sliding)
+SESSION_MAX_DAYS = float(os.environ.get("TOOL_TABLE_SESSION_MAX_DAYS") or 7)
+LOCAL_ADMIN = (os.environ.get("TOOL_TABLE_LOCAL_ADMIN") or "localadmin").strip().lower()
+
+# Active Directory / LDAP. Two ways to log in:
+#  * search + bind: TOOL_TABLE_LDAP_BIND_DN / _BIND_PASSWORD (read-only service account) — also
+#    enables the account directory for @mentions and assigning people who never logged in
+#  * direct bind as user@TOOL_TABLE_LDAP_DOMAIN (Active Directory UPN) — no service account needed
+LDAP_URL = (os.environ.get("TOOL_TABLE_LDAP_URL") or "").strip()            # ldaps://dc1.corp.local
+LDAP_DOMAIN = (os.environ.get("TOOL_TABLE_LDAP_DOMAIN") or "").strip()      # corp.local
+LDAP_BASE_DN = (os.environ.get("TOOL_TABLE_LDAP_BASE_DN") or "").strip()    # DC=corp,DC=local
+LDAP_BIND_DN = (os.environ.get("TOOL_TABLE_LDAP_BIND_DN") or "").strip()
+LDAP_BIND_PASSWORD = os.environ.get("TOOL_TABLE_LDAP_BIND_PASSWORD") or ""
+LDAP_USER_FILTER = (os.environ.get("TOOL_TABLE_LDAP_USER_FILTER") or "").strip()  # e.g. (memberOf=CN=IT,OU=Groups,DC=corp,DC=local)
+LDAP_LOGIN_ATTR = os.environ.get("TOOL_TABLE_LDAP_LOGIN_ATTR") or "sAMAccountName"
+LDAP_NAME_ATTR = os.environ.get("TOOL_TABLE_LDAP_NAME_ATTR") or "displayName"
+LDAP_DEPT_ATTR = os.environ.get("TOOL_TABLE_LDAP_DEPT_ATTR") or "department"
+LDAP_MAIL_ATTR = os.environ.get("TOOL_TABLE_LDAP_MAIL_ATTR") or "mail"
+LDAP_STARTTLS = _bool("TOOL_TABLE_LDAP_STARTTLS", False)
+LDAP_TLS_VERIFY = _bool("TOOL_TABLE_LDAP_TLS_VERIFY", True)
+LDAP_CA_FILE = (os.environ.get("TOOL_TABLE_LDAP_CA_FILE") or "").strip()
+LDAP_TIMEOUT = float(os.environ.get("TOOL_TABLE_LDAP_TIMEOUT") or 6)
+
 ALLOWED_ICON_EXTENSIONS = {".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif"}
 MAX_ICON_BYTES = 5 * 1024 * 1024

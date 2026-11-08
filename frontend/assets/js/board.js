@@ -246,7 +246,7 @@ const TTBoard = (() => {
   function alerts(at = now()) {
     const list = [];
     for (const t of tasks) {
-      if (CLOSED.has(t.status)) continue;
+      if (CLOSED.has(t.status) || t.mine === false) continue;     // admins see every card, but are reminded of their own
       const tm = timing(t, at);
       const rm = remindMoment(t);
       if (tm.due === 'overdue') list.push({ t, kind: 'overdue', text: tm.dueText, rank: 0 });
@@ -262,7 +262,8 @@ const TTBoard = (() => {
   let firstCheck = true;
   function refreshAlerts() {
     const list = alerts();
-    document.querySelectorAll('[data-board-badge]').forEach(b => { b.textContent = list.length; b.hidden = !list.length; });
+    const unread = notes.filter(n => !n.read).length;
+    document.querySelectorAll('[data-board-badge]').forEach(b => { b.textContent = list.length + unread; b.hidden = !(list.length + unread); });
     bells.forEach(f => f(list));
     notify(list);
     checkClosePrompts();
@@ -278,7 +279,7 @@ const TTBoard = (() => {
     store.set('board-snooze', all);
   }
   function dueForClose(at = now()) {
-    return tasks.filter(t => t.repeat && t.due_at && !CLOSED.has(t.status) && at >= closeMoment(t) && !snoozed(t, at))
+    return tasks.filter(t => t.mine !== false && t.repeat && t.due_at && !CLOSED.has(t.status) && at >= closeMoment(t) && !snoozed(t, at))
       .sort((a, b) => closeMoment(a) - closeMoment(b));
   }
   function checkClosePrompts() {
@@ -295,7 +296,7 @@ const TTBoard = (() => {
   }
 
   // ------------------------------------- one-off cards past due: daily reminder
-  const overdueOpen = () => tasks.filter(t => !t.repeat && t.due_at && !CLOSED.has(t.status) && isPast(t.due_at))
+  const overdueOpen = () => tasks.filter(t => t.mine !== false && !t.repeat && t.due_at && !CLOSED.has(t.status) && isPast(t.due_at))
     .sort((a, b) => a.due_at.localeCompare(b.due_at));
   function remindTimeToday(at = now()) {
     const m = /^(\d{1,2}):(\d{2})$/.exec(settings.board_overdue_remind_time || '') || [0, 9, 30];
@@ -449,15 +450,43 @@ const TTBoard = (() => {
 
   // ------------------------------------------------------------------ init
   let started = false;
-  function init(s) {
+  let meInfo = { auth: false, is_admin: true, user: {} };
+  let notes = [];
+  async function loadNotes() {
+    if (!meInfo.auth) return;
+    try {
+      const list = await api('/api/notifications');
+      const seen = store.get('board-notes-seen', 0);
+      const fresh = list.filter(n => !n.read && n.id > seen);
+      notes = list;
+      if (fresh.length) {
+        store.set('board-notes-seen', Math.max(...list.map(n => n.id)));
+        if (seen) fresh.slice(0, 3).forEach(n => {           // not on the very first load
+          if (canNotify()) { const x = new Notification('Tool Table', { body: n.text, tag: 'tt-note-' + n.id, icon: '/assets/app/icon-192.png' }); x.onclick = () => { window.focus(); openTask(n.task_id); }; }
+          else toast('💬 ' + n.text);
+        });
+      }
+      refreshAlerts();
+    } catch { /* ignore */ }
+  }
+  async function openTask(id) {
+    let t = tasks.find(x => x.id === id);
+    if (!t) { await load(true); t = tasks.find(x => x.id === id); }
+    if (t) openEditor(t); else toast('這張卡片已被刪除，或你已經看不到它了', true);
+  }
+
+  async function init(s) {
     settings = s || {};
     if (started) return;
     started = true;
+    meInfo = await TT.me();
     load().then(sweep).catch(() => {});
+    loadNotes();
+    setInterval(loadNotes, 60 * 1000);
     setInterval(refreshAlerts, 30 * 1000);                     // time moves on: re-evaluate
     setInterval(sweep, 60 * 1000);
     setInterval(() => load(true).catch(() => {}), 5 * 60 * 1000); // pick up edits from other people
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) load(true).catch(() => {}); });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { load(true).catch(() => {}); loadNotes(); } });
   }
 
   // ------------------------------------------------------------------ board
@@ -469,19 +498,23 @@ const TTBoard = (() => {
     root.classList.add('kb');
     if (opts.full) root.classList.add('kb-full');
     let hideClosed = !!opts.hideClosed;
+    let filter = opts.filter || 'all';                          // all | mine | user:<id>
+    const pass = t => filter === 'all' ? true : filter === 'mine' ? t.mine !== false
+      : filter.startsWith('user:') ? [t.owner, ...(t.assignees || [])].some(p => p && String(p.id) === filter.slice(5)) : true;
+    const colItems = key => byStatus(key).filter(pass);
     let drag = null;                                           // { id, from }
     const placeholder = el('div', { class: 'kb-placeholder' });
 
     const render = () => {
       if (!root.isConnected && root.dataset.mounted) { boards.delete(render); return; }
       root.dataset.mounted = '1';
-      const cols = STATUSES.filter(s => !(hideClosed && CLOSED.has(s.key)) && !(s.key === 'overdue' && !byStatus('overdue').length));
+      const cols = STATUSES.filter(s => !(hideClosed && CLOSED.has(s.key)) && !(s.key === 'overdue' && !colItems('overdue').length));
       root.style.setProperty('--kb-cols', cols.length);
       root.replaceChildren(...cols.map(column));
     };
 
     function column(s) {
-      const items = byStatus(s.key);
+      const items = colItems(s.key);
       const list = el('div', { class: 'kb-list', dataset: { status: s.key } }, items.map(card));
       if (!items.length) list.append(el('div', { class: 'kb-empty', text: s.key === 'recurring' ? '重複性工作會排在這裡' : CLOSED.has(s.key) ? '—' : '拖曳卡片到這裡' }));
       if (s.key === 'overdue' && items.length) list.prepend(el('p', { class: 'kb-col-note', text: '過了到期日還沒結案的卡片。拖到其他欄就不會再被移回來。' }));
@@ -540,7 +573,8 @@ const TTBoard = (() => {
           t.priority === 'high' ? el('span', { class: 'kb-flag', title: '高優先', html: svg('flag') }) : null,
           el('span', { text: t.title })),
         t.description ? el('p', { class: 'kb-card-desc', text: t.description }) : null,
-        chips.length ? el('div', { class: 'kb-chips' }, chips) : null);
+        chips.length ? el('div', { class: 'kb-chips' }, chips) : null,
+        meInfo.auth ? cardPeople(t) : null);
       c.addEventListener('click', () => openEditor(t));
       c.addEventListener('keydown', e => { if (e.key === 'Enter') openEditor(t); });
       c.addEventListener('dragstart', e => {
@@ -556,6 +590,17 @@ const TTBoard = (() => {
         if (drag) { drag = null; render(); }
       });
       return c;
+    }
+
+    function cardPeople(t) {
+      const people = t.assignees?.length ? t.assignees : t.owner ? [t.owner] : [];
+      if (!people.length && !t.comments && !t.mentions?.length) return null;
+      return el('div', { class: 'kb-people' },
+        t.comments ? el('span', { class: 'kb-meta', title: `${t.comments} 則留言`, html: svg('message') + t.comments }) : null,
+        t.mentions?.length ? el('span', { class: 'kb-meta', title: '協作：' + t.mentions.map(TT.nameOf).join('、'), html: '@' + t.mentions.length }) : null,
+        el('span', { class: 'spacer' }),
+        el('span', { class: 'avatars' + (t.assignees?.length ? '' : ' is-owner'), title: (t.assignees?.length ? '負責：' : '建立：') + people.map(TT.nameOf).join('、') },
+          people.slice(0, 4).map(p => TT.avatar(p, 22))));
     }
 
     function quickAdd(col, status, btn) {
@@ -586,6 +631,7 @@ const TTBoard = (() => {
     if (!loading) load().catch(() => {});
     return {
       setHideClosed(v) { hideClosed = v; render(); },
+      setFilter(v) { filter = v; render(); },
       render,
     };
   }
@@ -598,8 +644,23 @@ const TTBoard = (() => {
     const [dd, dt] = split(t.due_at);
 
     const title = el('input', { class: 'input kb-title-input', value: t.title, maxlength: '200', placeholder: '要做什麼？' });
-    const desc = el('textarea', { class: 'textarea', rows: '4', placeholder: '細節、連結、注意事項（選填）' });
+    const desc = el('textarea', { class: 'textarea', rows: '4', placeholder: meInfo.auth ? '細節、連結、注意事項（選填）。輸入 @ 可以找同事一起協作' : '細節、連結、注意事項（選填）' });
     desc.value = t.description || '';
+    if (meInfo.auth) TT.mentionInput(desc);
+
+    // --- people (server edition)
+    const canAssign = meInfo.auth && meInfo.is_admin;
+    let assignees = (t.assignees || []).map(p => ({ ...p }));
+    const assignBox = el('div', { class: 'kb-assignees' });
+    const assignInput = canAssign ? TT.mentionInput(el('input', { class: 'input kb-assign-input', placeholder: '輸入姓名或帳號，指派負責人…' }), {
+      onPick: p => { if (!assignees.some(a => a.username === p.username)) assignees.push({ username: p.username, name: TT.nameOf(p), department: p.department }); paintAssignees(); },
+    }) : null;
+    function paintAssignees() {
+      assignBox.replaceChildren(...assignees.map(p => el('span', { class: 'kb-person' }, TT.avatar(p, 22), el('span', { text: TT.nameOf(p) }),
+        canAssign ? (() => { const x = el('button', { type: 'button', class: 'kb-person-x', 'aria-label': '移除', html: svg('x') }); x.addEventListener('click', () => { assignees = assignees.filter(a => a.username !== p.username); paintAssignees(); }); return x; })() : null)),
+        ...(assignInput ? [assignInput] : assignees.length ? [] : [el('span', { class: 'hint', text: task ? '未指派（只有管理員可以指派）' : '新卡片會指派給你自己' })]));
+    }
+    paintAssignees();
     const status = el('select', { class: 'select' }, STATUSES.map(s => el('option', { value: s.key, text: `${s.label}（${s.zh}）` })));
     status.value = t.status;
     let priority = t.priority;
@@ -707,9 +768,45 @@ const TTBoard = (() => {
     const field = (label, ...ctl) => el('label', { class: 'field' }, el('span', { class: 'field-label', text: label }), ...ctl);
     const ok = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + (task ? '儲存' : '新增') });
     const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: '取消' });
-    const del = task ? el('button', { class: 'btn btn-danger kb-del', type: 'button', html: svg('trash') + '刪除' }) : null;
+    const del = task && task.can_delete !== false ? el('button', { class: 'btn btn-danger kb-del', type: 'button', html: svg('trash') + '刪除' }) : null;
     const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': '關閉', html: svg('x') });
-    const meta = task ? el('p', { class: 'hint', text: `建立於 ${task.created_at?.slice(0, 16) || ''}` + (task.completed_at ? ` · 完成於 ${task.completed_at.slice(0, 16)}` : '') }) : null;
+    const meta = task ? el('p', { class: 'hint', text: (task.owner ? `${TT.nameOf(task.owner)} 建立於 ` : '建立於 ') + (task.created_at?.slice(0, 16) || '')
+      + (task.completed_at ? ` · 完成於 ${task.completed_at.slice(0, 16)}` : '')
+      + (task.mentions?.length ? ` · 協作：${task.mentions.map(TT.nameOf).join('、')}` : '') }) : null;
+
+    // --- comments (existing cards)
+    const comments = task ? el('section', { class: 'kb-comments' }) : null;
+    if (task) {
+      const listBox = el('div', { class: 'kb-comment-list' });
+      const input = el('textarea', { class: 'textarea kb-comment-input', rows: '2', placeholder: meInfo.auth ? '留言…（輸入 @ 提到同事，他會收到通知）' : '留言…' });
+      if (meInfo.auth) TT.mentionInput(input);
+      const send = el('button', { class: 'btn btn-sm btn-primary', type: 'button', html: svg('message') + '送出' });
+      const loadComments = async () => {
+        try {
+          const list = await api(`/api/tasks/${task.id}/comments`);
+          listBox.replaceChildren(...(list.length ? list.map(c => {
+            const x = c.can_delete ? el('button', { class: 'kb-comment-del', type: 'button', title: '刪除留言', html: svg('trash') }) : null;
+            x?.addEventListener('click', async () => { try { await api(`/api/tasks/${task.id}/comments/${c.id}`, { method: 'DELETE' }); loadComments(); } catch (e) { toast(e.message, true); } });
+            const body = el('p', { class: 'kb-comment-body' });
+            c.body.split(/(@[A-Za-z0-9._\-]+)/).forEach(part => body.append(part.startsWith('@') ? el('span', { class: 'kb-at', text: part }) : part));
+            return el('div', { class: 'kb-comment' }, TT.avatar(c.author, 28),
+              el('div', {}, el('div', { class: 'kb-comment-head' }, el('strong', { text: TT.nameOf(c.author) }), el('small', { text: (c.created_at || '').slice(5, 16) }), x), body));
+          }) : [el('p', { class: 'hint', text: '還沒有留言' })]));
+          listBox.scrollTop = listBox.scrollHeight;
+        } catch (e) { listBox.replaceChildren(el('p', { class: 'hint', text: e.message })); }
+      };
+      send.addEventListener('click', async () => {
+        if (!input.value.trim()) return;
+        send.disabled = true;
+        try { await api(`/api/tasks/${task.id}/comments`, { method: 'POST', body: { body: input.value } }); input.value = ''; await loadComments(); load(true); }
+        catch (e) { toast(e.message, true); }
+        send.disabled = false;
+      });
+      input.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopPropagation(); send.click(); } });
+      comments.append(el('h4', { html: svg('message') + `留言${task.comments ? `（${task.comments}）` : ''}` }), listBox,
+        el('div', { class: 'kb-comment-new' }, input, send));
+      loadComments();
+    }
 
     const wrap = el('div', { class: 'modal' },
       el('div', { class: 'modal-card kb-editor', role: 'dialog', 'aria-modal': 'true', 'aria-label': task ? '編輯卡片' : '新增卡片' },
@@ -717,6 +814,7 @@ const TTBoard = (() => {
         el('div', { class: 'modal-body' },
           field('標題', title),
           field('說明', desc),
+          meInfo.auth ? el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('users') + '負責人' }), assignBox) : null,
           el('div', { class: 'kb-row' }, field('狀態', status), el('div', { class: 'field' }, el('span', { class: 'field-label', text: '優先順序' }), prio)),
           el('div', { class: 'kb-row' },
             el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('play') + '開始日' }), el('div', { class: 'kb-dt' }, startD, startT), startChips),
@@ -728,7 +826,8 @@ const TTBoard = (() => {
           weekBox,
           hint,
           repeatHint,
-          meta),
+          meta,
+          comments),
         el('div', { class: 'modal-foot' }, del, el('span', { class: 'spacer' }), cancel, ok)));
 
     const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey); document.body.classList.remove('modal-open'); };
@@ -758,6 +857,7 @@ const TTBoard = (() => {
         repeat: ruleValue(),
         repeat_every: Math.min(365, Math.max(1, Number(every.value) || 1)),
       };
+      if (canAssign) body.assignees = assignees.map(p => p.username);
       if (body.start_at && body.due_at && body.start_at.slice(0, 10) > body.due_at.slice(0, 10)) { toast('開始日不能晚於到期日', true); return; }
       if (body.repeat && !body.due_at) { toast('重複的卡片需要設定到期日', true); dueD.focus(); return; }
       ok.disabled = true;
@@ -799,9 +899,27 @@ const TTBoard = (() => {
     const esc = e => { if (e.key === 'Escape') close(); };
 
     const paint = list => {
-      btn.title = list.length ? `${list.length} 個待辦需要注意` : '待辦提醒';
-      btn.classList.toggle('has-alerts', list.length > 0);
+      const unread = notes.filter(n => !n.read);
+      btn.title = [list.length && `${list.length} 個待辦需要注意`, unread.length && `${unread.length} 則新通知`].filter(Boolean).join('、') || '待辦提醒';
+      btn.classList.toggle('has-alerts', list.length + unread.length > 0);
       if (!pop) return;
+      const noteRows = notes.slice(0, 12).map(n => {
+        const row = el('button', { class: 'bell-item bell-note' + (n.read ? ' is-read' : ''), type: 'button' },
+          el('span', { class: 'bell-kind kind-note', html: svg(n.kind === 'comment' ? 'message' : n.kind === 'assigned' ? 'user' : 'users') }),
+          el('span', { class: 'bell-text' }, el('strong', { text: n.text }), el('small', { text: (n.created_at || '').slice(5, 16) })));
+        row.addEventListener('click', async () => {
+          close();
+          if (!n.read) { n.read = 1; api('/api/notifications/read', { method: 'POST', body: { ids: [n.id] } }).catch(() => {}); refreshAlerts(); }
+          openTask(n.task_id);
+        });
+        return row;
+      });
+      const readAll = unread.length ? el('button', { class: 'section-link', type: 'button', text: '全部已讀' }) : null;
+      readAll?.addEventListener('click', async () => {
+        notes.forEach(n => { n.read = 1; });
+        api('/api/notifications/read', { method: 'POST', body: {} }).catch(() => {});
+        refreshAlerts();
+      });
       const perm = 'Notification' in window && settings.board_notify !== false ? Notification.permission : 'n/a';
       const items = list.length ? list.map(a => {
         const row = el('button', { class: `bell-item kind-${a.kind}`, type: 'button' },
@@ -818,6 +936,8 @@ const TTBoard = (() => {
       const go = el('a', { class: 'btn btn-sm btn-ghost', href: '/#/board', html: svg('kanban') + '開啟看板' });
       go.addEventListener('click', close);
       pop.replaceChildren(...[      // DOM replaceChildren() would print a null as the text "null"
+        noteRows.length ? el('div', { class: 'bell-head' }, el('strong', { text: '通知' }), readAll || el('span', { class: 'badge', text: '0' })) : null,
+        noteRows.length ? el('div', { class: 'bell-list bell-notes' }, noteRows) : null,
         el('div', { class: 'bell-head' }, el('strong', { text: '待辦提醒' }), el('span', { class: 'badge', text: list.length })),
         el('div', { class: 'bell-list' }, items),
         permHint,

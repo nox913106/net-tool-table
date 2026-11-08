@@ -491,3 +491,51 @@ kbd {
 
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .field > .segmented { align-self: flex-start; max-width: 100%; overflow-x: auto; }
+
+/* ======================================================== accounts (server) */
+.avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  border-radius: 50%;
+  background: var(--av, var(--accent));
+  color: #fff;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -.02em;
+  box-shadow: 0 0 0 2px var(--surface-solid);
+  user-select: none;
+}
+.avatars { display: inline-flex; align-items: center; }
+.avatars .avatar + .avatar { margin-left: -6px; }
+
+.user-btn { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 10px 0 5px; border-radius: 99px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 13.5px; font-weight: 600; transition: background var(--t-fast), border-color var(--t-fast); }
+.user-btn:hover { background: var(--surface-2); border-color: var(--border-strong); }
+.user-btn-name { max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-pop {
+  position: fixed; z-index: 96; width: 260px; padding: 8px;
+  border-radius: var(--r-xl); background: var(--surface-solid); border: 1px solid var(--border-strong); box-shadow: var(--shadow-lg);
+  display: flex; flex-direction: column; gap: 2px; animation: pop-in var(--t) var(--ease);
+}
+.user-pop-head { display: flex; align-items: center; gap: 12px; padding: 8px 8px 12px; margin-bottom: 4px; border-bottom: 1px solid var(--border); }
+.user-pop-head > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; align-items: flex-start; }
+.user-pop-head strong { font-size: 15px; }
+.user-pop-head small { font-size: 12px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 170px; }
+.menu-item { display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 10px; border-radius: 10px; font-size: 14px; color: var(--text-2); text-align: left; width: 100%; }
+.menu-item:hover { background: var(--surface-2); color: var(--text); }
+.menu-item svg { width: 17px; height: 17px; flex: none; }
+.role-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px; background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); }
+.role-badge.role-admin { background: var(--accent-soft); color: var(--accent-text); border-color: transparent; }
+.role-badge.role-superadmin { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); border-color: transparent; }
+
+.mention-pop {
+  position: fixed; z-index: 130; max-height: 260px; overflow-y: auto; padding: 6px;
+  border-radius: 14px; background: var(--surface-solid); border: 1px solid var(--border-strong); box-shadow: var(--shadow-lg);
+}
+.mention-item { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 9px; cursor: pointer; }
+.mention-item.active, .mention-item:hover { background: var(--accent-soft); }
+.mention-item span:last-child { display: flex; flex-direction: column; min-width: 0; }
+.mention-item strong { font-size: 13.5px; }
+.mention-item small { font-size: 11.5px; color: var(--text-3); }
+.notice-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; font-size: 13.5px; font-weight: 600; background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--text); border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent); }
+.notice-bar svg { width: 18px; height: 18px; color: var(--warning); flex: none; }

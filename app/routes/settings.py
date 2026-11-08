@@ -82,6 +82,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "board_notify": True,               # desktop notifications for reminders (viewer must allow)
     "board_due_soon_days": 2,           # cards due within N days are highlighted
     "board_overdue_remind_time": "09:30",  # daily reminder for one-off cards past due (viewer's local time)
+    "public_dashboard": True,           # /dashboard: per department / account status counts, no login
 }
 
 ENUMS = {

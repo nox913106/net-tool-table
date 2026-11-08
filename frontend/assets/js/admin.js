@@ -19,6 +19,7 @@
     { id: 'icons', icon: 'image', label: '圖示', desc: '上傳、改名、刪除圖示。' },
     { id: 'settings', icon: 'palette', label: '外觀與設定', desc: '品牌、配色、頁首元件、導覽與卡片。' },
     { id: 'backup', icon: 'database', label: '備份與匯入', desc: '把全部內容匯出成 JSON，或從 JSON 匯入。' },
+    { id: 'users', icon: 'users', label: '帳號與權限', desc: 'AD 帳號第一次登入後會出現在這裡，預設是「使用者」；在這裡指定管理員。', auth: true },
   ];
 
   const state = {
@@ -46,8 +47,18 @@
       return;
     }
     TT.applyAppearance(state.settings);
+    state.me = await TT.me();
     paintBrand();
     buildRail();
+    if (state.me.auth) {
+      const host = el('div', { class: 'rail-user', id: 'rail-user' });
+      $('rail').querySelector('.rail-foot').before(host);
+      TT.userMenu(host);
+      if (state.me.needs_ad_admin) {
+        const bar = el('a', { class: 'notice-bar admin-notice', href: '#users', html: svg('lock') + '<span>還沒有任何 AD 帳號是管理員。請到「帳號與權限」至少指定一位 AD 管理員；本機管理員帳號只留作緊急使用。</span>' });
+        document.body.append(bar);
+      }
+    }
 
     const themeBtn = $('theme-btn');
     const paintTheme = () => {
@@ -168,7 +179,7 @@
   }
 
   function buildRail() {
-    $('rail-nav').replaceChildren(...PANELS.map(p =>
+    $('rail-nav').replaceChildren(...PANELS.filter(p => !p.auth || state.me?.auth).map(p =>
       el('a', { class: 'rail-item', href: '#' + p.id, dataset: { panel: p.id } },
         el('span', { class: 'rail-icon', html: svg(p.icon) }), el('span', { text: p.label }))));
   }
@@ -232,7 +243,7 @@
     stage.replaceChildren(head, body);
     stage.classList.remove('enter'); void stage.offsetWidth; stage.classList.add('enter');
 
-    ({ content: renderContent, home: renderHome, quick: renderQuick, icons: renderIcons, settings: renderSettings, backup: renderBackup })[panel.id]();
+    ({ content: renderContent, home: renderHome, quick: renderQuick, icons: renderIcons, settings: renderSettings, backup: renderBackup, users: renderUsers })[panel.id]();
   }
 
   // ======================================================================
@@ -1147,6 +1158,7 @@
       { key: 'board_enabled', label: '啟用待辦看板（側邊欄入口與右上角 🔔 提醒）', type: 'switch' },
       { key: 'board_notify', label: '桌面通知', type: 'switch', hint: '到期、提醒時間或開始日到了會跳出系統通知；每位使用者第一次要在瀏覽器按「允許」' },
       { key: 'board_due_soon_days', label: '幾天內到期算「即將到期」', type: 'number' },
+      { key: 'public_dashboard', label: '公開進度看板 /dashboard（不需登入、只顯示數量）', type: 'switch', hint: '依部門 → 帳號 → 狀態顯示卡片數，不含任何卡片內容與週期工作；關閉後該頁顯示「已關閉」' },
       { key: 'board_overdue_remind_time', label: '過期未結案：每天提醒時間', type: 'text', hint: '格式 HH:MM（預設 09:30）。單次卡片過了到期日還沒結案，會移到「過期未結案」，每天這個時間跳出提醒直到結案' },
     ] },
     { title: '導覽與搜尋', icon: 'search', fields: [
@@ -1252,6 +1264,75 @@
   // ======================================================================
   // Panel: backup
   // ======================================================================
+  // ======================================================================
+  // Accounts & roles (server edition)
+  // ======================================================================
+  async function renderUsers() {
+    const body = $('stage-body');
+    let data;
+    try { data = await api('/api/users'); } catch (e) { body.append(el('p', { class: 'hint', text: e.message })); return; }
+    const filter = el('input', { class: 'input', placeholder: '篩選帳號、姓名或部門…' });
+    const addBox = el('div', { class: 'users-add' });
+    if (data.directory) {
+      const addInput = TT.mentionInput(el('input', { class: 'input', placeholder: '輸入 @ 搜尋 AD 帳號，預先加入（還沒登入過的人）' }));
+      const addBtn = el('button', { class: 'btn', type: 'button', html: svg('plus') + '加入' });
+      addBtn.addEventListener('click', async () => {
+        const name = addInput.value.trim().replace(/^@/, '');
+        if (!name) return;
+        try { await api('/api/users', { method: 'POST', body: { username: name } }); toast(`已加入 ${name}`); route(); }
+        catch (e) { toast(e.message, true); }
+      });
+      addBox.append(addInput, addBtn);
+    } else {
+      addBox.append(el('p', { class: 'hint', text: data.ldap
+        ? 'AD 帳號在第一次登入後才會出現在這裡。（設定 AD 服務帳號 TOOL_TABLE_LDAP_BIND_DN 後，就能在這裡預先加入、在看板 @ 還沒登入過的人。）'
+        : '尚未設定 AD 連線：請在 /etc/tool-table/tool-table.env 填入 TOOL_TABLE_LDAP_* 設定後重新啟動服務。' }));
+    }
+    const summary = el('div', { class: 'users-summary' },
+      el('span', { class: 'badge', text: `${data.users.length} 個帳號` }),
+      el('span', { class: 'badge' + (data.ad_admins ? '' : ' badge-alert'), text: `${data.ad_admins} 位 AD 管理員` }));
+    const list = el('div', { class: 'users-list panel' });
+    const paint = () => {
+      const q = filter.value.trim().toLowerCase();
+      const rows = data.users.filter(u => !q || [u.username, u.display_name, u.department].some(v => (v || '').toLowerCase().includes(q)));
+      list.replaceChildren(el('div', { class: 'users-row users-head' },
+        el('span', { text: '帳號' }), el('span', { text: '部門' }), el('span', { text: '卡片' }), el('span', { text: '最後登入' }), el('span', { text: '權限' }), el('span', { text: '啟用' })),
+        ...rows.map(u => {
+          const local = u.role === 'superadmin';
+          const role = local ? el('span', { class: 'role-badge role-superadmin', text: '本機最高管理員' })
+            : segmented([['user', '使用者'], ['admin', '管理員']], u.role, async v => {
+              try { Object.assign(u, await api(`/api/users/${u.id}`, { method: 'PUT', body: { role: v } })); toast(`${u.display_name || u.username} → ${v === 'admin' ? '管理員' : '使用者'}`); }
+              catch (e) { toast(e.message, true); role.setValue(u.role); }
+              data = await api('/api/users'); summary.lastChild.textContent = `${data.ad_admins} 位 AD 管理員`; summary.lastChild.classList.toggle('badge-alert', !data.ad_admins);
+            });
+          const active = local ? el('span') : switchInput(!!u.active, async v => {
+            try { Object.assign(u, await api(`/api/users/${u.id}`, { method: 'PUT', body: { active: v } })); toast(v ? '已啟用' : '已停用（已登出）'); }
+            catch (e) { toast(e.message, true); paint(); }
+          });
+          return el('div', { class: 'users-row' + (u.active ? '' : ' is-off') },
+            el('span', { class: 'users-who' }, TT.avatar({ ...u, name: u.display_name }, 32),
+              el('span', {}, el('strong', { text: u.display_name || u.username }), el('small', { text: `${u.username}${u.source === 'local' ? ' · 本機帳號' : ''}${u.email ? ' · ' + u.email : ''}` }))),
+            el('span', { text: u.department || '—' }),
+            el('span', { class: 'muted', text: `建 ${u.created_cards} · 負責 ${u.assigned_cards}` }),
+            el('span', { class: 'muted', text: u.last_login ? u.last_login.slice(0, 16) : '尚未登入' }),
+            role, active);
+        }));
+    };
+    filter.addEventListener('input', paint);
+    body.append(
+      el('div', { class: 'users-tools' }, filter, summary),
+      addBox,
+      list,
+      el('p', { class: 'hint', html: `管理員：看得到所有看板卡片，可以新增、刪除、修改與指派，也能編輯入口與後台。<br>使用者：只看得到自己建立、被指派或被 @ 提到的卡片，可以編輯；入口只能瀏覽。<br>至少要保留一位 AD 管理員。本機最高管理員（${esc((data.users.find(u => u.role === 'superadmin') || {}).username || 'localadmin')}）只在緊急時使用，密碼可在右上角選單修改，或在伺服器執行 <code>tool-table.sh reset-admin</code>。` }));
+    paint();
+  }
+
+  function switchInput(checked, onChange) {
+    const input = el('input', { type: 'checkbox', checked });
+    input.addEventListener('change', () => onChange(input.checked));
+    return el('label', { class: 'switch' }, input, el('span', { class: 'track' }));
+  }
+
   function renderBackup() {
     const exportBtn = el('button', { class: 'btn btn-primary', type: 'button', html: svg('download') + '下載 JSON' });
     exportBtn.addEventListener('click', async () => {

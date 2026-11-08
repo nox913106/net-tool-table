@@ -13,7 +13,8 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import ENABLE_DOCS, ICON_DIR, PROJECT_ROOT
 from .database import init_db
-from .routes import auth_links, local, nodes, search, settings, tasks
+from . import auth as auth_mod
+from .routes import auth as auth_routes, auth_links, dashboard, local, nodes, search, settings, tasks
 
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 VERSION = "3.0.0"
@@ -40,6 +41,9 @@ app.include_router(search.router)
 app.include_router(settings.router)
 app.include_router(local.router)
 app.include_router(tasks.router)
+app.include_router(tasks.notes_router)
+app.include_router(auth_routes.router)
+app.include_router(dashboard.router)
 
 
 @app.middleware("http")
@@ -49,12 +53,15 @@ async def harden_icons(request: Request, call_next):
     an old cached page with new scripts (a 304 makes this cheap)."""
     response = await call_next(request)
     path = request.url.path
-    if path in ("/", "/admin") or path.startswith("/assets/"):
+    if path in ("/", "/admin", "/login", "/dashboard") or path.startswith("/assets/"):
         response.headers.setdefault("Cache-Control", "no-cache")
     if path.startswith("/resource/icon/"):
         response.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
         response.headers["X-Content-Type-Options"] = "nosniff"
     return response
+
+# Registered last = runs first: login / roles / CSRF header (app/auth.py)
+app.middleware("http")(auth_mod.gate)
 
 # --- Static ---
 ICON_DIR.mkdir(parents=True, exist_ok=True)
@@ -70,6 +77,30 @@ async def serve_portal():
 @app.api_route("/admin", methods=["GET", "HEAD"], include_in_schema=False)
 async def serve_admin():
     return FileResponse(FRONTEND_DIR / "admin.html")
+
+
+@app.api_route("/login", methods=["GET", "HEAD"], include_in_schema=False)
+async def serve_login():
+    return FileResponse(FRONTEND_DIR / "login.html")
+
+
+@app.api_route("/dashboard", methods=["GET", "HEAD"], include_in_schema=False)
+async def serve_dashboard():
+    return FileResponse(FRONTEND_DIR / "dashboard.html")
+
+
+@app.get("/api/public/branding", include_in_schema=False)
+async def branding():
+    """What the login and dashboard pages need before anyone signs in."""
+    from .database import get_db
+    from .routes.settings import read_settings
+    db = await get_db()
+    try:
+        s = await read_settings(db)
+    finally:
+        await db.close()
+    keys = ("site_title", "site_subtitle", "favicon", "theme", "accent_color", "background", "density", "public_dashboard")
+    return {k: s.get(k) for k in keys}
 
 
 # --- Install as an app (Chrome / Edge "Install", Android "Add to home screen") ---

@@ -1,0 +1,23 @@
+/* Tool Table — sign-in page */
+.login-wrap { min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; position: relative; z-index: 1; }
+.login-card {
+  width: min(400px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 30px 28px 24px;
+  border-radius: var(--r-xl);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-lg);
+  animation: pop-in var(--t) var(--ease);
+}
+.login-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
+.login-brand h1 { font-size: 21px; font-weight: 800; letter-spacing: -.01em; }
+.login-brand p { font-size: 13px; color: var(--text-3); margin-top: 2px; }
+.login-btn { height: 44px; font-size: 15px; margin-top: 4px; }
+.login-error { color: var(--danger); font-size: 13.5px; font-weight: 600; background: color-mix(in srgb, var(--danger) 12%, transparent); border-radius: 10px; padding: 8px 12px; }
+.login-hint { font-size: 12.5px; color: var(--text-3); line-height: 1.6; }
+.login-hint code { font-family: var(--mono); font-size: 12px; background: var(--surface-solid); border: 1px solid var(--border); border-radius: 6px; padding: 0 5px; }
+.login-dash { font-size: 13px; color: var(--accent-text); text-align: center; padding-top: 6px; border-top: 1px solid var(--border); }
+.login-dash:hover { text-decoration: underline; }

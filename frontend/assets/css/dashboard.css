@@ -1,0 +1,37 @@
+/* Tool Table — public task dashboard (wall-screen friendly) */
+.dash-head { position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 22px clamp(16px, 3vw, 40px) 10px; }
+.dash-brand { display: flex; align-items: center; gap: 14px; }
+.dash-brand h1 { font-size: clamp(20px, 2.2vw, 28px); font-weight: 800; letter-spacing: -.01em; }
+.dash-brand p { font-size: 13px; color: var(--text-3); margin-top: 2px; }
+.dash-right { display: flex; align-items: center; gap: 10px; }
+.dash-live { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.dash-live .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 4px color-mix(in srgb, var(--success) 22%, transparent); animation: dash-pulse 2.4s ease-in-out infinite; }
+.dash-live.is-error .dot { background: var(--danger); box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 22%, transparent); }
+@keyframes dash-pulse { 50% { opacity: .45; } }
+.dash-main { position: relative; z-index: 1; padding: 8px clamp(16px, 3vw, 40px) 48px; display: flex; flex-direction: column; gap: 18px; }
+.dash-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.dash-total { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: var(--r-lg); background: var(--surface-2); border: 1px solid var(--border); border-top: 3px solid var(--st); }
+.dash-total-n { font-size: clamp(26px, 2.6vw, 36px); font-weight: 800; font-variant-numeric: tabular-nums; color: var(--st); line-height: 1; }
+.dash-total-l { display: flex; flex-direction: column; line-height: 1.25; }
+.dash-total-l strong { font-size: 13px; }
+.dash-total-l small { font-size: 12px; color: var(--text-3); }
+.dash-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 620px), 1fr)); gap: 16px; align-items: start; }
+.dash-dept { border-radius: var(--r-xl); border: 1px solid var(--border); background: var(--surface); padding: 16px 16px 10px; }
+.dash-dept > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.dash-dept h2 { font-size: 18px; font-weight: 750; }
+.dash-table { overflow-x: auto; }
+.dash-row { display: grid; grid-template-columns: minmax(130px, 1.6fr) repeat(var(--cols), minmax(52px, 1fr)); align-items: center; gap: 6px; padding: 7px 6px; border-radius: 10px; min-width: 560px; }
+.dash-row:not(.dash-th):not(.dash-sum):hover { background: var(--surface-2); }
+.dash-row + .dash-row { border-top: 1px solid var(--border); }
+.dash-th { font-size: 11.5px; font-weight: 700; color: var(--text-3); }
+.dash-st { display: inline-flex; align-items: center; justify-content: center; gap: 5px; white-space: nowrap; }
+.dash-st i { width: 8px; height: 8px; border-radius: 50%; background: var(--st); }
+.dash-who { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 14px; min-width: 0; }
+.dash-who span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-row.is-off { opacity: .5; }
+.dash-cell { text-align: center; }
+.dash-n { display: inline-grid; place-items: center; min-width: 30px; height: 26px; padding: 0 8px; border-radius: 8px; font-weight: 750; font-variant-numeric: tabular-nums;
+  color: var(--st); background: color-mix(in srgb, var(--st) 15%, transparent); }
+.dash-n.zero { color: var(--text-3); background: transparent; font-weight: 500; opacity: .6; }
+.dash-sum { font-weight: 700; font-size: 13px; color: var(--text-2); }
+.dash-sum .dash-n:not(.zero) { color: #fff; background: var(--st); }

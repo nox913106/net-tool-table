@@ -34,6 +34,10 @@ const TT = (() => {
     let data = null;
     const text = await res.text();
     try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+    if (res.status === 401 && !path.startsWith('/api/auth/') && location.pathname !== '/login') {
+      location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search + location.hash);   // session expired
+      throw new Error('請重新登入');
+    }
     if (!res.ok) {
       const detail = data && data.detail;
       const msg = typeof detail === 'string' ? detail
@@ -77,6 +81,11 @@ const TT = (() => {
     sidebar: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="m15 10-2 2 2 2"/>',
     'sidebar-open': '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="m13 10 2 2-2 2"/>',
     repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
+    logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+    user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+    users: '<circle cx="9" cy="8" r="4"/><path d="M1 21a8 8 0 0 1 16 0"/><path d="M17 4a4 4 0 0 1 0 8"/><path d="M23 21a8 8 0 0 0-5-7.4"/>',
+    lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+    message: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
     bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
     calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
     kanban: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 7v7M12 7v4M16 7v9"/>',
@@ -375,7 +384,152 @@ const TT = (() => {
     if (meta) meta.content = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0a0d1a';
   }
 
+  /* ---------- accounts (server edition) ---------- */
+  let mePromise = null;
+  /** { user, auth, is_admin, needs_ad_admin } — portable / no-login: an implicit local admin */
+  const me = () => (mePromise ||= api('/api/auth/me').catch(() => ({ user: { username: 'local', display_name: '本機', role: 'superadmin' }, auth: false, is_admin: true })));
+  const ROLE = { superadmin: '本機最高管理員', admin: '管理員', user: '使用者' };
+  const nameOf = p => (p && (p.name || p.display_name || p.username)) || '';
+  function avatar(person, size = 24) {
+    const name = nameOf(person) || '?';
+    let h = 0;
+    for (const ch of person?.username || name) h = (h * 31 + ch.charCodeAt(0)) % 360;
+    const text = /[\u3400-\u9fff]/.test(name) ? name.slice(-2) : name.split(/[\s._-]+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+    return el('span', { class: 'avatar', title: name + (person?.department ? `（${person.department}）` : ''), text,
+      style: { '--av': `hsl(${h} 62% 52%)`, width: size + 'px', height: size + 'px', fontSize: Math.round(size * 0.42) + 'px' } });
+  }
+
+  /** Header user menu: name / role, admin link, public dashboard, password (local account), sign out */
+  async function userMenu(host) {
+    const info = await me();
+    if (!info.auth || !host) return info;
+    const u = info.user;
+    const btn = el('button', { class: 'user-btn', type: 'button', 'aria-haspopup': 'menu', title: `${nameOf(u)}（${ROLE[u.role] || u.role}）` },
+      avatar(u, 30), el('span', { class: 'user-btn-name', text: nameOf(u) }));
+    host.replaceChildren(btn);
+    host.hidden = false;
+    let pop = null;
+    const close = () => { pop?.remove(); pop = null; document.removeEventListener('mousedown', outside); };
+    const outside = e => { if (pop && !pop.contains(e.target) && !btn.contains(e.target)) close(); };
+    btn.addEventListener('click', () => {
+      if (pop) return close();
+      const item = (icon, text, onClick, href) => {
+        const a = el(href ? 'a' : 'button', { class: 'menu-item', type: href ? null : 'button', href: href || null, html: svg(icon) + `<span>${esc(text)}</span>` });
+        if (onClick) a.addEventListener('click', e => { close(); onClick(e); });
+        return a;
+      };
+      pop = el('div', { class: 'user-pop', role: 'menu' },
+        el('div', { class: 'user-pop-head' }, avatar(u, 40),
+          el('div', {}, el('strong', { text: nameOf(u) }), el('small', { text: [u.username, u.department].filter(Boolean).join(' · ') }),
+            el('span', { class: `role-badge role-${u.role}`, text: ROLE[u.role] || u.role }))),
+        info.is_admin && location.pathname !== '/admin' ? item('settings', '管理後台', null, '/admin') : null,
+        location.pathname !== '/' ? item('home', '回到入口', null, '/') : null,
+        item('layout', '公開進度看板', null, '/dashboard'),
+        u.source === 'local' ? item('edit', '修改密碼', () => changePassword()) : null,
+        item('logout', '登出', async () => { try { await api('/api/auth/logout', { method: 'POST' }); } finally { location.href = '/login'; } }));
+      document.body.append(pop);
+      const r = btn.getBoundingClientRect();
+      pop.style.top = `${r.bottom + 8}px`;
+      pop.style.right = `${Math.max(8, innerWidth - r.right)}px`;
+      setTimeout(() => document.addEventListener('mousedown', outside), 0);
+    });
+    return info;
+  }
+
+  function changePassword() {
+    const cur = el('input', { class: 'input', type: 'password', autocomplete: 'current-password' });
+    const nw = el('input', { class: 'input', type: 'password', autocomplete: 'new-password', placeholder: '至少 12 個字元' });
+    const nw2 = el('input', { class: 'input', type: 'password', autocomplete: 'new-password' });
+    const ok = el('button', { class: 'btn btn-primary', type: 'button', text: '變更密碼' });
+    const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: '取消' });
+    const field = (t, i) => el('label', { class: 'field' }, el('span', { class: 'field-label', text: t }), i);
+    const wrap = el('div', { class: 'modal' }, el('div', { class: 'modal-card', role: 'dialog', 'aria-modal': 'true' },
+      el('div', { class: 'modal-head' }, el('h3', { text: '修改本機管理員密碼' })),
+      el('div', { class: 'modal-body' }, field('目前的密碼', cur), field('新密碼', nw), field('再輸入一次', nw2)),
+      el('div', { class: 'modal-foot' }, cancel, ok)));
+    const close = () => wrap.remove();
+    cancel.addEventListener('click', close);
+    ok.addEventListener('click', async () => {
+      if (nw.value !== nw2.value) return toast('兩次輸入的新密碼不一樣', true);
+      try { await api('/api/auth/password', { method: 'POST', body: { current: cur.value, new: nw.value } }); close(); toast('密碼已變更'); }
+      catch (err) { toast(err.message, true); }
+    });
+    document.body.append(wrap);
+    setTimeout(() => cur.focus(), 30);
+  }
+
+  /**
+   * @mention autocomplete for a textarea / input: typing "@ab" lists accounts (known ones and,
+   * when the AD service account is set, the directory); Enter / click inserts "@username ".
+   */
+  function mentionInput(input, { onPick } = {}) {
+    const box = el('div', { class: 'mention-pop', hidden: true, role: 'listbox' });
+    document.body.append(box);
+    let items = [], index = 0, start = -1, timer = null, seq = 0;
+    const hide = () => { box.hidden = true; items = []; start = -1; };
+    const place = () => {
+      const r = input.getBoundingClientRect();
+      box.style.left = `${r.left}px`;
+      box.style.top = `${r.bottom + 4}px`;
+      box.style.width = `${Math.min(340, r.width)}px`;
+    };
+    const paint = () => {
+      box.replaceChildren(...items.map((p, i) => {
+        const row = el('div', { class: 'mention-item' + (i === index ? ' active' : ''), role: 'option' },
+          avatar(p, 24), el('span', {}, el('strong', { text: nameOf(p) }), el('small', { text: `@${p.username}` + (p.department ? ` · ${p.department}` : '') })));
+        row.addEventListener('mousedown', e => { e.preventDefault(); pick(i); });
+        return row;
+      }));
+      box.hidden = !items.length;
+      place();
+    };
+    const pick = i => {
+      const p = items[i];
+      if (!p) return;
+      if (onPick) { input.value = ''; hide(); onPick(p); input.focus(); return; }   // picker mode
+      const v = input.value, caret = input.selectionStart;
+      input.value = v.slice(0, start) + '@' + p.username + ' ' + v.slice(caret);
+      const pos = start + p.username.length + 2;
+      input.setSelectionRange(pos, pos);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      hide();
+      input.focus();
+    };
+    input.addEventListener('input', () => {
+      const caret = input.selectionStart;
+      let m;
+      if (onPick) {                                 // picker mode: the whole box is the search text
+        const whole = /^@?([A-Za-z0-9._\-\u3400-\u9fff]{1,30})$/.exec(input.value.slice(0, caret));
+        m = whole ? [whole[0], '', whole[1]] : null;
+      } else m = /(^|[^\w@])@([A-Za-z0-9._\-\u3400-\u9fff]{0,30})$/.exec(input.value.slice(0, caret));
+      if (!m) return hide();
+      start = caret - m[2].length - 1;
+      const q = m[2];
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const my = ++seq;
+        try {
+          const res = await api('/api/people?q=' + encodeURIComponent(q));
+          if (my !== seq) return;
+          items = res; index = 0; paint();
+        } catch { hide(); }
+      }, 160);
+    });
+    input.addEventListener('keydown', e => {
+      if (box.hidden) return;
+      if (e.key === 'ArrowDown') { e.preventDefault(); index = (index + 1) % items.length; paint(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); index = (index - 1 + items.length) % items.length; paint(); }
+      else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); pick(index); }
+      else if (e.key === 'Escape') { e.stopPropagation(); hide(); }
+    }, true);
+    input.addEventListener('blur', () => setTimeout(hide, 120));
+    const obs = new MutationObserver(() => { if (!input.isConnected) { box.remove(); obs.disconnect(); } });
+    obs.observe(document.body, { childList: true, subtree: true });
+    return input;
+  }
+
   return {
+    me, userMenu, avatar, nameOf, mentionInput, ROLE,
     onInstallable, installApp, installed, syncThemeColor,
     store, api, esc, el, svg, tile, isIconFile, iconUrl, initials, hostOf, toast, applyAppearance, cycleTheme, themePref,
     togglePerf, setFavicon, isLinkDrag, readDroppedLink, guessIcon, nameFromUrl,

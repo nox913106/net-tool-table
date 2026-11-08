@@ -880,3 +880,41 @@ body.link-dragging .drop-overlay { display: grid; }
 .kb-od-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--text-3); }
 .kb-od-actions { display: flex; gap: 6px; flex: none; }
 @media (max-width: 640px) { .kb-od-row { flex-direction: column; align-items: stretch; } .kb-od-actions { justify-content: flex-end; } }
+
+/* --- people on cards (server edition) --- */
+.user-menu { margin-left: 4px; }
+.kb-people { display: flex; align-items: center; gap: 6px; margin-top: 1px; }
+.kb-people .spacer { flex: 1; }
+.kb-meta { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; font-weight: 650; color: var(--text-3); }
+.kb-meta svg { width: 13px; height: 13px; }
+.avatars.is-owner { opacity: .55; }
+.kb-assignees { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.kb-person { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 6px 0 4px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--border); font-size: 13px; font-weight: 600; }
+.kb-person-x { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; color: var(--text-3); }
+.kb-person-x:hover { background: var(--surface-hover); color: var(--danger); }
+.kb-person-x svg { width: 12px; height: 12px; }
+.kb-assign-input { flex: 1 1 200px; height: 32px; font-size: 13px; }
+.kb-comments { border-top: 1px solid var(--border); padding-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+.kb-comments h4 { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+.kb-comments h4 svg { width: 16px; height: 16px; color: var(--text-3); }
+.kb-comment-list { display: flex; flex-direction: column; gap: 10px; max-height: 260px; overflow-y: auto; }
+.kb-comment { display: flex; gap: 10px; align-items: flex-start; }
+.kb-comment > div { flex: 1; min-width: 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px 12px 12px 12px; padding: 7px 11px; }
+.kb-comment-head { display: flex; align-items: center; gap: 8px; }
+.kb-comment-head strong { font-size: 13px; }
+.kb-comment-head small { font-size: 11.5px; color: var(--text-3); }
+.kb-comment-del { margin-left: auto; color: var(--text-3); display: grid; }
+.kb-comment-del:hover { color: var(--danger); }
+.kb-comment-del svg { width: 13px; height: 13px; }
+.kb-comment-body { font-size: 13.5px; white-space: pre-wrap; word-break: break-word; margin-top: 2px; }
+.kb-at { color: var(--accent-text); font-weight: 650; }
+.kb-comment-new { display: flex; gap: 8px; align-items: flex-end; }
+.kb-comment-input { min-height: 44px; flex: 1; }
+.bell-note.is-read { opacity: .6; }
+.bell-kind.kind-note { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border-radius: 50%; background: var(--accent-soft); color: var(--accent-text); }
+.bell-kind.kind-note svg { width: 14px; height: 14px; }
+.bell-notes { border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.bell-note .bell-text strong { white-space: normal; font-weight: 600; font-size: 13px; }
+.board-who { width: auto; min-width: 150px; height: 38px; }
+.kb-editor .field-label { display: inline-flex; align-items: center; gap: 6px; }
+.kb-editor .field-label svg { width: 14px; height: 14px; flex: none; }
