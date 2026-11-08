@@ -60,7 +60,7 @@ const TT = (() => {
         }
       }
       else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2), v);
-      else if (k === 'dataset') Object.assign(node.dataset, v);
+      else if (k === 'dataset') { for (const [dk, dv] of Object.entries(v)) if (dv != null) node.dataset[dk] = dv; }
       else node.setAttribute(k, v === true ? '' : v);
     }
     for (const c of children.flat()) {

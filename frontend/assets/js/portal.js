@@ -229,7 +229,8 @@
           href: folder ? `#/f/${n.id}` : program ? '#' : n.url,
           role: 'treeitem',
           'aria-expanded': hasKids ? String(open) : null,
-          dataset: folder ? { id: n.id } : program ? { node: n.id, launch: n.id } : { node: n.id },
+          dataset: folder ? { id: n.id, dropFolder: n.id }
+            : { node: n.id, launch: program ? n.id : null, dropFolder: state.parent.get(n.id)?.id ?? null },
           target: !folder && !program && newTabFor(n) ? '_blank' : null,
           rel: !folder ? 'noopener' : null,
           style: { '--depth': depth },
@@ -310,6 +311,8 @@
     if (location.hash === '#search') { history.replaceState(null, '', '/'); setTimeout(openPalette, 50); }
     const hash = decodeURIComponent(location.hash || '#/');
     const view = $('view');
+    const open = currentFolder();
+    if (open) view.dataset.dropFolder = open.id; else delete view.dataset.dropFolder;
     let m;
     document.body.classList.remove('nav-open');
 
@@ -358,7 +361,7 @@
     const a = el('a', {
       class: `card ${mode === 'list' ? 'card-row' : 'card-tile'} ${folder ? 'is-folder' : 'is-link'}${program ? ' is-program' : ''}`,
       href: folder ? `#/f/${n.id}` : program ? '#' : n.url,
-      dataset: folder ? {} : program ? { node: n.id, launch: n.id } : { node: n.id },
+      dataset: folder ? { dropFolder: n.id } : program ? { node: n.id, launch: n.id } : { node: n.id },
       target: !folder && !program && newTabFor(n) ? '_blank' : null,
       rel: !folder ? 'noopener' : null,
       title: !folder ? [n.name, n.description, program ? `本機程式：${where}` : where].filter(Boolean).join('\n') : n.name,
@@ -411,8 +414,8 @@
     return g;
   }
 
-  function section({ icon, title, action, body, cls = '' }) {
-    return el('section', { class: 'section ' + cls },
+  function section({ icon, title, action, body, cls = '', dropFolder = null }) {
+    return el('section', { class: 'section ' + cls, dataset: dropFolder ? { dropFolder } : {} },
       el('div', { class: 'section-head' },
         el('h2', { class: 'section-title' }, sectionIcon(icon), title),
         action || null),
@@ -558,6 +561,7 @@
           title: sec.title || node.name,
           body: kids.length ? cardGrid(kids, { compact, mode: 'grid' }) : el('p', { class: 'hint', text: '這個資料夾目前沒有項目' }),
           action: el('a', { class: 'section-link', href: `#/f/${node.id}`, html: '開啟' + svg('chevron-right') }),
+          dropFolder: node.id,
         });
       }
       default:
@@ -667,11 +671,11 @@
     const n = m && state.byId.get(Number(m[1]));
     return n && isFolder(n) ? n : null;
   };
-  const defaultDropFolder = () => {
-    const cur = currentFolder();
-    if (cur) return cur.id;
-    const last = store.get('drop-folder');
-    return state.byId.has(last) ? last : null;
+  /** Folder under the pointer (sidebar folder, folder card / section, open folder page) or null = top level */
+  const dropFolderAt = target => {
+    const hit = target instanceof Element ? target.closest('[data-drop-folder]') : null;
+    const id = hit && Number(hit.dataset.dropFolder);
+    return id && state.byId.has(id) ? { id, el: hit } : null;
   };
 
   async function setupLinkDrop() {
@@ -687,22 +691,40 @@
     const show = on => document.body.classList.toggle('link-dragging', on);
     const accepts = e => !internal && (TT.isLinkDrag(e) || (local.allowed && TT.isFileDrag(e)));
 
+    let hitEl = null;
+    let hitKey;
+    const mark = (e) => {
+      const hit = dropFolderAt(e.target);
+      const key = hit ? hit.id : 0;
+      if (key === hitKey) return hit;
+      hitKey = key;
+      hitEl?.classList.remove('drop-hit');
+      hitEl = hit ? hit.el : null;
+      hitEl?.classList.add('drop-hit');
+      const files = TT.isFileDrag(e);
+      const f = hit && state.byId.get(hit.id);
+      title.textContent = `放開以新增${files ? '程式' : '連結'}到${f ? `「${f.name}」` : '最上層'}`;
+      sub.textContent = f
+        ? (files ? '支援捷徑（.lnk）、網址捷徑（.url）與執行檔（.exe）' : '放開後可以確認名稱、圖示與資料夾')
+        : '拖到左側或頁面上的資料夾，就會放進那個資料夾';
+      return hit;
+    };
+    const clear = () => { show(false); hitEl?.classList.remove('drop-hit'); hitEl = null; hitKey = undefined; };
+
     document.addEventListener('dragenter', e => {
       if (!accepts(e)) return;
-      const f = state.byId.get(defaultDropFolder());
-      const files = TT.isFileDrag(e);
-      title.textContent = `放開以新增${files ? '程式' : '連結'}${f ? `到「${f.name}」` : ''}`;
-      sub.textContent = files ? '支援捷徑（.lnk）、網址捷徑（.url）與執行檔（.exe）' : '放開後可以確認名稱、圖示與資料夾';
+      mark(e);
       show(true);
     });
     document.addEventListener('dragover', e => {
       if (internal) return;
-      if (accepts(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }
+      if (accepts(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; mark(e); }
       else if (TT.isFileDrag(e)) e.preventDefault();   // never let the browser navigate to a dropped file
     });
-    document.addEventListener('dragleave', e => { if (!e.relatedTarget) show(false); });
+    document.addEventListener('dragleave', e => { if (!e.relatedTarget) clear(); });
     document.addEventListener('drop', async e => {
-      show(false);
+      const parentId = accepts(e) ? (dropFolderAt(e.target)?.id ?? null) : null;
+      clear();
       if (internal) return;
       if (TT.isFileDrag(e)) {
         e.preventDefault();
@@ -712,14 +734,14 @@
         }
         const file = e.dataTransfer.files[0];
         if (!file) return;
-        try { addDialog(await TT.inspectDroppedFile(file)); } catch (err) { TT.toast(err.message, true); }
+        try { addDialog(await TT.inspectDroppedFile(file), parentId); } catch (err) { TT.toast(err.message, true); }
         return;
       }
       if (!TT.isLinkDrag(e)) return;
       e.preventDefault();
       const link = TT.readDroppedLink(e.dataTransfer);
       if (!link) { TT.toast('沒有讀到可用的網址（只支援 http / https）', true); return; }
-      addDialog({ kind: 'url', name: link.title, url: link.url });
+      addDialog({ kind: 'url', name: link.title, url: link.url }, parentId);
     });
   }
 
@@ -727,7 +749,7 @@
    * Confirm-and-add dialog for a dropped link or program.
    * info: { kind: 'url'|'app', name, url, icon?, args?, cwd?, found? }
    */
-  async function addDialog(info) {
+  async function addDialog(info, parentId = null) {
     const app = info.kind === 'app';
     let icon = info.icon || '';
     let nameTouched = false;
@@ -745,7 +767,7 @@
       walk(n.children || [], depth + 1);
     });
     walk(state.tree, 0);
-    folder.value = String(defaultDropFolder() ?? '');
+    folder.value = String(parentId ?? '');
 
     const status = el('span', { class: 'drop-preview-status' });
     const preview = el('div', { class: 'drop-preview' });
@@ -844,7 +866,6 @@
             ...(app ? { launch_args: args.value.trim() || null, launch_cwd: info.cwd || null } : {}),
           },
         });
-        store.set('drop-folder', parentId);
         close();
         indexTree(await api('/api/nodes/tree'));
         buildTree();

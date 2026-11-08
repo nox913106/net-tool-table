@@ -83,7 +83,7 @@
       if (!isAddDrag(e)) return;
       const files = TT.isFileDrag(e);
       hint.innerHTML = svg(files ? 'app' : 'link') + `<span>${esc({
-        content: '放到資料夾上＝新增到該資料夾；放在其他地方＝新增到目前選取的資料夾',
+        content: '放到資料夾上＝新增到該資料夾；放在其他地方＝新增到最上層',
         quick: files ? '快速連結只能放網址，程式請拖到「內容」' : '放開即可新增為快速連結',
       }[currentPanel] || '請先切到「內容」或「快速連結」再拖放')}</span>`;
       const zone = document.querySelector('.atree-root-drop');
@@ -439,7 +439,7 @@
     const right = el('section', { class: 'panel editor-panel', id: 'editor' });
     const grid = el('div', { class: 'content-grid' }, left, right);
     grid.addEventListener('dragover', e => { if (isAddDrag(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
-    grid.addEventListener('drop', e => { if (isAddDrag(e)) dropToCreate(e, folderForNewItem()); });
+    grid.addEventListener('drop', e => { if (isAddDrag(e)) dropToCreate(e, null); });   // not on a folder → top level
     $('stage-body').append(grid);
     paintTree();
     paintEditor();
