@@ -960,3 +960,14 @@ body.link-dragging .drop-overlay { display: grid; }
 .kb-viewer-nav { position: fixed; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border-radius: 50%; font-size: 28px; line-height: 1; border: 0; cursor: pointer; }
 .kb-viewer-nav.prev { left: 12px; }
 .kb-viewer-nav.next { right: 12px; }
+
+/* ---- board cards in search ---- */
+.kb-hit { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.kb-hit-tile { flex: none; width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--st) 16%, transparent); color: var(--st); }
+.kb-hit-tile svg { width: 17px; height: 17px; }
+.kb-hits { display: flex; flex-direction: column; gap: 6px; }
+.kb-hits .kb-hit { padding: 10px 12px; border-radius: 12px; background: var(--surface-solid); border: 1px solid var(--border); cursor: pointer; }
+.kb-hits .kb-hit:hover, .kb-hits .kb-hit:focus-visible { border-color: var(--accent); outline: none; }
+.kb-hits-links { display: flex; align-items: center; gap: 6px; font-size: 15px; margin: 18px 0 10px; }
+.kb-hits-links svg { width: 16px; height: 16px; color: var(--text-3); }

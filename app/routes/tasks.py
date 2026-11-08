@@ -557,6 +557,62 @@ async def list_tasks(request: Request):
         await db.close()
 
 
+def _snippet(text: str, kw: str, width: int = 60) -> str:
+    text = " ".join((text or "").split())
+    i = text.lower().find(kw.lower())
+    if i < 0:
+        return text[:width]
+    start = max(0, i - width // 3)
+    return ("…" if start else "") + text[start:start + width] + ("…" if start + width < len(text) else "")
+
+
+@router.get("/search")
+async def search_tasks(request: Request, q: str = "", limit: int = 30):
+    """Cards the viewer may see whose title, description, comments or people match q."""
+    user = current_user(request)
+    kw = q.strip()[:100]
+    if not kw:
+        return []
+    like = "%" + kw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    where, args = _visible_sql(user)
+    db = await get_db()
+    try:
+        cur = await db.execute(f"""
+            SELECT t.id, t.title, t.description, t.status, t.due_at, t.updated_at,
+                   (SELECT c.body FROM task_comments c WHERE c.task_id = t.id AND c.body LIKE ? ESCAPE '\\'
+                     ORDER BY c.id DESC LIMIT 1) AS hit_comment,
+                   (SELECT COALESCE(u.display_name, u.username) FROM users u
+                     WHERE (u.id = t.owner_id OR u.id IN (SELECT m.user_id FROM task_members m WHERE m.task_id = t.id))
+                       AND (u.display_name LIKE ? ESCAPE '\\' OR u.username LIKE ? ESCAPE '\\') LIMIT 1) AS hit_person
+            FROM tasks t WHERE {where}""", (like, like, like, *args))
+        out = []
+        low = kw.lower()
+        for r in await cur.fetchall():
+            title = r["title"] or ""
+            if title.lower() == low:
+                score, field, snip = 100, "標題", ""
+            elif title.lower().startswith(low):
+                score, field, snip = 80, "標題", ""
+            elif low in title.lower():
+                score, field, snip = 60, "標題", ""
+            elif low in (r["description"] or "").lower():
+                score, field, snip = 40, "說明", _snippet(r["description"], kw)
+            elif r["hit_comment"]:
+                score, field, snip = 30, "留言", _snippet(r["hit_comment"], kw)
+            elif r["hit_person"]:
+                score, field, snip = 20, "人員", r["hit_person"]
+            else:
+                continue
+            if r["status"] in ("complete", "canceled"):
+                score -= 5                                  # open work first
+            out.append({"id": r["id"], "title": title, "status": r["status"], "due_at": r["due_at"],
+                        "match": field, "snippet": snip, "score": score, "updated_at": r["updated_at"]})
+        out.sort(key=lambda x: (-x["score"], -(x["id"])))
+        return out[:max(1, min(limit, 100))]
+    finally:
+        await db.close()
+
+
 @router.post("")
 async def create_task(t: TaskIn, request: Request):
     user = current_user(request)

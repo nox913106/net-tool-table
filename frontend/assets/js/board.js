@@ -1189,5 +1189,21 @@ const TTBoard = (() => {
     return [`${open} 張進行中的卡片`, overdue && `${overdue} 張逾期`].filter(Boolean).join(' · ');
   }
 
-  return { init, load, mount, mountBell, openEditor, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; } };
+  /** Cards matching q (title, description, comments, people) that this user may see. */
+  function searchCards(q, limit = 30) {
+    return api(`/api/tasks/search?q=${encodeURIComponent(q)}&limit=${limit}`);
+  }
+  /** One search result row: status dot, title, where it matched, due date. */
+  function cardHit(r, { compact = false } = {}) {
+    const st = STATUS[r.status] || STATUSES[2];
+    const sub = [`${st.label}（${st.zh}）`, r.due_at ? `到期 ${fmt(r.due_at, true)}` : null,
+      r.match !== '標題' ? `${r.match}：${r.snippet}` : null].filter(Boolean).join('  ·  ');
+    return el('div', { class: 'kb-hit' + (compact ? ' compact' : '') },
+      el('span', { class: 'kb-hit-tile', style: { '--st': st.color }, html: svg('kanban') }),
+      el('div', { class: 'palette-item-text' },
+        el('div', { class: 'palette-item-title', text: r.title }),
+        el('div', { class: 'palette-item-sub', text: sub })));
+  }
+
+  return { init, load, mount, mountBell, openEditor, openTask, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; } };
 })();

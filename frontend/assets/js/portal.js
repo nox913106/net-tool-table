@@ -729,8 +729,28 @@
       title: `「${q}」`, meta: `${results.length} 筆結果`,
       tools: results.length ? viewToggle(() => renderSearch(q)) : null,
     }));
-    frag.append(results.length ? cardGrid(results, { showPath: true }) : emptyState('🔍', '找不到符合的項目', '換個關鍵字試試，或搜尋網址的一部分。'));
+    const cardsBox = el('div');
+    frag.append(cardsBox);
+    const linksPart = results.length ? cardGrid(results, { showPath: true }) : emptyState('🔍', '找不到符合的項目', '換個關鍵字試試，或搜尋網址、卡片說明、留言的一部分。');
+    frag.append(linksPart);
     $('view').replaceChildren(frag);
+    if (!boardOn()) return;
+    const view = $('view').firstChild;
+    TTBoard.searchCards(q, 50).then(cards => {
+      if (!cards.length || $('view').firstChild !== view) return;
+      const list = el('div', { class: 'kb-hits' }, cards.map(r => {
+        const row = TTBoard.cardHit(r);
+        row.tabIndex = 0;
+        row.addEventListener('click', () => TTBoard.openTask(r.id));
+        row.addEventListener('keydown', e => { if (e.key === 'Enter') TTBoard.openTask(r.id); });
+        return row;
+      }));
+      cardsBox.replaceChildren(section({ icon: svg('kanban'), title: `看板卡片（${cards.length}）`, body: list }));
+      if (!results.length) linksPart.remove();
+      else linksPart.before(el('h3', { class: 'kb-hits-links', html: svg('link') + `連結（${results.length}）` }));
+      const meta = $('view').querySelector('.page-meta, .meta');
+      if (meta) meta.textContent = `${results.length} 個連結 · ${cards.length} 張卡片`;
+    }).catch(() => {});
   }
 
   function renderIconFilter(icon) {
@@ -1036,7 +1056,19 @@
     document.body.classList.remove('modal-open');
   }
 
+  let paletteSeq = 0;
+  let paletteTimer = null;
   function renderPalette(q) {
+    const seq = ++paletteSeq;
+    clearTimeout(paletteTimer);
+    if (q.trim() && boardOn()) {
+      paletteTimer = setTimeout(async () => {
+        let cards = [];
+        try { cards = await TTBoard.searchCards(q.trim(), 12); } catch { return; }
+        if (seq !== paletteSeq || $('palette').hidden || !cards.length) return;
+        appendPaletteCards(q, cards);
+      }, 120);
+    }
     const box = $('palette-results');
     let groups;
     if (q.trim()) {
@@ -1077,6 +1109,30 @@
     selectPalette(0);
   }
 
+  /** Board cards arrive a moment after the links (server search): add them as their own group. */
+  function appendPaletteCards(q, cards) {
+    const box = $('palette-results');
+    const hadNone = !paletteItems.length;
+    box.querySelector('.palette-empty')?.remove();
+    const frag = document.createDocumentFragment();
+    frag.append(el('div', { class: 'palette-group', text: '看板卡片' }));
+    cards.forEach(r => {
+      const item = { kind: 'task', id: r.id, name: r.title };
+      const idx = paletteItems.length;
+      paletteItems.push(item);
+      const row = TTBoard.cardHit(r);
+      row.classList.add('palette-item');
+      row.setAttribute('role', 'option');
+      row.dataset.idx = idx;
+      row.append(el('span', { class: 'palette-item-kind', html: svg('kanban') }));
+      row.addEventListener('mousemove', () => selectPalette(idx));
+      row.addEventListener('click', () => activatePalette(item));
+      frag.append(row);
+    });
+    box.append(frag);
+    if (hadNone) selectPalette(0);
+  }
+
   function selectPalette(i) {
     paletteIndex = i;
     $('palette-results').querySelectorAll('.palette-item').forEach(r => {
@@ -1093,6 +1149,7 @@
   function activatePalette(n, forceNewTab = false) {
     if (!n) return;
     closePalette();
+    if (n.kind === 'task') { TTBoard.openTask(n.id); return; }
     if (isFolder(n)) { location.hash = `#/f/${n.id}`; return; }
     pushRecent(n.id);
     if (TT.isProgram(n.url)) { TT.launchProgram(n); return; }
