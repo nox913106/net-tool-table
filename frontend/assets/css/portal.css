@@ -896,6 +896,8 @@ body.link-dragging .drop-overlay { display: grid; }
 .kb-assign-input { flex: 1 1 200px; height: 32px; font-size: 13px; }
 .kb-comments { border-top: 1px solid var(--border); padding-top: 14px; display: flex; flex-direction: column; gap: 10px; }
 .kb-comments h4 { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+.kb-comments-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.kb-comment-order svg { width: 14px; height: 14px; }
 .kb-comments h4 svg { width: 16px; height: 16px; color: var(--text-3); }
 .kb-comment-list { display: flex; flex-direction: column; gap: 10px; max-height: 260px; overflow-y: auto; }
 .kb-comment { display: flex; gap: 10px; align-items: flex-start; }

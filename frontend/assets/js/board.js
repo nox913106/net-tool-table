@@ -785,9 +785,25 @@ const TTBoard = (() => {
       const input = el('textarea', { class: 'textarea kb-comment-input', rows: '2', placeholder: meInfo.auth ? '留言…（輸入 @ 提到同事，他會收到通知）' : '留言…' });
       if (meInfo.auth) TT.mentionInput(input);
       const send = el('button', { class: 'btn btn-sm btn-primary', type: 'button', html: svg('message') + '送出' });
+      const ORDER_KEY = 'tt-comment-order';
+      let newestFirst = false;
+      try { newestFirst = localStorage.getItem(ORDER_KEY) === 'desc'; } catch (e) { /* storage blocked */ }
+      const orderBtn = el('button', { class: 'btn btn-sm btn-ghost kb-comment-order', type: 'button' });
+      const paintOrder = () => {
+        orderBtn.innerHTML = svg('clock') + (newestFirst ? '最新在上' : '最舊在上');
+        orderBtn.title = newestFirst ? '目前依留言時間遞減（新→舊），點一下改為遞增' : '目前依留言時間遞增（舊→新），點一下改為遞減';
+      };
+      paintOrder();
+      orderBtn.addEventListener('click', () => {
+        newestFirst = !newestFirst;
+        try { localStorage.setItem(ORDER_KEY, newestFirst ? 'desc' : 'asc'); } catch (e) { /* storage blocked */ }
+        paintOrder();
+        loadComments();
+      });
       const loadComments = async () => {
         try {
           const list = await api(`/api/tasks/${task.id}/comments`);
+          if (newestFirst) list.reverse();
           listBox.replaceChildren(...(list.length ? list.map(c => {
             const x = c.can_delete ? el('button', { class: 'kb-comment-del', type: 'button', title: '刪除留言', html: svg('trash') }) : null;
             x?.addEventListener('click', async () => { try { await api(`/api/tasks/${task.id}/comments/${c.id}`, { method: 'DELETE' }); loadComments(); } catch (e) { toast(e.message, true); } });
@@ -796,7 +812,7 @@ const TTBoard = (() => {
             return el('div', { class: 'kb-comment' }, TT.avatar(c.author, 28),
               el('div', {}, el('div', { class: 'kb-comment-head' }, el('strong', { text: TT.nameOf(c.author) }), el('small', { text: (c.created_at || '').slice(5, 16) }), x), body));
           }) : [el('p', { class: 'hint', text: '還沒有留言' })]));
-          listBox.scrollTop = listBox.scrollHeight;
+          listBox.scrollTop = newestFirst ? 0 : listBox.scrollHeight;
         } catch (e) { listBox.replaceChildren(el('p', { class: 'hint', text: e.message })); }
       };
       send.addEventListener('click', async () => {
@@ -807,7 +823,7 @@ const TTBoard = (() => {
         send.disabled = false;
       });
       input.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopPropagation(); send.click(); } });
-      comments.append(el('h4', { html: svg('message') + `留言${task.comments ? `（${task.comments}）` : ''}` }), listBox,
+      comments.append(el('div', { class: 'kb-comments-head' }, el('h4', { html: svg('message') + `留言${task.comments ? `（${task.comments}）` : ''}` }), orderBtn), listBox,
         el('div', { class: 'kb-comment-new' }, input, send));
       loadComments();
     }
