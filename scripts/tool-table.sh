@@ -451,6 +451,7 @@ dst.close(); src.close()
 PY
     fi
     [[ -d "$icon_dir" ]] && cp -a "$icon_dir" "$work/tool-table/icons"
+    [[ -d "$data_dir/attachments" ]] && cp -a "$data_dir/attachments" "$work/tool-table/attachments"
     [[ -f "$ENV_FILE" ]] && cp -a "$ENV_FILE" "$work/tool-table/"
 
     out="$backup_dir/tool-table-$stamp.tar.gz"
@@ -486,6 +487,11 @@ cmd_restore() {
         rm -rf "$icon_dir"
         cp -a "$work/tool-table/icons" "$icon_dir"
         chown -R "$APP_USER:$APP_USER" "$icon_dir"
+    fi
+    if [[ -d "$work/tool-table/attachments" ]]; then
+        rm -rf "$data_dir/attachments"
+        cp -a "$work/tool-table/attachments" "$data_dir/attachments"
+        chown -R "$APP_USER:$APP_USER" "$data_dir/attachments"
     fi
     rm -rf "$work"
     systemctl start tool-table.service

@@ -927,3 +927,36 @@ body.link-dragging .drop-overlay { display: grid; }
 .kb-card[draggable="false"] { cursor: pointer; }
 .kb-editor :is(input, select, textarea, button):disabled { opacity: .55; cursor: not-allowed; }
 .kb-editor .kb-comments :is(input, textarea, button):disabled { opacity: 1; }
+
+/* ---- images on cards and comments ---- */
+.kb-cover { margin: -2px 0 0; border-radius: 8px; overflow: hidden; background: var(--surface-2); }
+.kb-cover img { display: block; width: 100%; max-height: 140px; object-fit: cover; }
+.kb-images { display: flex; flex-direction: column; gap: 8px; border-radius: 10px; transition: background .15s, outline-color .15s; outline: 2px dashed transparent; outline-offset: 4px; }
+.kb-img-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.kb-img-tools .btn svg, .kb-comment-attach svg { width: 15px; height: 15px; }
+.kb-thumbs { display: flex; flex-wrap: wrap; gap: 8px; }
+.kb-thumb { position: relative; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); background: var(--surface-2); }
+.kb-thumbs.size-md .kb-thumb { width: 104px; height: 78px; }
+.kb-thumbs.size-sm .kb-thumb { width: 84px; height: 64px; }
+.kb-comment .kb-thumbs { margin-top: 6px; }
+.kb-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
+.kb-thumb.is-uploading img { opacity: .45; filter: grayscale(.4); }
+.kb-thumb.is-uploading::after { content: ''; position: absolute; inset: 0; margin: auto; width: 20px; height: 20px; border-radius: 50%;
+  border: 2px solid var(--accent); border-right-color: transparent; animation: kb-spin .8s linear infinite; }
+@keyframes kb-spin { to { transform: rotate(360deg); } }
+.kb-thumb-x { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%; border: 0; display: grid; place-items: center;
+  background: rgb(0 0 0 / .6); color: #fff; cursor: pointer; opacity: 0; transition: opacity .15s; }
+.kb-thumb-x svg { width: 13px; height: 13px; }
+.kb-thumb:hover .kb-thumb-x, .kb-thumb-x:focus-visible { opacity: 1; }
+@media (hover: none) { .kb-thumb-x { opacity: 1; } }
+.kb-comment-pending:empty { display: none; }
+.kb-comment-btns { display: flex; flex-direction: column; gap: 6px; }
+.kb-drop-hot { outline: 2px dashed var(--accent) !important; outline-offset: 4px; background: color-mix(in srgb, var(--accent) 6%, transparent); border-radius: 10px; }
+.kb-viewer { position: fixed; inset: 0; z-index: 2000; background: rgb(10 12 18 / .88); display: grid; place-items: center; padding: 56px 16px 24px; }
+.kb-viewer-img { max-width: 100%; max-height: calc(100vh - 90px); object-fit: contain; border-radius: 6px; box-shadow: 0 10px 40px rgb(0 0 0 / .5); cursor: zoom-out; }
+.kb-viewer-bar { position: fixed; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 8px; padding: 10px 14px; color: #e5e7eb; }
+.kb-viewer-bar .icon-btn, .kb-viewer-nav { color: #fff; background: rgb(255 255 255 / .1); }
+.kb-viewer-count { font-size: 13px; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kb-viewer-nav { position: fixed; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border-radius: 50%; font-size: 28px; line-height: 1; border: 0; cursor: pointer; }
+.kb-viewer-nav.prev { left: 12px; }
+.kb-viewer-nav.next { right: 12px; }

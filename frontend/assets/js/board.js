@@ -566,11 +566,13 @@ const TTBoard = (() => {
         const rm = remindMoment(t);
         chips.push(el('span', { class: 'kb-chip remind', title: `提醒：${fmtMoment(rm)}`, html: svg('bell') }));
       }
+      if (t.images?.length) chips.push(el('span', { class: 'kb-chip', title: `${t.images.length} 張圖片`, html: svg('image') + `<span>${t.images.length}</span>` }));
       const c = el('article', {
         class: `kb-card prio-${t.priority}` + (tm.due ? ` is-${tm.due}` : '') + (tm.start === 'due' ? ' is-start' : '') + (CLOSED.has(t.status) ? ' is-closed' : ''),
         draggable: t.can_edit === false ? 'false' : 'true', tabindex: '0', dataset: { id: t.id },
         title: t.can_edit === false ? '唯讀：你可以檢視與留言' : null,
       },
+        t.images?.length ? el('div', { class: 'kb-cover' }, el('img', { src: t.images[0].url, alt: '', loading: 'lazy', draggable: 'false' })) : null,
         el('div', { class: 'kb-card-title' },
           t.priority === 'high' ? el('span', { class: 'kb-flag', title: '高優先', html: svg('flag') }) : null,
           el('span', { text: t.title })),
@@ -639,6 +641,83 @@ const TTBoard = (() => {
     };
   }
 
+  // ----------------------------------------------------------------- images
+  const IMAGE_MAX = 10 * 1024 * 1024;
+  const IMAGE_TYPES = /^image\/(png|jpeg|gif|webp)$/;
+
+  /** Image files out of a paste / drop / file-picker (others are ignored, with a message). */
+  function imageFiles(list) {
+    const files = [...(list || [])].filter(f => f && f.kind !== 'string').map(f => (f.getAsFile ? f.getAsFile() : f)).filter(Boolean);
+    const ok = files.filter(f => IMAGE_TYPES.test(f.type) && f.size <= IMAGE_MAX);
+    if (files.length > ok.length) toast(`只能加入 PNG、JPG、GIF、WebP 圖片，每張 10 MB 以內（略過 ${files.length - ok.length} 個檔案）`, true);
+    return ok;
+  }
+
+  function pickImages(onFiles) {
+    const input = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/gif,image/webp', multiple: '' });
+    input.addEventListener('change', () => { const f = imageFiles(input.files); if (f.length) onFiles(f); });
+    input.click();
+  }
+
+  async function uploadImage(taskId, file, target = 'card') {
+    const form = new FormData();
+    form.append('file', file, file.name || 'image.png');
+    form.append('target', target);
+    return api(`/api/tasks/${taskId}/images`, { method: 'POST', form });
+  }
+
+  /** Thumbnails; click opens the viewer. onRemove(img) adds a × button. */
+  function thumbs(list, { onRemove, size = 'md' } = {}) {
+    return el('div', { class: `kb-thumbs size-${size}` }, list.map((im, i) => {
+      const pic = el('img', { src: im.url || im.preview, alt: im.name || '圖片', loading: 'lazy', draggable: 'false' });
+      const t = el('div', { class: 'kb-thumb' + (im.uploading ? ' is-uploading' : ''), title: im.name || '' }, pic);
+      pic.addEventListener('click', e => { e.stopPropagation(); viewImages(list, i); });
+      if (onRemove && !im.uploading) {
+        const x = el('button', { type: 'button', class: 'kb-thumb-x', 'aria-label': '移除圖片', title: '移除圖片', html: svg('x') });
+        x.addEventListener('click', e => { e.stopPropagation(); onRemove(im); });
+        t.append(x);
+      }
+      return t;
+    }));
+  }
+
+  /** Full-size viewer (←/→ between images, Esc closes; does not close the card editor). */
+  function viewImages(list, start = 0) {
+    let i = start;
+    const pic = el('img', { class: 'kb-viewer-img', alt: '' });
+    const count = el('span', { class: 'kb-viewer-count' });
+    const open = el('a', { class: 'btn btn-sm', target: '_blank', rel: 'noopener', html: svg('external') + '原圖' });
+    const prev = el('button', { class: 'icon-btn kb-viewer-nav prev', type: 'button', 'aria-label': '上一張', html: '‹' });
+    const next = el('button', { class: 'icon-btn kb-viewer-nav next', type: 'button', 'aria-label': '下一張', html: '›' });
+    const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': '關閉', html: svg('x') });
+    const box = el('div', { class: 'kb-viewer', role: 'dialog', 'aria-modal': 'true', 'aria-label': '圖片' },
+      el('div', { class: 'kb-viewer-bar' }, count, el('span', { class: 'spacer' }), open, closeBtn),
+      list.length > 1 ? prev : null, pic, list.length > 1 ? next : null);
+    const show = () => {
+      const im = list[i];
+      pic.src = im.url || im.preview;
+      pic.alt = im.name || '圖片';
+      open.href = im.url || im.preview;
+      count.textContent = (im.name ? im.name + '　' : '') + (list.length > 1 ? `${i + 1} / ${list.length}` : '');
+    };
+    const go = d => { i = (i + d + list.length) % list.length; show(); };
+    const close = () => { box.remove(); window.removeEventListener('keydown', onKey, true); };
+    const onKey = e => {
+      if (e.key === 'Escape') close();
+      else if (e.key === 'ArrowLeft') go(-1);
+      else if (e.key === 'ArrowRight') go(1);
+      else return;
+      e.preventDefault(); e.stopImmediatePropagation();
+    };
+    prev.addEventListener('click', e => { e.stopPropagation(); go(-1); });
+    next.addEventListener('click', e => { e.stopPropagation(); go(1); });
+    closeBtn.addEventListener('click', close);
+    box.addEventListener('click', e => { if (e.target === box || e.target === pic) close(); });
+    window.addEventListener('keydown', onKey, true);
+    show();
+    document.body.append(box);
+  }
+
   // ----------------------------------------------------------------- editor
   function openEditor(task, defaults = {}) {
     const t = task || { title: defaults.title || '', description: '', status: defaults.status || 'new', priority: 'normal', start_at: null, due_at: null, remind: 1440, repeat: defaults.repeat || null, repeat_every: 1 };
@@ -650,6 +729,49 @@ const TTBoard = (() => {
     const desc = el('textarea', { class: 'textarea', rows: '4', placeholder: meInfo.auth ? '細節、連結、注意事項（選填）。輸入 @ 可以找同事一起協作' : '細節、連結、注意事項（選填）' });
     desc.value = t.description || '';
     if (meInfo.auth) TT.mentionInput(desc);
+
+    // --- images (existing card: saved right away; new card: uploaded after 新增)
+    const canImage = !task || task.can_edit !== false;
+    let cardImages = task ? (task.images || []).map(x => ({ ...x })) : [];
+    const imgBox = el('div', { class: 'kb-images' });
+    const syncCache = () => {
+      const cached = task && tasks.find(x => x.id === task.id);
+      if (!cached) return;
+      cached.images = cardImages.filter(x => x.id && !x.uploading).map(({ id, name, url }) => ({ id, name, url }));
+      task.images = cached.images;
+      changed();
+    };
+    function paintImages() {
+      const add = canImage ? el('button', { class: 'btn btn-sm kb-img-add', type: 'button', html: svg('image') + '加入圖片' }) : null;
+      add?.addEventListener('click', () => pickImages(addCardImages));
+      imgBox.replaceChildren(...[
+        cardImages.length ? thumbs(cardImages, { onRemove: canImage ? removeCardImage : null }) : null,
+        canImage ? el('div', { class: 'kb-img-tools' }, add, el('span', { class: 'hint', text: '也可以直接貼上（Ctrl+V）或把圖片拖進這個視窗' + (task ? '；圖片會立即儲存' : '') })) : null,
+        !canImage && !cardImages.length ? el('span', { class: 'hint', text: '沒有圖片' }) : null].filter(Boolean));
+    }
+    async function addCardImages(files) {
+      for (const f of files) {
+        const item = { name: f.name, preview: URL.createObjectURL(f), file: f, uploading: !!task };
+        cardImages.push(item);
+        paintImages();
+        if (!task) continue;
+        try { Object.assign(item, await uploadImage(task.id, f), { uploading: false }); syncCache(); }
+        catch (e) { toast(e.message, true); cardImages = cardImages.filter(x => x !== item); }
+        paintImages();
+      }
+    }
+    async function removeCardImage(im) {
+      if (task && im.id) {
+        if (!confirm('移除這張圖片？')) return;
+        try { await api(`/api/tasks/${task.id}/images/${im.id}`, { method: 'DELETE' }); }
+        catch (e) { toast(e.message, true); return; }
+      }
+      cardImages = cardImages.filter(x => x !== im);
+      if (im.preview) URL.revokeObjectURL(im.preview);
+      paintImages();
+      syncCache();
+    }
+    paintImages();
 
     // --- people (server edition)
     const canAssign = meInfo.auth && (task ? task.can_assign : meInfo.board?.edit !== 'own');
@@ -779,12 +901,36 @@ const TTBoard = (() => {
       + (task.mentions?.length ? ` · 協作：${task.mentions.map(TT.nameOf).join('、')}` : '') }) : null;
 
     // --- comments (existing cards)
+    let addCommentImages = null;
     const comments = task ? el('section', { class: 'kb-comments' }) : null;
     if (task) {
       const listBox = el('div', { class: 'kb-comment-list' });
       const input = el('textarea', { class: 'textarea kb-comment-input', rows: '2', placeholder: meInfo.auth ? '留言…（輸入 @ 提到同事，他會收到通知）' : '留言…' });
       if (meInfo.auth) TT.mentionInput(input);
       const send = el('button', { class: 'btn btn-sm btn-primary', type: 'button', html: svg('message') + '送出' });
+      const attach = el('button', { class: 'btn btn-sm kb-comment-attach', type: 'button', title: '附加圖片（也可以貼上或拖曳）', 'aria-label': '附加圖片', html: svg('image') });
+      const pendingBox = el('div', { class: 'kb-comment-pending' });
+      let pending = [];
+      const paintPending = () => {
+        pendingBox.replaceChildren(...(pending.length ? [thumbs(pending, { size: 'sm', onRemove: dropPending })] : []));
+        send.disabled = pending.some(x => x.uploading);
+      };
+      async function dropPending(im) {
+        pending = pending.filter(x => x !== im);
+        paintPending();
+        if (im.id) api(`/api/tasks/${task.id}/images/${im.id}`, { method: 'DELETE' }).catch(() => {});
+      }
+      addCommentImages = async files => {
+        for (const f of files) {
+          const item = { name: f.name, preview: URL.createObjectURL(f), uploading: true };
+          pending.push(item);
+          paintPending();
+          try { Object.assign(item, await uploadImage(task.id, f, 'comment'), { uploading: false }); }
+          catch (e) { toast(e.message, true); pending = pending.filter(x => x !== item); }
+          paintPending();
+        }
+      };
+      attach.addEventListener('click', () => pickImages(addCommentImages));
       const ORDER_KEY = 'tt-comment-order';
       let newestFirst = false;
       try { newestFirst = localStorage.getItem(ORDER_KEY) === 'desc'; } catch (e) { /* storage blocked */ }
@@ -810,21 +956,29 @@ const TTBoard = (() => {
             const body = el('p', { class: 'kb-comment-body' });
             c.body.split(/(@[A-Za-z0-9._\-]+)/).forEach(part => body.append(part.startsWith('@') ? el('span', { class: 'kb-at', text: part }) : part));
             return el('div', { class: 'kb-comment' }, TT.avatar(c.author, 28),
-              el('div', {}, el('div', { class: 'kb-comment-head' }, el('strong', { text: TT.nameOf(c.author) }), el('small', { text: (c.created_at || '').slice(5, 16) }), x), body));
+              el('div', {}, el('div', { class: 'kb-comment-head' }, el('strong', { text: TT.nameOf(c.author) }), el('small', { text: (c.created_at || '').slice(5, 16) }), x),
+                c.body ? body : null, c.images?.length ? thumbs(c.images, { size: 'sm' }) : null));
           }) : [el('p', { class: 'hint', text: '還沒有留言' })]));
           listBox.scrollTop = newestFirst ? 0 : listBox.scrollHeight;
         } catch (e) { listBox.replaceChildren(el('p', { class: 'hint', text: e.message })); }
       };
       send.addEventListener('click', async () => {
-        if (!input.value.trim()) return;
+        if (!input.value.trim() && !pending.length) return;
         send.disabled = true;
-        try { await api(`/api/tasks/${task.id}/comments`, { method: 'POST', body: { body: input.value } }); input.value = ''; await loadComments(); load(true); }
+        try {
+          await api(`/api/tasks/${task.id}/comments`, { method: 'POST', body: { body: input.value, images: pending.map(x => x.id) } });
+          input.value = '';
+          pending.forEach(x => x.preview && URL.revokeObjectURL(x.preview));
+          pending = [];
+          paintPending();
+          await loadComments(); load(true);
+        }
         catch (e) { toast(e.message, true); }
         send.disabled = false;
       });
       input.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopPropagation(); send.click(); } });
       comments.append(el('div', { class: 'kb-comments-head' }, el('h4', { html: svg('message') + `留言${task.comments ? `（${task.comments}）` : ''}` }), orderBtn), listBox,
-        el('div', { class: 'kb-comment-new' }, input, send));
+        pendingBox, el('div', { class: 'kb-comment-new' }, input, el('div', { class: 'kb-comment-btns' }, attach, send)));
       loadComments();
     }
 
@@ -834,6 +988,7 @@ const TTBoard = (() => {
         el('div', { class: 'modal-body' },
           field('標題', title),
           field('說明', desc),
+          el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('image') + '圖片' }), imgBox),
           meInfo.auth ? el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('users') + '負責人' }), assignBox) : null,
           el('div', { class: 'kb-row' }, field('狀態', status), el('div', { class: 'field' }, el('span', { class: 'field-label', text: '優先順序' }), prio)),
           el('div', { class: 'kb-row' },
@@ -864,6 +1019,39 @@ const TTBoard = (() => {
       try { await remove(task.id); close(); toast('已刪除'); } catch (err) { toast(err.message, true); }
     });
 
+    // paste / drop images: into the comment box → comment; anywhere else → the card
+    const inComments = node => comments && comments.contains(node);
+    wrap.addEventListener('paste', e => {
+      const files = [...(e.clipboardData?.items || [])].filter(i => i.kind === 'file');
+      if (!files.length) return;
+      const target = inComments(e.target) ? addCommentImages : canImage ? addCardImages : null;
+      if (!target) return;
+      const ok = imageFiles(files);
+      e.preventDefault();
+      if (ok.length) target(ok);
+    });
+    const hasFiles = e => [...(e.dataTransfer?.types || [])].includes('Files');
+    wrap.addEventListener('dragenter', e => { if (hasFiles(e)) e.stopPropagation(); });   // not the portal's "add a program" overlay
+    wrap.addEventListener('dragover', e => {
+      if (!hasFiles(e)) return;
+      e.stopPropagation();
+      const target = inComments(e.target) ? addCommentImages : canImage ? addCardImages : null;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = target ? 'copy' : 'none';
+      wrap.querySelectorAll('.kb-drop-hot').forEach(x => x.classList.remove('kb-drop-hot'));
+      if (target) (inComments(e.target) ? comments : imgBox).classList.add('kb-drop-hot');
+    });
+    wrap.addEventListener('dragleave', e => { if (e.target === wrap || !wrap.contains(e.relatedTarget)) wrap.querySelectorAll('.kb-drop-hot').forEach(x => x.classList.remove('kb-drop-hot')); });
+    wrap.addEventListener('drop', e => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      wrap.querySelectorAll('.kb-drop-hot').forEach(x => x.classList.remove('kb-drop-hot'));
+      const target = inComments(e.target) ? addCommentImages : canImage ? addCardImages : null;
+      const ok = imageFiles(e.dataTransfer.files);
+      if (target && ok.length) target(ok);
+    });
+
     async function submit() {
       if (!title.value.trim()) { toast('請輸入標題', true); title.focus(); return; }
       const body = {
@@ -882,9 +1070,16 @@ const TTBoard = (() => {
       if (body.repeat && !body.due_at) { toast('重複的卡片需要設定到期日', true); dueD.focus(); return; }
       ok.disabled = true;
       try {
-        await save(task?.id, body);
+        const saved = await save(task?.id, body);
         close();
-        if (!task) toast(`已新增「${body.title}」`);
+        if (!task) {
+          const queued = cardImages.filter(x => x.file);
+          let failed = 0;
+          for (const im of queued) { try { await uploadImage(saved.id, im.file, 'card'); } catch (e) { failed++; toast(e.message, true); } }
+          queued.forEach(x => URL.revokeObjectURL(x.preview));
+          if (queued.length) await load(true);
+          toast(`已新增「${body.title}」` + (queued.length ? `（${queued.length - failed} 張圖片）` : ''));
+        }
         if (body.due_at && body.remind !== null) askPermission(true);
       } catch (err) { toast(err.message, true); ok.disabled = false; }
     }

@@ -203,13 +203,14 @@ def require_admin(request: Request) -> dict:
 async def gate(request: Request, call_next):
     """Attach request.state.user and enforce login / roles / CSRF header."""
     path = request.url.path
+    method = request.method.upper()
+    # Both editions: a cross-site page cannot add this header without a CORS preflight we never approve,
+    # so no other website can change data here (not even on a standalone copy on 127.0.0.1).
+    if path.startswith("/api/") and method not in SAFE_METHODS and request.headers.get("x-tool-table") != "1":
+        return JSONResponse({"detail": "缺少 X-Tool-Table 標頭"}, status_code=403)
     if not C.AUTH:
         request.state.user = ANON
         return await call_next(request)
-
-    method = request.method.upper()
-    if path.startswith("/api/") and method not in SAFE_METHODS and request.headers.get("x-tool-table") != "1":
-        return JSONResponse({"detail": "缺少 X-Tool-Table 標頭"}, status_code=403)
 
     user = await session_user(request.cookies.get(COOKIE))
     request.state.user = user

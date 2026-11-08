@@ -20,13 +20,16 @@ server never has to guess the viewer's time zone.
 """
 import asyncio
 import calendar
+import os
 import re
 from datetime import date, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, field_validator
 
+from .. import images as img
 from .. import ldapauth
 from ..auth import current_user, is_admin
 from ..roles import board_access
@@ -136,6 +139,13 @@ async def spawn_next(db, task_id: int, today: Optional[date] = None) -> Optional
     new_id = cur.lastrowid
     await db.execute("""INSERT INTO task_members (task_id, user_id, role)
                         SELECT ?, user_id, role FROM task_members WHERE task_id = ?""", (new_id, task_id))
+    cur = await db.execute("""SELECT user_id, stored, mime, name, size FROM task_images
+                              WHERE task_id = ? AND comment_id IS NULL AND pending = 0 ORDER BY id""", (task_id,))
+    for im in await cur.fetchall():
+        copied = img.copy(im["stored"])
+        if copied:
+            await db.execute("""INSERT INTO task_images (task_id, user_id, stored, mime, name, size)
+                                VALUES (?, ?, ?, ?, ?, ?)""", (new_id, im["user_id"], copied, im["mime"], im["name"], im["size"]))
     await db.execute("UPDATE tasks SET next_id = ? WHERE id = ?", (new_id, task_id))
     return new_id
 
@@ -438,6 +448,11 @@ async def _enrich(db, rows: List[dict], user: dict) -> List[dict]:
                             "department": u["department"]} for u in await cur.fetchall()}
     cur = await db.execute(f"SELECT task_id, COUNT(*) AS c FROM task_comments WHERE task_id IN ({marks}) GROUP BY task_id", ids)
     comments = {c["task_id"]: c["c"] for c in await cur.fetchall()}
+    pics = {}
+    cur = await db.execute(f"""SELECT id, task_id, name FROM task_images
+                               WHERE task_id IN ({marks}) AND comment_id IS NULL AND pending = 0 ORDER BY id""", ids)
+    for im in await cur.fetchall():
+        pics.setdefault(im["task_id"], []).append(image_dict(im))
     me = user.get("id")
     acc = board_access(user)
     for r in rows:
@@ -446,6 +461,7 @@ async def _enrich(db, rows: List[dict], user: dict) -> List[dict]:
         r["assignees"] = p["assignee"]
         r["mentions"] = p["mention"]
         r["comments"] = comments.get(r["id"], 0)
+        r["images"] = pics.get(r["id"], [])
         involved = me is None or r.get("owner_id") == me or any(x["id"] == me for x in p["assignee"] + p["mention"])
         owner = owners.get(r.get("owner_id"))
         card_depts = {d for d in [owner["department"] if owner else None, *[a["department"] for a in p["assignee"]]] if d}
@@ -457,6 +473,10 @@ async def _enrich(db, rows: List[dict], user: dict) -> List[dict]:
         r["can_assign"] = in_scope
         r["can_comment"] = True                   # only visible cards are ever returned
     return rows
+
+
+def image_dict(im) -> dict:
+    return {"id": im["id"], "name": im["name"], "url": f"/api/tasks/{im['task_id']}/images/{im['id']}"}
 
 
 async def _one(db, task_id: int, user: dict) -> dict:
@@ -636,8 +656,11 @@ async def delete_task(task_id: int, request: Request):
             allowed = bool(await cur.fetchone())
         if not allowed:
             raise HTTPException(status_code=403, detail="只能刪除自己建立的卡片（其他卡片可以改成 Canceled）")
+        cur = await db.execute("SELECT stored FROM task_images WHERE task_id = ?", (task_id,))
+        files = [r["stored"] for r in await cur.fetchall()]
         await db.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
         await db.commit()
+        img.remove(files)
         return {"success": True}
     finally:
         await db.close()
@@ -734,15 +757,21 @@ async def complete_task(task_id: int, request: Request, body: Optional[CompleteI
 
 # ------------------------------------------------------------------ comments
 class CommentIn(BaseModel):
-    body: str
+    body: str = ""
+    images: List[int] = []
 
     @field_validator("body")
     @classmethod
     def v_body(cls, v):
-        v = (v or "").strip()
-        if not v:
-            raise ValueError("請輸入留言")
-        return v[:4000]
+        return (v or "").strip()[:4000]
+
+    @field_validator("images")
+    @classmethod
+    def v_images(cls, v):
+        v = list(dict.fromkeys(v or []))
+        if len(v) > img.MAX_PER_COMMENT:
+            raise ValueError(f"一則留言最多 {img.MAX_PER_COMMENT} 張圖片")
+        return v
 
 
 @router.get("/{task_id}/comments")
@@ -754,10 +783,16 @@ async def list_comments(task_id: int, request: Request):
         cur = await db.execute("""SELECT c.id, c.body, c.created_at, c.user_id, u.username, u.display_name
                                   FROM task_comments c LEFT JOIN users u ON u.id = c.user_id
                                   WHERE c.task_id = ? ORDER BY c.id""", (task_id,))
-        return [{"id": c["id"], "body": c["body"], "created_at": c["created_at"],
+        rows = await cur.fetchall()
+        cur = await db.execute("""SELECT id, task_id, comment_id, name FROM task_images
+                                  WHERE task_id = ? AND comment_id IS NOT NULL ORDER BY id""", (task_id,))
+        pics = {}
+        for im in await cur.fetchall():
+            pics.setdefault(im["comment_id"], []).append(image_dict(im))
+        return [{"id": c["id"], "body": c["body"], "created_at": c["created_at"], "images": pics.get(c["id"], []),
                  "author": {"id": c["user_id"], "username": c["username"], "name": c["display_name"] or c["username"] or "本機"},
                  "can_delete": board_access(user)["edit"] == "all" or (c["user_id"] is not None and c["user_id"] == user.get("id"))}
-                for c in await cur.fetchall()]
+                for c in rows]
     finally:
         await db.close()
 
@@ -768,7 +803,20 @@ async def add_comment(task_id: int, body: CommentIn, request: Request):
     db = await get_db()
     try:
         t = await _get_visible(db, task_id, user)
+        pics = []
+        if body.images:
+            cur = await db.execute(f"""SELECT id FROM task_images WHERE task_id = ? AND pending = 1 AND user_id IS ?
+                                       AND id IN ({','.join('?' * len(body.images))})""", (task_id, user.get("id"), *body.images))
+            pics = [r["id"] for r in await cur.fetchall()]
+            if len(pics) != len(body.images):
+                raise HTTPException(status_code=400, detail="有圖片已失效，請重新附加")
+        if not body.body and not pics:
+            raise HTTPException(status_code=400, detail="請輸入留言或附加圖片")
         cur = await db.execute("INSERT INTO task_comments (task_id, user_id, body) VALUES (?, ?, ?)", (task_id, user.get("id"), body.body))
+        comment_id = cur.lastrowid
+        if pics:
+            await db.execute(f"UPDATE task_images SET comment_id = ?, pending = 0 WHERE id IN ({','.join('?' * len(pics))})",
+                             (comment_id, *pics))
         if user.get("id") is not None:
             mentioned = MENTION_RE.findall(body.body)
             await add_mentions(db, task_id, body.body, user, t["title"], "留言")
@@ -777,10 +825,10 @@ async def add_comment(task_id: int, body: CommentIn, request: Request):
             cur2 = await db.execute(f"SELECT id FROM users WHERE username IN ({','.join('?' * len(mentioned)) or 'NULL'})",
                                     [ldapauth.normalize(m) for m in mentioned])
             already = {r["id"] for r in await cur2.fetchall()}
-            await notify(db, people - already, task_id, user, "comment", f"{_who(user)} 在「{t['title']}」留言：{body.body[:60]}")
+            await notify(db, people - already, task_id, user, "comment", f"{_who(user)} 在「{t['title']}」留言：{body.body[:60] or f'（{len(pics)} 張圖片）'}")
         await db.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))
         await db.commit()
-        return {"id": cur.lastrowid}
+        return {"id": comment_id}
     finally:
         await db.close()
 
@@ -797,11 +845,119 @@ async def delete_comment(task_id: int, comment_id: int, request: Request):
             raise HTTPException(status_code=404, detail="找不到這則留言")
         if board_access(user)["edit"] != "all" and c["user_id"] != user.get("id"):
             raise HTTPException(status_code=403, detail="只能刪除自己的留言")
+        cur = await db.execute("SELECT stored FROM task_images WHERE comment_id = ?", (comment_id,))
+        files = [r["stored"] for r in await cur.fetchall()]
         await db.execute("DELETE FROM task_comments WHERE id = ?", (comment_id,))
         await db.commit()
+        img.remove(files)
         return {"success": True}
     finally:
         await db.close()
+
+
+# -------------------------------------------------------------------- images
+# Card images: added / removed by whoever may edit the card, right away (not tied to 儲存).
+# Comment images: uploaded as "pending" by the commenter, attached when the comment is posted.
+@router.post("/{task_id}/images")
+async def upload_image(task_id: int, request: Request, file: UploadFile = File(...), target: str = Form("card")):
+    user = current_user(request)
+    if target not in ("card", "comment"):
+        raise HTTPException(status_code=400, detail="target 只能是 card 或 comment")
+    data = await file.read(img.MAX_BYTES + 1)
+    db = await get_db()
+    try:
+        await _get_visible(db, task_id, user)
+        if target == "card":
+            await _require_edit(db, task_id, user)
+            cur = await db.execute("SELECT COUNT(*) AS n FROM task_images WHERE task_id = ? AND comment_id IS NULL AND pending = 0", (task_id,))
+            if (await cur.fetchone())["n"] >= img.MAX_PER_CARD:
+                raise HTTPException(status_code=400, detail=f"一張卡片最多 {img.MAX_PER_CARD} 張圖片")
+        try:
+            stored, mime = img.store(data)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        name = os.path.basename((file.filename or "").replace("\\", "/"))[:120] or None
+        try:
+            cur = await db.execute("""INSERT INTO task_images (task_id, user_id, stored, mime, name, size, pending)
+                                      VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                                   (task_id, user.get("id"), stored, mime, name, len(data), 1 if target == "comment" else 0))
+            if target == "card":
+                await db.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))
+            await db.commit()
+        except Exception:
+            img.remove([stored])
+            raise
+        return {"id": cur.lastrowid, "name": name, "url": f"/api/tasks/{task_id}/images/{cur.lastrowid}"}
+    finally:
+        await db.close()
+
+
+async def _image_row(db, task_id: int, image_id: int):
+    cur = await db.execute("SELECT * FROM task_images WHERE id = ? AND task_id = ?", (image_id, task_id))
+    im = await cur.fetchone()
+    if not im:
+        raise HTTPException(status_code=404, detail="找不到這張圖片")
+    return im
+
+
+@router.get("/{task_id}/images/{image_id}")
+async def get_image(task_id: int, image_id: int, request: Request):
+    user = current_user(request)
+    db = await get_db()
+    try:
+        await _get_visible(db, task_id, user)
+        im = await _image_row(db, task_id, image_id)
+    finally:
+        await db.close()
+    p = img.path(im["stored"])
+    if not p or not p.is_file():
+        raise HTTPException(status_code=404, detail="圖片檔案不見了")
+    return FileResponse(p, media_type=im["mime"], headers={
+        "Cache-Control": "private, max-age=86400",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; sandbox",
+        "Content-Disposition": "inline",
+    })
+
+
+@router.delete("/{task_id}/images/{image_id}")
+async def delete_image(task_id: int, image_id: int, request: Request):
+    user = current_user(request)
+    db = await get_db()
+    try:
+        await _get_visible(db, task_id, user)
+        im = await _image_row(db, task_id, image_id)
+        if im["pending"]:
+            if im["user_id"] != user.get("id"):
+                raise HTTPException(status_code=403, detail="不是你上傳的圖片")
+        elif im["comment_id"] is None:
+            await _require_edit(db, task_id, user)
+        else:
+            raise HTTPException(status_code=400, detail="留言裡的圖片要連同留言一起刪除")
+        await db.execute("DELETE FROM task_images WHERE id = ?", (image_id,))
+        if not im["pending"]:
+            await db.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))
+        await db.commit()
+        img.remove([im["stored"]])
+        return {"success": True}
+    finally:
+        await db.close()
+
+
+def cleanup_images(db_path) -> int:
+    """Drop comment images never posted (older than a day) and files no row points at. Sync; for the scheduler."""
+    import sqlite3
+    con = sqlite3.connect(db_path)
+    try:
+        cutoff = f"-{img.PENDING_HOURS} hours"
+        stale = [r[0] for r in con.execute("SELECT stored FROM task_images WHERE pending = 1 AND created_at < datetime('now', ?)", (cutoff,))]
+        con.execute("DELETE FROM task_images WHERE pending = 1 AND created_at < datetime('now', ?)", (cutoff,))
+        con.commit()
+        img.remove(stale)
+        known = {r[0] for r in con.execute("SELECT stored FROM task_images")}
+    finally:
+        con.close()
+    return len(stale) + img.sweep_orphans(known)
 
 
 # ------------------------------------------------------------- notifications

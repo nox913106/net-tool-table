@@ -66,6 +66,16 @@ jobs:
             $sc.WorkingDirectory = $env:SystemRoot
             $sc.Save()
 
+            # board images: a real PNG is accepted, anything else refused
+            $png = Join-Path $env:RUNNER_TEMP 'pixel.png'
+            [IO.File]::WriteAllBytes($png, [Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='))
+            $card = Invoke-RestMethod "$B/api/tasks" -Method Post -Headers $H -ContentType 'application/json' -Body (@{ title = 'CI image'; status = 'new' } | ConvertTo-Json)
+            $im = Invoke-RestMethod "$B/api/tasks/$($card.id)/images" -Method Post -Headers $H -Form @{ file = Get-Item $png; target = 'card' }
+            $got = Invoke-WebRequest "$B$($im.url)" -UseBasicParsing
+            Write-Host "image upload → $($im.url) ($($got.Headers['Content-Type']))"
+            if ($got.Headers['Content-Type'] -notlike 'image/png*') { throw 'board image not served back' }
+            Invoke-RestMethod "$B/api/tasks/$($card.id)" -Method Delete -Headers $H | Out-Null
+
             $w = Invoke-RestMethod "$B/api/whoami"
             Write-Host "whoami → ip=$($w.ip) host=$($w.host) all=$($w.all -join ',')"
             if (-not $w.local -or $w.ip -like '127.*') { $ok = $false }

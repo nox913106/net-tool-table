@@ -4,6 +4,7 @@ Backups managed from the admin UI (both editions).
 A backup is <data dir>/backups/tool-table-YYYYmmdd-HHMMSS.tar.gz with
   tool-table.db   consistent copy (SQLite online backup, safe while the app runs)
   icons/          the icon library
+  attachments/    images on board cards and comments
   .secret.key     so encrypted settings (AD service password) still work after a restore
   meta.json       version, time, reason
 The schedule (daily time, days to keep) is a setting; the app runs it itself, no cron needed.
@@ -23,7 +24,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import config as C
-from . import sysconfig
+from . import images, sysconfig
 from .database import DB_DIR, DB_PATH
 
 log = logging.getLogger("tool_table.backup")
@@ -71,6 +72,9 @@ def make_backup(reason: str = "manual") -> dict:
             tar.add(db_copy, arcname="tool-table.db")
             if C.ICON_DIR.is_dir():
                 tar.add(C.ICON_DIR, arcname="icons", filter=lambda ti: None if ti.issym() or ti.islnk() else ti)
+            if images.IMAGE_DIR.is_dir():
+                tar.add(images.IMAGE_DIR, arcname="attachments",
+                        filter=lambda ti: None if ti.issym() or ti.islnk() or ti.name.endswith(".part") else ti)
             if sysconfig.KEY_FILE.exists():
                 tar.add(sysconfig.KEY_FILE, arcname=".secret.key")
             meta = json.dumps({"version": VERSION, "created": datetime.now().isoformat(timespec="seconds"),
@@ -110,7 +114,8 @@ def _check_members(tar: tarfile.TarFile):
         n = m.name
         if n.startswith("/") or ".." in Path(n).parts or m.issym() or m.islnk() or m.isdev():
             raise ValueError(f"備份檔內容不安全：{n}")
-        if not (n in ("tool-table.db", "meta.json", ".secret.key", "icons") or n.startswith("icons/")):
+        if not (n in ("tool-table.db", "meta.json", ".secret.key", "icons", "attachments")
+                or n.startswith("icons/") or n.startswith("attachments/")):
             raise ValueError(f"不是 Tool Table 的備份檔（多出 {n}）")
         names.add(n)
     if "tool-table.db" not in names:
@@ -152,6 +157,15 @@ def restore(path: Path) -> dict:
                 for f in icons.iterdir():
                     if f.is_file():
                         shutil.copy2(f, C.ICON_DIR / f.name)
+            pics = Path(tmp) / "attachments"
+            if pics.is_dir():                       # older backups have none: keep the current images
+                images.IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+                for old in images.IMAGE_DIR.iterdir():
+                    if old.is_file():
+                        old.unlink()
+                for f in pics.iterdir():
+                    if f.is_file() and images.path(f.name):
+                        shutil.copy2(f, images.IMAGE_DIR / f.name)
             key = Path(tmp) / ".secret.key"
             if key.exists():
                 shutil.copy2(key, sysconfig.KEY_FILE)
