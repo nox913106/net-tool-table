@@ -1,6 +1,8 @@
 /* =============================================================================
    Tool Table — task board (kanban) + reminders
-   Columns: New / On going / Pending / On hold / Complete / Canceled.
+   Columns: 週期工作 (recurring) / New / On going / Pending / On hold / Complete / Canceled.
+   Recurring cards: at their deadline a prompt asks whether to close them; closing
+   creates the next occurrence (server side, once) in the 週期工作 column.
    Cards have optional start and due dates ("YYYY-MM-DD" = all day, or with a time)
    and a reminder relative to the due date. Reminders show as a badge on the header
    bell, in the sidebar, as highlighted cards and — when allowed — as desktop
@@ -12,6 +14,7 @@ const TTBoard = (() => {
   const { api, el, svg, toast, store } = TT;
 
   const STATUSES = [
+    { key: 'recurring', label: 'Recurring', zh: '週期工作', color: '#14b8a6' },
     { key: 'new', label: 'New', zh: '新建', color: '#64748b' },
     { key: 'ongoing', label: 'On going', zh: '進行中', color: '#3b82f6' },
     { key: 'pending', label: 'Pending', zh: '待確認', color: '#f59e0b' },
@@ -25,6 +28,9 @@ const TTBoard = (() => {
   const REMINDS = [['', '不提醒'], ['0', '到期時'], ['15', '15 分鐘前'], ['60', '1 小時前'], ['1440', '1 天前'], ['2880', '2 天前'], ['10080', '1 週前']];
   const ALL_DAY_REMIND_HOUR = 9;          // all-day cards are reminded at 09:00
   const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
+  const CLOSE_PROMPT_HOUR = 18;           // all-day recurring cards ask "close it?" at 18:00 on the due day
+  const REPEATS = [['', '不重複'], ['daily', '每天'], ['weekdays', '每個工作日（一～五）'], ['weekly', '每週'], ['monthly', '每月'], ['yearly', '每年']];
+  const UNIT = { daily: '天', weekly: '週', monthly: '個月', yearly: '年' };
 
   let tasks = [];
   let settings = {};
@@ -47,10 +53,15 @@ const TTBoard = (() => {
   const byStatus = s => tasks.filter(t => t.status === s).sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
 
   async function save(id, body) {
+    const before = id && tasks.find(x => x.id === id);
     const t = id ? await api(`/api/tasks/${id}`, { method: 'PUT', body }) : await api('/api/tasks', { method: 'POST', body });
     const i = tasks.findIndex(x => x.id === t.id);
     if (i >= 0) tasks[i] = t; else tasks.push(t);
     changed();
+    if (t.repeat && t.status === 'complete' && before && before.status !== 'complete') {
+      await load(true);
+      announceNext(t);
+    }
     return t;
   }
   async function remove(id) {
@@ -68,9 +79,22 @@ const TTBoard = (() => {
     col.forEach((x, i) => { x.sort_order = i; });
     changed();                                            // optimistic
     try {
-      await api('/api/tasks/reorder', { method: 'POST', body: { status, ids: col.map(x => x.id) } });
-      if (status === 'complete' && !wasClosed) toast(`「${t.title}」完成 🎉`);
+      const r = await api('/api/tasks/reorder', { method: 'POST', body: { status, ids: col.map(x => x.id) } });
+      if (r.created && r.created.length) { await load(true); announceNext(t); }
+      else if (status === 'complete' && !wasClosed) toast(`「${t.title}」完成 🎉`);
     } catch (err) { toast(err.message, true); load(true); }
+  }
+
+  /** Close a card through the server (recurring → next occurrence is created once) */
+  async function complete(t) {
+    const r = await api(`/api/tasks/${t.id}/complete`, { method: 'POST', body: { today: isoDate(now()) } });
+    await load(true);
+    if (r.next) announceNext(r.task, r.next); else toast(`「${t.title}」完成 🎉`);
+    return r;
+  }
+  function announceNext(t, next) {
+    next = next || tasks.find(x => x.id === (tasks.find(y => y.id === t.id) || t).next_id);
+    toast(next ? `「${t.title}」已結案；下一次 ${fmt(next.due_at, true)} 已排入「週期工作」` : `「${t.title}」完成 🎉`);
   }
 
   // ----------------------------------------------------------------- dates
@@ -102,6 +126,60 @@ const TTBoard = (() => {
     return s;
   }
   const fmtMoment = d => `${d.getMonth() + 1}/${d.getDate()}（${WEEK[d.getDay()]}）${hm(d)}`;
+  const isoDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const dayOnly = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+  // ------------------------------------------------------------ recurrence
+  // Same rules as the server (app/routes/tasks.py) — used for previews and labels.
+  function stepDate(d, rule, every) {
+    const add = n => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+    const isoDay = x => x.getDay() || 7;
+    if (rule === 'daily') return add(every);
+    if (rule === 'weekdays') { let n = 1; while ([0, 6].includes(add(n).getDay())) n++; return add(n); }
+    if (rule.startsWith('weekly')) {
+      const days = (rule.includes(':') ? rule.split(':')[1] : String(isoDay(d))).split(',').map(Number).sort((a, b) => a - b);
+      const later = days.filter(x => x > isoDay(d));
+      if (later.length) return add(later[0] - isoDay(d));
+      return add(1 - isoDay(d) + 7 * every + days[0] - 1);
+    }
+    if (rule.startsWith('monthly')) {
+      const day = rule.includes(':') ? Number(rule.split(':')[1]) : d.getDate();
+      const y = d.getFullYear(), m = d.getMonth() + every;
+      return new Date(y, m, Math.min(day, new Date(y, m + 1, 0).getDate()));
+    }
+    if (rule === 'yearly') {
+      const y = d.getFullYear() + every;
+      return d.getMonth() === 1 && d.getDate() === 29 && new Date(y, 1, 29).getMonth() !== 1 ? new Date(y, 1, 28) : new Date(y, d.getMonth(), d.getDate());
+    }
+    return null;
+  }
+  /** Next due string (missed periods skipped, like the server) */
+  function nextDue(dueAt, rule, every = 1) {
+    if (!dueAt || !rule) return null;
+    const today = dayOnly(now());
+    let d = stepDate(dayOnly(parse(dueAt).date), rule, every);
+    for (let i = 0; d && d < today && i < 5000; i++) d = stepDate(d, rule, every);
+    return d ? isoDate(d) + dueAt.slice(10) : null;
+  }
+  function repeatText(rule, every = 1, dueAt = null) {
+    if (!rule) return '';
+    const kind = rule.split(':')[0];
+    const each = every > 1 ? `每 ${every} ${UNIT[kind] || ''}` : { daily: '每天', weekly: '每週', monthly: '每月', yearly: '每年' }[kind];
+    if (kind === 'weekdays') return '每個工作日';
+    if (kind === 'weekly') {
+      const days = (rule.split(':')[1] || '').split(',').filter(Boolean).map(Number);
+      return each + (days.length ? days.map(x => WEEK[x % 7]).join('、') : '');
+    }
+    if (kind === 'monthly') { const day = rule.split(':')[1] || (dueAt ? Number(dueAt.slice(8, 10)) : ''); return `${each} ${day} 日`; }
+    if (kind === 'yearly' && dueAt) { const p = parse(dueAt).date; return `${each} ${p.getMonth() + 1}/${p.getDate()}`; }
+    return each;
+  }
+  /** When a recurring card asks "close it?" */
+  function closeMoment(t) {
+    const p = parse(t.due_at);
+    if (!p) return null;
+    return p.allDay ? new Date(p.date.getFullYear(), p.date.getMonth(), p.date.getDate(), CLOSE_PROMPT_HOUR) : p.date;
+  }
 
   /** How a card stands right now: due / start state and their labels */
   function timing(t, at = now()) {
@@ -161,6 +239,84 @@ const TTBoard = (() => {
     document.querySelectorAll('[data-board-badge]').forEach(b => { b.textContent = list.length; b.hidden = !list.length; });
     bells.forEach(f => f(list));
     notify(list);
+    checkClosePrompts();
+  }
+
+  // ----------------------------------------------- recurring: "close it?" prompt
+  let prompting = null;                                   // { id, due, close }
+  const snoozed = (t, at) => { const z = store.get('board-snooze', {})[t.id]; return z && z.due === t.due_at && z.until > at.getTime(); };
+  function snooze(t, minutes) {
+    const all = store.get('board-snooze', {});
+    for (const [k, v] of Object.entries(all)) if (v.until < Date.now()) delete all[k];   // tidy
+    all[t.id] = { due: t.due_at, until: Date.now() + minutes * 60000 };
+    store.set('board-snooze', all);
+  }
+  function dueForClose(at = now()) {
+    return tasks.filter(t => t.repeat && t.due_at && !CLOSED.has(t.status) && at >= closeMoment(t) && !snoozed(t, at))
+      .sort((a, b) => closeMoment(a) - closeMoment(b));
+  }
+  function checkClosePrompts() {
+    if (!started) return;
+    if (prompting) {
+      const t = tasks.find(x => x.id === prompting.id);
+      if (!t || CLOSED.has(t.status) || t.due_at !== prompting.due) prompting.close();   // closed elsewhere
+      return;
+    }
+    if (document.querySelector('.modal:not([hidden])')) return;                        // never interrupt another dialog
+    const t = dueForClose()[0];
+    if (t) showClosePrompt(t);
+  }
+
+  function showClosePrompt(t) {
+    const tm = timing(t);
+    const next = nextDue(t.due_at, t.repeat, t.repeat_every || 1);
+    const waiting = dueForClose().length - 1;
+    const later = el('button', { class: 'btn btn-ghost', type: 'button', html: svg('clock') + '1 小時後再問' });
+    const open = el('button', { class: 'btn', type: 'button', html: svg('edit') + '開啟卡片' });
+    const done = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + '結案並排下一次' });
+    const wrap = el('div', { class: 'modal kb-close' },
+      el('div', { class: 'modal-card kb-close-card', role: 'alertdialog', 'aria-modal': 'true', 'aria-label': '週期工作到期' },
+        el('div', { class: 'modal-head' }, el('h3', { html: svg('repeat') + '週期工作到期' })),
+        el('div', { class: 'modal-body' },
+          el('div', { class: 'kb-close-title' }, t.priority === 'high' ? el('span', { class: 'kb-flag', html: svg('flag') }) : null, el('strong', { text: t.title })),
+          t.description ? el('p', { class: 'kb-close-desc', text: t.description }) : null,
+          el('div', { class: 'kb-chips' },
+            el('span', { class: `kb-chip due-${tm.due || 'later'}`, html: svg('clock') + `<span>${tm.dueText || fmt(t.due_at)}</span>` }),
+            el('span', { class: 'kb-chip repeat', html: svg('repeat') + `<span>${repeatText(t.repeat, t.repeat_every, t.due_at)}</span>` })),
+          el('p', { class: 'kb-close-q', text: '這一次完成了嗎？' }),
+          el('p', { class: 'hint', text: `結案後這張會移到「Complete」，並自動複製一張到「週期工作」，到期日 ${fmt(next, true)}。` }),
+          waiting > 0 ? el('p', { class: 'hint', text: `還有 ${waiting} 張週期工作等你確認。` }) : null),
+        el('div', { class: 'modal-foot' }, later, el('span', { class: 'spacer' }), open, done)));
+
+    const close = () => {
+      wrap.remove();
+      document.removeEventListener('keydown', onKey);
+      if (!document.querySelector('.modal:not([hidden])')) document.body.classList.remove('modal-open');
+      prompting = null;
+      setTimeout(checkClosePrompts, 400);                 // next one in the queue
+    };
+    const onKey = e => { if (e.key === 'Escape') { snooze(t, 60); close(); } };
+    prompting = { id: t.id, due: t.due_at, close };
+    later.addEventListener('click', () => { snooze(t, 60); close(); toast('1 小時後會再問一次'); });
+    open.addEventListener('click', () => { snooze(t, 10); close(); openEditor(t); });
+    done.addEventListener('click', async () => {
+      [done, later, open].forEach(b => { b.disabled = true; });
+      done.innerHTML = svg('check') + '處理中…';
+      try { await complete(t); close(); } catch (err) { toast(err.message, true); [done, later, open].forEach(b => { b.disabled = false; }); }
+    });
+    document.addEventListener('keydown', onKey);
+    document.body.append(wrap);
+    document.body.classList.add('modal-open');
+    setTimeout(() => done.focus(), 30);
+
+    // desktop notification once per occurrence
+    const key = `${t.id}|${t.due_at}`;
+    const told = store.get('board-close-told', []);
+    if (canNotify() && !told.includes(key)) {
+      const n = new Notification(`週期工作到期：${t.title}`, { body: '這一次完成了嗎？點這裡結案並排下一次。', tag: 'tt-close-' + key, icon: '/assets/app/icon-192.png', requireInteraction: true });
+      n.onclick = () => { window.focus(); n.close(); };
+      store.set('board-close-told', [...told.slice(-50), key]);
+    }
   }
 
   function canNotify() {
@@ -224,14 +380,15 @@ const TTBoard = (() => {
     function column(s) {
       const items = byStatus(s.key);
       const list = el('div', { class: 'kb-list', dataset: { status: s.key } }, items.map(card));
-      if (!items.length) list.append(el('div', { class: 'kb-empty', text: CLOSED.has(s.key) ? '—' : '拖曳卡片到這裡' }));
+      if (!items.length) list.append(el('div', { class: 'kb-empty', text: s.key === 'recurring' ? '重複性工作會排在這裡' : CLOSED.has(s.key) ? '—' : '拖曳卡片到這裡' }));
       const add = el('button', { class: 'kb-add', type: 'button', html: svg('plus') + '<span>新增卡片</span>' });
-      add.addEventListener('click', () => quickAdd(col, s.key, add));
+      add.addEventListener('click', () => s.key === 'recurring'
+        ? openEditor(null, { status: 'recurring', repeat: 'weekly' })
+        : quickAdd(col, s.key, add));
       const col = el('section', { class: 'kb-col', dataset: { status: s.key }, style: { '--st': s.color } },
         el('header', { class: 'kb-col-head' },
           el('span', { class: 'kb-dot' }),
-          el('strong', { text: s.label }),
-          el('span', { class: 'kb-zh', text: s.zh }),
+          el('span', { class: 'kb-name' }, el('strong', { text: s.label }), el('span', { class: 'kb-zh', text: s.zh })),
           el('span', { class: 'kb-count', text: items.length })),
         list,
         CLOSED.has(s.key) ? null : add);
@@ -266,6 +423,7 @@ const TTBoard = (() => {
       const chips = [];
       if (tm.start) chips.push(el('span', { class: `kb-chip start-${tm.start}`, title: `開始：${fmt(t.start_at, true)}`, html: svg('play') + `<span>${tm.startText}</span>` }));
       if (tm.due) chips.push(el('span', { class: `kb-chip due-${tm.due}`, title: `到期：${fmt(t.due_at, true)}`, html: svg('clock') + `<span>${tm.dueText}</span>` }));
+      if (t.repeat) chips.push(el('span', { class: 'kb-chip repeat', title: `重複：${repeatText(t.repeat, t.repeat_every, t.due_at)}`, html: svg('repeat') + `<span>${repeatText(t.repeat, t.repeat_every, t.due_at)}</span>` }));
       if (t.due_at && t.remind !== null && t.remind !== undefined && !CLOSED.has(t.status)) {
         const rm = remindMoment(t);
         chips.push(el('span', { class: 'kb-chip remind', title: `提醒：${fmtMoment(rm)}`, html: svg('bell') }));
@@ -330,7 +488,7 @@ const TTBoard = (() => {
 
   // ----------------------------------------------------------------- editor
   function openEditor(task, defaults = {}) {
-    const t = task || { title: defaults.title || '', description: '', status: defaults.status || 'new', priority: 'normal', start_at: null, due_at: null, remind: 1440 };
+    const t = task || { title: defaults.title || '', description: '', status: defaults.status || 'new', priority: 'normal', start_at: null, due_at: null, remind: 1440, repeat: defaults.repeat || null, repeat_every: 1 };
     const split = v => { const [d, tm] = (v || '').split('T'); return [d || '', tm || '']; };
     const [sd, st] = split(t.start_at);
     const [dd, dt] = split(t.due_at);
@@ -357,10 +515,57 @@ const TTBoard = (() => {
     remind.value = t.remind === null || t.remind === undefined ? '' : String(t.remind);
     const hint = el('p', { class: 'hint kb-remind-hint' });
 
+    // --- repeat
+    const ruleKind = (t.repeat || '').split(':')[0];
+    const repeatSel = el('select', { class: 'select' }, REPEATS.map(([v, l]) => el('option', { value: v, text: l })));
+    repeatSel.value = ruleKind;
+    const every = el('input', { class: 'input kb-every', type: 'number', min: '1', max: '365', value: t.repeat_every || 1 });
+    const everyUnit = el('span', { class: 'kb-every-unit' });
+    const everyBox = el('label', { class: 'kb-every-box' }, el('span', { text: '每' }), every, everyUnit);
+    let weekDays = ruleKind === 'weekly' && t.repeat.includes(':') ? t.repeat.split(':')[1].split(',').map(Number) : [];
+    const weekBox = el('div', { class: 'kb-weekdays', role: 'group', 'aria-label': '星期' }, [1, 2, 3, 4, 5, 6, 7].map(d => {
+      const b = el('button', { type: 'button', class: 'kb-wd', dataset: { d }, text: WEEK[d % 7] });
+      b.addEventListener('click', () => {
+        weekDays = weekDays.includes(d) ? weekDays.filter(x => x !== d) : [...weekDays, d].sort((a, c) => a - c);
+        paintRepeat(); paintHint();
+      });
+      return b;
+    }));
+    const repeatHint = el('p', { class: 'hint kb-repeat-hint' });
+    const ruleValue = () => {
+      const k = repeatSel.value;
+      if (!k) return null;
+      if (k === 'weekly') {
+        const due = dueD.value ? new Date(dueD.value + 'T00:00') : null;
+        const days = weekDays.length ? weekDays : due ? [due.getDay() || 7] : [];
+        return days.length ? `weekly:${days.join(',')}` : 'weekly';
+      }
+      return k;
+    };
+    function paintRepeat() {
+      const k = repeatSel.value;
+      everyBox.hidden = !k || k === 'weekdays';
+      everyUnit.textContent = UNIT[k] || '';
+      weekBox.hidden = k !== 'weekly';
+      if (k === 'weekly' && !weekDays.length && dueD.value) weekDays = [new Date(dueD.value + 'T00:00').getDay() || 7];
+      weekBox.querySelectorAll('.kb-wd').forEach(b => b.setAttribute('aria-pressed', String(weekDays.includes(Number(b.dataset.d)))));
+      const due = value(dueD, dueT);
+      const rule = ruleValue();
+      if (!k) repeatHint.textContent = '';
+      else if (!due) repeatHint.textContent = '⚠ 重複需要到期日：下一次依到期日推算';
+      else {
+        const n = Math.max(1, Number(every.value) || 1);
+        const next = nextDue(due, rule === 'monthly' ? `monthly:${Number(due.slice(8, 10))}` : rule, n);
+        repeatHint.textContent = `${repeatText(rule === 'monthly' ? `monthly:${Number(due.slice(8, 10))}` : rule, n, due)}。到期時會問你是否結案；結案後下一張（${fmt(next, true)}）會自動排進「週期工作」。`;
+      }
+    }
+    repeatSel.addEventListener('change', () => { paintRepeat(); });
+    every.addEventListener('input', paintRepeat);
+
     const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     const shortcut = (label, fn) => {
       const b = el('button', { class: 'chip kb-date-chip', type: 'button', text: label });
-      b.addEventListener('click', () => { fn(); paintHint(); });
+      b.addEventListener('click', () => { fn(); paintHint(); paintRepeat(); });
       return b;
     };
     const plus = n => { const d = now(); d.setDate(d.getDate() + n); return iso(d); };
@@ -391,8 +596,9 @@ const TTBoard = (() => {
       } else parts.push('沒有到期日就不會提醒');
       hint.textContent = parts.join(' · ');
     }
-    [startD, startT, dueD, dueT, remind].forEach(x => x.addEventListener('input', paintHint));
+    [startD, startT, dueD, dueT, remind].forEach(x => x.addEventListener('input', () => { paintHint(); paintRepeat(); }));
     paintHint();
+    paintRepeat();
 
     const field = (label, ...ctl) => el('label', { class: 'field' }, el('span', { class: 'field-label', text: label }), ...ctl);
     const ok = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + (task ? '儲存' : '新增') });
@@ -411,8 +617,13 @@ const TTBoard = (() => {
           el('div', { class: 'kb-row' },
             el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('play') + '開始日' }), el('div', { class: 'kb-dt' }, startD, startT), startChips),
             el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('clock') + '到期日' }), el('div', { class: 'kb-dt' }, dueD, dueT), dueChips)),
-          field('提醒', remind),
+          el('div', { class: 'kb-row' },
+            field('提醒', remind),
+            el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('repeat') + '重複' }),
+              el('div', { class: 'kb-repeat' }, repeatSel, everyBox))),
+          weekBox,
           hint,
+          repeatHint,
           meta),
         el('div', { class: 'modal-foot' }, del, el('span', { class: 'spacer' }), cancel, ok)));
 
@@ -440,8 +651,11 @@ const TTBoard = (() => {
         start_at: value(startD, startT),
         due_at: value(dueD, dueT),
         remind: remind.value === '' ? null : Number(remind.value),
+        repeat: ruleValue(),
+        repeat_every: Math.min(365, Math.max(1, Number(every.value) || 1)),
       };
       if (body.start_at && body.due_at && body.start_at.slice(0, 10) > body.due_at.slice(0, 10)) { toast('開始日不能晚於到期日', true); return; }
+      if (body.repeat && !body.due_at) { toast('重複的卡片需要設定到期日', true); dueD.focus(); return; }
       ok.disabled = true;
       try {
         await save(task?.id, body);
@@ -526,5 +740,5 @@ const TTBoard = (() => {
     return [`${open} 張進行中的卡片`, overdue && `${overdue} 張逾期`].filter(Boolean).join(' · ');
   }
 
-  return { init, load, mount, mountBell, openEditor, alerts, summary, timing, STATUSES, get tasks() { return tasks; } };
+  return { init, load, mount, mountBell, openEditor, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; } };
 })();

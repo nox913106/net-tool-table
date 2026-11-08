@@ -878,7 +878,7 @@
     recent: { icon: 'history', label: '最近使用', desc: '每位使用者最近開過的連結（存在瀏覽器）' },
     roots: { icon: 'layout', label: '所有分類', desc: '最上層的資料夾卡片' },
     folder: { icon: 'folder', label: '指定資料夾', desc: '把某個資料夾的內容直接攤在首頁' },
-    board: { icon: 'kanban', label: '待辦看板', desc: 'New / On going / Pending / On hold / Complete / Canceled 卡片看板' },
+    board: { icon: 'kanban', label: '待辦看板', desc: '週期工作 / New / On going / Pending / On hold / Complete / Canceled 卡片看板' },
   };
 
   function renderHome() {
