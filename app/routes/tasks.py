@@ -21,6 +21,7 @@ server never has to guess the viewer's time zone.
 import asyncio
 import calendar
 import os
+from urllib.parse import quote
 import re
 from datetime import date, timedelta
 from typing import List, Optional
@@ -139,13 +140,13 @@ async def spawn_next(db, task_id: int, today: Optional[date] = None) -> Optional
     new_id = cur.lastrowid
     await db.execute("""INSERT INTO task_members (task_id, user_id, role)
                         SELECT ?, user_id, role FROM task_members WHERE task_id = ?""", (new_id, task_id))
-    cur = await db.execute("""SELECT user_id, stored, mime, name, size FROM task_images
+    cur = await db.execute("""SELECT user_id, stored, mime, name, size, kind FROM task_images
                               WHERE task_id = ? AND comment_id IS NULL AND pending = 0 ORDER BY id""", (task_id,))
     for im in await cur.fetchall():
         copied = img.copy(im["stored"])
         if copied:
-            await db.execute("""INSERT INTO task_images (task_id, user_id, stored, mime, name, size)
-                                VALUES (?, ?, ?, ?, ?, ?)""", (new_id, im["user_id"], copied, im["mime"], im["name"], im["size"]))
+            await db.execute("""INSERT INTO task_images (task_id, user_id, stored, mime, name, size, kind)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)""", (new_id, im["user_id"], copied, im["mime"], im["name"], im["size"], im["kind"]))
     await db.execute("UPDATE tasks SET next_id = ? WHERE id = ?", (new_id, task_id))
     return new_id
 
@@ -449,10 +450,10 @@ async def _enrich(db, rows: List[dict], user: dict) -> List[dict]:
     cur = await db.execute(f"SELECT task_id, COUNT(*) AS c FROM task_comments WHERE task_id IN ({marks}) GROUP BY task_id", ids)
     comments = {c["task_id"]: c["c"] for c in await cur.fetchall()}
     pics = {}
-    cur = await db.execute(f"""SELECT id, task_id, name FROM task_images
+    cur = await db.execute(f"""SELECT id, task_id, name, size, kind FROM task_images
                                WHERE task_id IN ({marks}) AND comment_id IS NULL AND pending = 0 ORDER BY id""", ids)
     for im in await cur.fetchall():
-        pics.setdefault(im["task_id"], []).append(image_dict(im))
+        pics.setdefault((im["task_id"], im["kind"]), []).append(image_dict(im))
     me = user.get("id")
     acc = board_access(user)
     for r in rows:
@@ -461,7 +462,8 @@ async def _enrich(db, rows: List[dict], user: dict) -> List[dict]:
         r["assignees"] = p["assignee"]
         r["mentions"] = p["mention"]
         r["comments"] = comments.get(r["id"], 0)
-        r["images"] = pics.get(r["id"], [])
+        r["images"] = pics.get((r["id"], "image"), [])
+        r["files"] = pics.get((r["id"], "file"), [])
         involved = me is None or r.get("owner_id") == me or any(x["id"] == me for x in p["assignee"] + p["mention"])
         owner = owners.get(r.get("owner_id"))
         card_depts = {d for d in [owner["department"] if owner else None, *[a["department"] for a in p["assignee"]]] if d}
@@ -476,7 +478,8 @@ async def _enrich(db, rows: List[dict], user: dict) -> List[dict]:
 
 
 def image_dict(im) -> dict:
-    return {"id": im["id"], "name": im["name"], "url": f"/api/tasks/{im['task_id']}/images/{im['id']}"}
+    return {"id": im["id"], "name": im["name"], "kind": im["kind"], "size": im["size"],
+            "url": f"/api/tasks/{im['task_id']}/images/{im['id']}"}
 
 
 async def _one(db, task_id: int, user: dict) -> dict:
@@ -826,7 +829,7 @@ class CommentIn(BaseModel):
     def v_images(cls, v):
         v = list(dict.fromkeys(v or []))
         if len(v) > img.MAX_PER_COMMENT:
-            raise ValueError(f"一則留言最多 {img.MAX_PER_COMMENT} 張圖片")
+            raise ValueError(f"一則留言最多 {img.MAX_PER_COMMENT} 個附件")
         return v
 
 
@@ -840,7 +843,7 @@ async def list_comments(task_id: int, request: Request):
                                   FROM task_comments c LEFT JOIN users u ON u.id = c.user_id
                                   WHERE c.task_id = ? ORDER BY c.id""", (task_id,))
         rows = await cur.fetchall()
-        cur = await db.execute("""SELECT id, task_id, comment_id, name FROM task_images
+        cur = await db.execute("""SELECT id, task_id, comment_id, name, size, kind FROM task_images
                                   WHERE task_id = ? AND comment_id IS NOT NULL ORDER BY id""", (task_id,))
         pics = {}
         for im in await cur.fetchall():
@@ -865,9 +868,9 @@ async def add_comment(task_id: int, body: CommentIn, request: Request):
                                        AND id IN ({','.join('?' * len(body.images))})""", (task_id, user.get("id"), *body.images))
             pics = [r["id"] for r in await cur.fetchall()]
             if len(pics) != len(body.images):
-                raise HTTPException(status_code=400, detail="有圖片已失效，請重新附加")
+                raise HTTPException(status_code=400, detail="有附件已失效，請重新附加")
         if not body.body and not pics:
-            raise HTTPException(status_code=400, detail="請輸入留言或附加圖片")
+            raise HTTPException(status_code=400, detail="請輸入留言或附加檔案")
         cur = await db.execute("INSERT INTO task_comments (task_id, user_id, body) VALUES (?, ?, ?)", (task_id, user.get("id"), body.body))
         comment_id = cur.lastrowid
         if pics:
@@ -881,7 +884,7 @@ async def add_comment(task_id: int, body: CommentIn, request: Request):
             cur2 = await db.execute(f"SELECT id FROM users WHERE username IN ({','.join('?' * len(mentioned)) or 'NULL'})",
                                     [ldapauth.normalize(m) for m in mentioned])
             already = {r["id"] for r in await cur2.fetchall()}
-            await notify(db, people - already, task_id, user, "comment", f"{_who(user)} 在「{t['title']}」留言：{body.body[:60] or f'（{len(pics)} 張圖片）'}")
+            await notify(db, people - already, task_id, user, "comment", f"{_who(user)} 在「{t['title']}」留言：{body.body[:60] or f'（{len(pics)} 個附件）'}")
         await db.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))
         await db.commit()
         return {"id": comment_id}
@@ -919,7 +922,7 @@ async def upload_image(task_id: int, request: Request, file: UploadFile = File(.
     user = current_user(request)
     if target not in ("card", "comment"):
         raise HTTPException(status_code=400, detail="target 只能是 card 或 comment")
-    data = await file.read(img.MAX_BYTES + 1)
+    data = await file.read(img.MAX_FILE_BYTES + 1)
     db = await get_db()
     try:
         await _get_visible(db, task_id, user)
@@ -927,32 +930,42 @@ async def upload_image(task_id: int, request: Request, file: UploadFile = File(.
             await _require_edit(db, task_id, user)
             cur = await db.execute("SELECT COUNT(*) AS n FROM task_images WHERE task_id = ? AND comment_id IS NULL AND pending = 0", (task_id,))
             if (await cur.fetchone())["n"] >= img.MAX_PER_CARD:
-                raise HTTPException(status_code=400, detail=f"一張卡片最多 {img.MAX_PER_CARD} 張圖片")
+                raise HTTPException(status_code=400, detail=f"一張卡片最多 {img.MAX_PER_CARD} 個附件")
         try:
-            stored, mime = img.store(data)
+            stored, mime, kind = img.store(data, file.filename or "")
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         name = os.path.basename((file.filename or "").replace("\\", "/"))[:120] or None
         try:
-            cur = await db.execute("""INSERT INTO task_images (task_id, user_id, stored, mime, name, size, pending)
-                                      VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                                   (task_id, user.get("id"), stored, mime, name, len(data), 1 if target == "comment" else 0))
+            cur = await db.execute("""INSERT INTO task_images (task_id, user_id, stored, mime, name, size, pending, kind)
+                                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                                   (task_id, user.get("id"), stored, mime, name, len(data), 1 if target == "comment" else 0, kind))
             if target == "card":
                 await db.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))
             await db.commit()
         except Exception:
             img.remove([stored])
             raise
-        return {"id": cur.lastrowid, "name": name, "url": f"/api/tasks/{task_id}/images/{cur.lastrowid}"}
+        return {"id": cur.lastrowid, "name": name, "kind": kind, "size": len(data),
+                "url": f"/api/tasks/{task_id}/images/{cur.lastrowid}"}
     finally:
         await db.close()
+
+
+def _ascii_name(name: str) -> str:
+    """Fallback filename for old clients: ASCII only, no quotes; keeps the extension."""
+    base, dot, ext = name.rpartition(".")
+    if not dot:
+        base, ext = name, ""
+    safe = "".join(c if c.isascii() and c.isprintable() and c not in '"\\;' else "_" for c in base).strip("_ ") or "file"
+    return safe + (("." + "".join(c for c in ext if c.isascii() and c.isalnum())) if ext else "")
 
 
 async def _image_row(db, task_id: int, image_id: int):
     cur = await db.execute("SELECT * FROM task_images WHERE id = ? AND task_id = ?", (image_id, task_id))
     im = await cur.fetchone()
     if not im:
-        raise HTTPException(status_code=404, detail="找不到這張圖片")
+        raise HTTPException(status_code=404, detail="找不到這個附件")
     return im
 
 
@@ -967,13 +980,20 @@ async def get_image(task_id: int, image_id: int, request: Request):
         await db.close()
     p = img.path(im["stored"])
     if not p or not p.is_file():
-        raise HTTPException(status_code=404, detail="圖片檔案不見了")
-    return FileResponse(p, media_type=im["mime"], headers={
+        raise HTTPException(status_code=404, detail="附件檔案不見了")
+    name = im["name"] or im["stored"]
+    disposition = "inline" if img.inline(im["stored"]) and request.query_params.get("download") != "1" else "attachment"
+    headers = {
         "Cache-Control": "private, max-age=86400",
         "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy": "default-src 'none'; sandbox",
-        "Content-Disposition": "inline",
-    })
+        "Content-Disposition": f"{disposition}; filename=\"{_ascii_name(name)}\"; filename*=UTF-8''{quote(name)}",
+    }
+    if disposition == "inline" and not im["stored"].endswith(".pdf"):
+        # images / text opened in a tab can never run script here. Not sent on downloads (they never
+        # render, and Chromium then drops the file name) nor on PDFs (browsers refuse to show a
+        # sandboxed PDF; their PDF viewers never run a document's script in this origin).
+        headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+    return FileResponse(p, media_type=im["mime"], headers=headers)
 
 
 @router.delete("/{task_id}/images/{image_id}")
@@ -985,11 +1005,11 @@ async def delete_image(task_id: int, image_id: int, request: Request):
         im = await _image_row(db, task_id, image_id)
         if im["pending"]:
             if im["user_id"] != user.get("id"):
-                raise HTTPException(status_code=403, detail="不是你上傳的圖片")
+                raise HTTPException(status_code=403, detail="不是你上傳的附件")
         elif im["comment_id"] is None:
             await _require_edit(db, task_id, user)
         else:
-            raise HTTPException(status_code=400, detail="留言裡的圖片要連同留言一起刪除")
+            raise HTTPException(status_code=400, detail="留言裡的附件要連同留言一起刪除")
         await db.execute("DELETE FROM task_images WHERE id = ?", (image_id,))
         if not im["pending"]:
             await db.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))

@@ -169,10 +169,14 @@ async def init_db():
                 name TEXT,
                 size INTEGER,
                 pending INTEGER NOT NULL DEFAULT 0,
+                kind TEXT NOT NULL DEFAULT 'image',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         await db.execute("CREATE INDEX IF NOT EXISTS idx_images_task ON task_images(task_id, comment_id)")
+        cursor = await db.execute("PRAGMA table_info(task_images)")
+        if "kind" not in {row[1] for row in await cursor.fetchall()}:          # images only → images + files
+            await db.execute("ALTER TABLE task_images ADD COLUMN kind TEXT NOT NULL DEFAULT 'image'")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_comments_task ON task_comments(task_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_notes_user ON notifications(user_id, read)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)")

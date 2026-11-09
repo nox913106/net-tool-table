@@ -74,6 +74,16 @@ jobs:
             $got = Invoke-WebRequest "$B$($im.url)" -UseBasicParsing
             Write-Host "image upload → $($im.url) ($($got.Headers['Content-Type']))"
             if ($got.Headers['Content-Type'] -notlike 'image/png*') { throw 'board image not served back' }
+            $md = Join-Path $env:RUNNER_TEMP 'notes.md'
+            Set-Content -Path $md -Value '# CI notes' -Encoding utf8
+            $doc = Invoke-RestMethod "$B/api/tasks/$($card.id)/images" -Method Post -Headers $H -Form @{ file = Get-Item $md; target = 'card' }
+            Write-Host "document upload → $($doc.kind) $($doc.url)"
+            if ($doc.kind -ne 'file') { throw 'document attachment not accepted' }
+            $bad = Join-Path $env:RUNNER_TEMP 'evil.html'
+            Set-Content -Path $bad -Value '<script>alert(1)</script>'
+            $code = (Invoke-WebRequest "$B/api/tasks/$($card.id)/images" -Method Post -Headers $H -Form @{ file = Get-Item $bad } -SkipHttpErrorCheck -UseBasicParsing).StatusCode
+            Write-Host "html upload → $code (expect 400)"
+            if ($code -ne 400) { throw 'html attachment was not refused' }
             Invoke-RestMethod "$B/api/tasks/$($card.id)" -Method Delete -Headers $H | Out-Null
 
             $w = Invoke-RestMethod "$B/api/whoami"

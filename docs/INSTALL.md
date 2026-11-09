@@ -207,7 +207,7 @@ sudo bash /opt/tool-table/scripts/tool-table.sh upgrade
 ## 5. 備份與還原
 
 在後台「備份與匯入 → 自動備份」設定每天幾點備份、保留幾天；也可以「立即備份」、下載、上傳備份檔與還原。
-備份內容是資料庫一致性快照（帳號、看板、連結、設定）、所有圖示、看板圖片與加密金鑰，存在 `/var/lib/tool-table/backups/`。
+備份內容是資料庫一致性快照（帳號、看板、連結、設定）、所有圖示、看板附件與加密金鑰，存在 `/var/lib/tool-table/backups/`。
 還原前會自動再備份一次目前的狀態。下載的備份檔含有解密金鑰，請妥善保管。
 
 另外，「備份與匯入」的「匯出 / 匯入」可以把設定、連結、快速連結與看板卡片匯出成一個 JSON，適合搬家或分享範本（不含帳號、加密設定與圖示檔）。
@@ -249,7 +249,7 @@ sudo bash /opt/tool-table/scripts/tool-table.sh uninstall --purge
 | `/etc/tool-table/tls/` | `server.crt`、`server.key` |
 | `/var/lib/tool-table/tool-table.db` | SQLite 資料庫 |
 | `/var/lib/tool-table/icons/` | 圖示（後台上傳的也在這裡） |
-| `/var/lib/tool-table/attachments/` | 看板卡片與留言的圖片（只能透過 API 依權限讀取） |
+| `/var/lib/tool-table/attachments/` | 看板卡片與留言的附件（圖片與文件，只能透過 API 依權限讀取） |
 | `/var/backups/tool-table/` | 每日備份 |
 | `/etc/nginx/sites-available/tool-table` | nginx 站台（由腳本產生，請勿手改） |
 | `/etc/systemd/system/tool-table*.service/.timer` | systemd 單元 |

@@ -567,6 +567,7 @@ const TTBoard = (() => {
         chips.push(el('span', { class: 'kb-chip remind', title: `提醒：${fmtMoment(rm)}`, html: svg('bell') }));
       }
       if (t.images?.length) chips.push(el('span', { class: 'kb-chip', title: `${t.images.length} 張圖片`, html: svg('image') + `<span>${t.images.length}</span>` }));
+      if (t.files?.length) chips.push(el('span', { class: 'kb-chip', title: '附件：' + t.files.map(f => f.name).join('、'), html: svg('paperclip') + `<span>${t.files.length}</span>` }));
       const c = el('article', {
         class: `kb-card prio-${t.priority}` + (tm.due ? ` is-${tm.due}` : '') + (tm.start === 'due' ? ' is-start' : '') + (CLOSED.has(t.status) ? ' is-closed' : ''),
         draggable: t.can_edit === false ? 'false' : 'true', tabindex: '0', dataset: { id: t.id },
@@ -641,44 +642,79 @@ const TTBoard = (() => {
     };
   }
 
-  // ----------------------------------------------------------------- images
+  // ------------------------------------------------------------ attachments
+  // Images show as thumbnails (click → viewer); documents as a list (click → open / download).
+  // The server checks every file's content; these lists only spare a pointless upload.
   const IMAGE_MAX = 10 * 1024 * 1024;
+  const FILE_MAX = 25 * 1024 * 1024;
   const IMAGE_TYPES = /^image\/(png|jpeg|gif|webp)$/;
+  const FILE_EXT = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'md', 'json', 'yaml', 'yml', 'toml', 'txt', 'py', 'rs', 'mmd', 'mermaid'];
+  const ACCEPT = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', ...FILE_EXT.map(e => '.' + e)].join(',');
+  const ACCEPT_TEXT = '圖片（PNG、JPG、GIF、WebP，10 MB 內）、PDF、Word、Excel、PowerPoint、md、json、yaml、toml、txt、py、rs、mermaid（25 MB 內）';
+  const extOf = name => ((name || '').includes('.') ? name.split('.').pop().toLowerCase() : '');
+  const isImageFile = f => IMAGE_TYPES.test(f.type);
+  const sizeText = n => (n == null ? '' : n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(n < 10240 ? 1 : 0)} KB` : `${(n / 1048576).toFixed(1)} MB`);
+  const EXT_COLOR = { pdf: '#dc2626', doc: '#2563eb', docx: '#2563eb', xls: '#16a34a', xlsx: '#16a34a', ppt: '#ea580c', pptx: '#ea580c' };
 
-  /** Image files out of a paste / drop / file-picker (others are ignored, with a message). */
-  function imageFiles(list) {
+  /** Accepted files out of a paste / drop / file-picker (others are skipped, with a message). */
+  function attachFiles(list) {
     const files = [...(list || [])].filter(f => f && f.kind !== 'string').map(f => (f.getAsFile ? f.getAsFile() : f)).filter(Boolean);
-    const ok = files.filter(f => IMAGE_TYPES.test(f.type) && f.size <= IMAGE_MAX);
-    if (files.length > ok.length) toast(`只能加入 PNG、JPG、GIF、WebP 圖片，每張 10 MB 以內（略過 ${files.length - ok.length} 個檔案）`, true);
+    const ok = files.filter(f => (isImageFile(f) ? f.size <= IMAGE_MAX : FILE_EXT.includes(extOf(f.name)) && f.size <= FILE_MAX));
+    if (files.length > ok.length) toast(`略過 ${files.length - ok.length} 個檔案。可以加入：${ACCEPT_TEXT}`, true);
     return ok;
   }
 
-  function pickImages(onFiles) {
-    const input = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/gif,image/webp', multiple: '' });
-    input.addEventListener('change', () => { const f = imageFiles(input.files); if (f.length) onFiles(f); });
+  function pickFiles(onFiles) {
+    const input = el('input', { type: 'file', accept: ACCEPT, multiple: '' });
+    input.addEventListener('change', () => { const f = attachFiles(input.files); if (f.length) onFiles(f); });
     input.click();
   }
 
-  async function uploadImage(taskId, file, target = 'card') {
+  async function uploadFile(taskId, file, target = 'card') {
     const form = new FormData();
     form.append('file', file, file.name || 'image.png');
     form.append('target', target);
     return api(`/api/tasks/${taskId}/images`, { method: 'POST', form });
   }
 
-  /** Thumbnails; click opens the viewer. onRemove(img) adds a × button. */
+  /** A local file waiting to upload, shaped like a server attachment. */
+  const localItem = f => ({ name: f.name, kind: isImageFile(f) ? 'image' : 'file', size: f.size, preview: isImageFile(f) ? URL.createObjectURL(f) : null, file: f });
+
+  /** Thumbnails for images + rows for documents. onRemove(item) adds a × button. */
   function thumbs(list, { onRemove, size = 'md' } = {}) {
-    return el('div', { class: `kb-thumbs size-${size}` }, list.map((im, i) => {
+    const images = list.filter(x => x.kind !== 'file');
+    const files = list.filter(x => x.kind === 'file');
+    const removeBtn = item => {
+      const x = el('button', { type: 'button', class: 'kb-thumb-x', 'aria-label': '移除附件', title: '移除', html: svg('x') });
+      x.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); onRemove(item); });
+      return x;
+    };
+    const grid = images.length ? el('div', { class: `kb-thumbs size-${size}` }, images.map((im, i) => {
       const pic = el('img', { src: im.url || im.preview, alt: im.name || '圖片', loading: 'lazy', draggable: 'false' });
       const t = el('div', { class: 'kb-thumb' + (im.uploading ? ' is-uploading' : ''), title: im.name || '' }, pic);
-      pic.addEventListener('click', e => { e.stopPropagation(); viewImages(list, i); });
-      if (onRemove && !im.uploading) {
-        const x = el('button', { type: 'button', class: 'kb-thumb-x', 'aria-label': '移除圖片', title: '移除圖片', html: svg('x') });
-        x.addEventListener('click', e => { e.stopPropagation(); onRemove(im); });
-        t.append(x);
-      }
+      pic.addEventListener('click', e => { e.stopPropagation(); viewImages(images, i); });
+      if (onRemove && !im.uploading) t.append(removeBtn(im));
       return t;
-    }));
+    })) : null;
+    const rows = files.length ? el('div', { class: 'kb-files' }, files.map(f => {
+      const ext = extOf(f.name);
+      const badge = el('span', { class: 'kb-file-ext', style: { '--ext': EXT_COLOR[ext] || 'var(--text-3)' }, text: (ext || 'file').slice(0, 4).toUpperCase() });
+      const body = el('span', { class: 'kb-file-text' }, el('span', { class: 'kb-file-name', text: f.name || '檔案' }),
+        el('small', { text: f.uploading ? '上傳中…' : sizeText(f.size) }));
+      const open = f.url
+        ? el('a', { class: 'kb-file-open', href: f.url, target: '_blank', rel: 'noopener', title: `開啟 ${f.name || ''}` }, badge, body)
+        : el('span', { class: 'kb-file-open' }, badge, body);
+      const row = el('div', { class: 'kb-file' + (f.url ? ' has-link' : '') + (f.uploading ? ' is-uploading' : '') }, open);
+      if (f.url) {
+        const dl = el('a', { class: 'kb-file-dl', href: f.url + '?download=1', download: f.name || '', title: '下載', 'aria-label': '下載', html: svg('download') });
+        dl.addEventListener('click', e => e.stopPropagation());
+        row.append(dl);
+      }
+      row.addEventListener('click', e => e.stopPropagation());
+      if (onRemove && !f.uploading) row.append(removeBtn(f));
+      return row;
+    })) : null;
+    return el('div', { class: 'kb-attach' }, grid, rows);
   }
 
   /** Full-size viewer (←/→ between images, Esc closes; does not close the card editor). */
@@ -732,37 +768,38 @@ const TTBoard = (() => {
 
     // --- images (existing card: saved right away; new card: uploaded after 新增)
     const canImage = !task || task.can_edit !== false;
-    let cardImages = task ? (task.images || []).map(x => ({ ...x })) : [];
+    let cardImages = task ? [...(task.images || []), ...(task.files || [])].map(x => ({ ...x })) : [];
     const imgBox = el('div', { class: 'kb-images' });
     const syncCache = () => {
       const cached = task && tasks.find(x => x.id === task.id);
       if (!cached) return;
-      cached.images = cardImages.filter(x => x.id && !x.uploading).map(({ id, name, url }) => ({ id, name, url }));
-      task.images = cached.images;
+      const saved = cardImages.filter(x => x.id && !x.uploading).map(({ id, name, url, kind, size }) => ({ id, name, url, kind, size }));
+      cached.images = task.images = saved.filter(x => x.kind !== 'file');
+      cached.files = task.files = saved.filter(x => x.kind === 'file');
       changed();
     };
     function paintImages() {
-      const add = canImage ? el('button', { class: 'btn btn-sm kb-img-add', type: 'button', html: svg('image') + '加入圖片' }) : null;
-      add?.addEventListener('click', () => pickImages(addCardImages));
+      const add = canImage ? el('button', { class: 'btn btn-sm kb-img-add', type: 'button', html: svg('paperclip') + '加入檔案' }) : null;
+      add?.addEventListener('click', () => pickFiles(addCardImages));
       imgBox.replaceChildren(...[
         cardImages.length ? thumbs(cardImages, { onRemove: canImage ? removeCardImage : null }) : null,
-        canImage ? el('div', { class: 'kb-img-tools' }, add, el('span', { class: 'hint', text: '也可以直接貼上（Ctrl+V）或把圖片拖進這個視窗' + (task ? '；圖片會立即儲存' : '') })) : null,
-        !canImage && !cardImages.length ? el('span', { class: 'hint', text: '沒有圖片' }) : null].filter(Boolean));
+        canImage ? el('div', { class: 'kb-img-tools' }, add, el('span', { class: 'hint', text: '圖片、PDF、Office、md／json／yaml／toml／txt／py／rs／mermaid；也可以貼上（Ctrl+V）或拖進這個視窗' + (task ? '，加入後立即儲存' : '') })) : null,
+        !canImage && !cardImages.length ? el('span', { class: 'hint', text: '沒有附件' }) : null].filter(Boolean));
     }
     async function addCardImages(files) {
       for (const f of files) {
-        const item = { name: f.name, preview: URL.createObjectURL(f), file: f, uploading: !!task };
+        const item = { ...localItem(f), uploading: !!task };
         cardImages.push(item);
         paintImages();
         if (!task) continue;
-        try { Object.assign(item, await uploadImage(task.id, f), { uploading: false }); syncCache(); }
+        try { Object.assign(item, await uploadFile(task.id, f), { uploading: false }); syncCache(); }
         catch (e) { toast(e.message, true); cardImages = cardImages.filter(x => x !== item); }
         paintImages();
       }
     }
     async function removeCardImage(im) {
       if (task && im.id) {
-        if (!confirm('移除這張圖片？')) return;
+        if (!confirm(`移除「${im.name || '這個附件'}」？`)) return;
         try { await api(`/api/tasks/${task.id}/images/${im.id}`, { method: 'DELETE' }); }
         catch (e) { toast(e.message, true); return; }
       }
@@ -908,7 +945,7 @@ const TTBoard = (() => {
       const input = el('textarea', { class: 'textarea kb-comment-input', rows: '2', placeholder: meInfo.auth ? '留言…（輸入 @ 提到同事，他會收到通知）' : '留言…' });
       if (meInfo.auth) TT.mentionInput(input);
       const send = el('button', { class: 'btn btn-sm btn-primary', type: 'button', html: svg('message') + '送出' });
-      const attach = el('button', { class: 'btn btn-sm kb-comment-attach', type: 'button', title: '附加圖片（也可以貼上或拖曳）', 'aria-label': '附加圖片', html: svg('image') });
+      const attach = el('button', { class: 'btn btn-sm kb-comment-attach', type: 'button', title: '附加圖片或檔案（也可以貼上或拖曳）', 'aria-label': '附加檔案', html: svg('paperclip') });
       const pendingBox = el('div', { class: 'kb-comment-pending' });
       let pending = [];
       const paintPending = () => {
@@ -922,15 +959,15 @@ const TTBoard = (() => {
       }
       addCommentImages = async files => {
         for (const f of files) {
-          const item = { name: f.name, preview: URL.createObjectURL(f), uploading: true };
+          const item = { ...localItem(f), file: null, uploading: true };
           pending.push(item);
           paintPending();
-          try { Object.assign(item, await uploadImage(task.id, f, 'comment'), { uploading: false }); }
+          try { Object.assign(item, await uploadFile(task.id, f, 'comment'), { uploading: false }); }
           catch (e) { toast(e.message, true); pending = pending.filter(x => x !== item); }
           paintPending();
         }
       };
-      attach.addEventListener('click', () => pickImages(addCommentImages));
+      attach.addEventListener('click', () => pickFiles(addCommentImages));
       const ORDER_KEY = 'tt-comment-order';
       let newestFirst = false;
       try { newestFirst = localStorage.getItem(ORDER_KEY) === 'desc'; } catch (e) { /* storage blocked */ }
@@ -988,7 +1025,7 @@ const TTBoard = (() => {
         el('div', { class: 'modal-body' },
           field('標題', title),
           field('說明', desc),
-          el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('image') + '圖片' }), imgBox),
+          el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('paperclip') + '附件' }), imgBox),
           meInfo.auth ? el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('users') + '負責人' }), assignBox) : null,
           el('div', { class: 'kb-row' }, field('狀態', status), el('div', { class: 'field' }, el('span', { class: 'field-label', text: '優先順序' }), prio)),
           el('div', { class: 'kb-row' },
@@ -1026,7 +1063,7 @@ const TTBoard = (() => {
       if (!files.length) return;
       const target = inComments(e.target) ? addCommentImages : canImage ? addCardImages : null;
       if (!target) return;
-      const ok = imageFiles(files);
+      const ok = attachFiles(files);
       e.preventDefault();
       if (ok.length) target(ok);
     });
@@ -1048,7 +1085,7 @@ const TTBoard = (() => {
       e.stopPropagation();
       wrap.querySelectorAll('.kb-drop-hot').forEach(x => x.classList.remove('kb-drop-hot'));
       const target = inComments(e.target) ? addCommentImages : canImage ? addCardImages : null;
-      const ok = imageFiles(e.dataTransfer.files);
+      const ok = attachFiles(e.dataTransfer.files);
       if (target && ok.length) target(ok);
     });
 
@@ -1075,10 +1112,10 @@ const TTBoard = (() => {
         if (!task) {
           const queued = cardImages.filter(x => x.file);
           let failed = 0;
-          for (const im of queued) { try { await uploadImage(saved.id, im.file, 'card'); } catch (e) { failed++; toast(e.message, true); } }
-          queued.forEach(x => URL.revokeObjectURL(x.preview));
+          for (const im of queued) { try { await uploadFile(saved.id, im.file, 'card'); } catch (e) { failed++; toast(e.message, true); } }
+          queued.forEach(x => x.preview && URL.revokeObjectURL(x.preview));
           if (queued.length) await load(true);
-          toast(`已新增「${body.title}」` + (queued.length ? `（${queued.length - failed} 張圖片）` : ''));
+          toast(`已新增「${body.title}」` + (queued.length ? `（${queued.length - failed} 個附件）` : ''));
         }
         if (body.due_at && body.remind !== null) askPermission(true);
       } catch (err) { toast(err.message, true); ok.disabled = false; }
