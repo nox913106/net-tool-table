@@ -19,6 +19,10 @@ System settings API (admins only) — everything an operator needs, without a sh
   GET  /api/system/network           HTTPS / HTTP port, server name
   PUT  /api/system/network
   GET  /api/system/apply/{id}        result of a certificate / network change
+  GET  /api/system/openproject       OpenProject sync settings + status (the API key is never returned)
+  PUT  /api/system/openproject       save (api_key: omitted = keep, "" = clear)
+  POST /api/system/openproject/test  try the form's URL / key: user, projects, types, statuses, priorities
+  POST /api/system/openproject/requeue   push every linked card again
 
 Certificate and port changes need root: the app drops a request in <data>/requests and
 the tool-table-apply.path unit applies it (scripts/tool-table.sh apply-request).
@@ -35,6 +39,7 @@ from pydantic import BaseModel
 from .. import config as C
 from .. import backup as bk
 from .. import ldapauth, sysconfig
+from .. import openproject as op
 from ..auth import require_admin
 
 router = APIRouter(prefix="/api/system", tags=["system"], dependencies=[Depends(require_admin)])
@@ -416,3 +421,100 @@ async def apply_status(rid: str):
     if res.get("id") != rid:
         return {"id": rid, "pending": True}
     return {**res, "pending": False}
+
+
+# -------------------------------------------------------------- OpenProject
+class OpenProjectIn(BaseModel):
+    enabled: bool = False
+    url: str = ""
+    api_key: Optional[str] = None                 # None = keep the stored one
+    tls_verify: bool = True
+    ca_pem: str = ""
+    timeout: int = 15
+    default_project: str = ""
+    card_type: str = ""
+    subtask_type: str = ""
+    status_map: dict = {}
+    priority_map: dict = {}
+    time_activity: str = ""
+    sync_comments: bool = True
+    sync_time: bool = True
+    sync_attachments: bool = True
+    notify: bool = False
+
+
+OP_URL_RE = re.compile(r"^https?://[A-Za-z0-9.\-\[\]:]+(:\d{1,5})?(/[^\s?#]*)?$")
+ID_RE = re.compile(r"^[0-9]{0,12}$")
+
+
+def _op_values(body: OpenProjectIn) -> dict:
+    url = body.url.strip().rstrip("/")
+    if url.endswith("/api/v3"):
+        url = url[: -len("/api/v3")]
+    if body.enabled and not url:
+        raise HTTPException(status_code=400, detail="請填 OpenProject 網址")
+    if url and not OP_URL_RE.match(url):
+        raise HTTPException(status_code=400, detail="網址格式不正確（例如 https://openproject.corp.local）")
+    if body.ca_pem.strip() and "BEGIN CERTIFICATE" not in body.ca_pem:
+        raise HTTPException(status_code=400, detail="CA 憑證要是 PEM 格式")
+    ids = [body.default_project, body.card_type, body.subtask_type, body.time_activity,
+           *map(str, body.status_map.values()), *map(str, body.priority_map.values())]
+    if any(not ID_RE.match(str(i or "")) for i in ids):
+        raise HTTPException(status_code=400, detail="對應設定的 id 不正確")
+    status_map = {k: str(v or "") for k, v in body.status_map.items() if k in op.TT_STATUSES}
+    priority_map = {k: str(v or "") for k, v in body.priority_map.items() if k in ("low", "normal", "high")}
+    return {"enabled": body.enabled, "url": url, "tls_verify": body.tls_verify, "ca_pem": body.ca_pem.strip(),
+            "timeout": max(3, min(120, body.timeout)), "default_project": body.default_project, "card_type": body.card_type,
+            "subtask_type": body.subtask_type, "status_map": status_map, "priority_map": priority_map,
+            "time_activity": body.time_activity, "sync_comments": body.sync_comments, "sync_time": body.sync_time,
+            "sync_attachments": body.sync_attachments, "notify": body.notify}
+
+
+@router.get("/openproject")
+async def get_openproject():
+    c = sysconfig.openproject()
+    return {**c.public(), "statuses_local": op.TT_STATUS_ZH,
+            "overview": await asyncio.get_running_loop().run_in_executor(None, op.overview)}
+
+
+@router.put("/openproject")
+async def put_openproject(body: OpenProjectIn):
+    values = _op_values(body)
+    if body.enabled and not (body.api_key or sysconfig.openproject().api_key_enc):
+        raise HTTPException(status_code=400, detail="請填 API 金鑰")
+    sysconfig.save_openproject(values, body.api_key)
+    return await get_openproject()
+
+
+@router.post("/openproject/test")
+async def test_openproject(body: OpenProjectIn):
+    """Try the form's URL and key (without saving); returns what the mapping dropdowns need."""
+    values = _op_values(OpenProjectIn(**{**body.model_dump(), "enabled": True}))
+    cfg = replace(sysconfig.openproject(), **values)
+    key = body.api_key if body.api_key else cfg.api_key
+    if not key:
+        return {"ok": False, "steps": [{"status": "fail", "text": "請填 API 金鑰（OpenProject → 我的帳戶 → 存取權杖 → API）"}]}
+    steps = []
+    try:
+        m = await asyncio.get_running_loop().run_in_executor(None, op.meta, op.Client(cfg, key), cfg.default_project or None)
+    except op.OPError as e:
+        hint = "：API 金鑰不正確或已撤銷" if e.status == 401 else ""
+        return {"ok": False, "steps": [{"status": "fail", "text": str(e) + hint}]}
+    except ValueError as e:
+        return {"ok": False, "steps": [{"status": "fail", "text": f"CA 憑證無法讀取：{e}"}]}
+    me = m["me"] or {}
+    steps.append(("ok", f"已連線，API 使用者：{me.get('name')}（{me.get('login') or '—'}）" + ("，管理員" if me.get("admin") else "")))
+    steps.append(("ok", f"看得到 {len(m['projects'])} 個專案、{len(m['types'])} 種類型、{len(m['statuses'])} 種狀態"))
+    if not me.get("admin"):
+        steps.append(("info", "API 使用者不是管理員：負責人會用「專案可指派的人」比對姓名；記錄他人工時需要「代他人記錄工時」權限"))
+    if not m["activities"]:
+        steps.append(("info", "讀不到工時活動清單：工時會用 OpenProject 的預設活動"))
+    return {"ok": True, "steps": [{"status": s, "text": t} for s, t in steps], "meta": m, "guess": op.guess_maps(m)}
+
+
+@router.post("/openproject/requeue")
+async def requeue_openproject():
+    if not op.configured():
+        raise HTTPException(status_code=400, detail="請先啟用並儲存 OpenProject 設定")
+    n = await asyncio.get_running_loop().run_in_executor(None, op.requeue_all)
+    return {"queued": n}

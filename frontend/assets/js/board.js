@@ -66,7 +66,14 @@ const TTBoard = (() => {
       announceNext(t);
     }
     if (body.due_at !== undefined || body.status) sweep();
+    if (t.op_project) opRefresh();
     return t;
+  }
+  /** Linked cards sync in the background a few seconds later: pick up the result for the chip / editor. */
+  let opTimers = [];
+  function opRefresh() {
+    opTimers.forEach(clearTimeout);
+    opTimers = [7000, 20000].map(ms => setTimeout(() => load(true).catch(() => {}), ms));
   }
   async function remove(id) {
     await api(`/api/tasks/${id}`, { method: 'DELETE' });
@@ -152,6 +159,8 @@ const TTBoard = (() => {
     return s;
   }
   const fmtMin = m => { m = Math.round(m || 0); const h = Math.floor(m / 60); return h ? `${h}h${m % 60 ? ` ${m % 60}m` : ''}` : `${m}m`; };
+  /** SQLite CURRENT_TIMESTAMP (UTC) → local "M/D HH:MM" */
+  const utcLocal = v => { const d = new Date(String(v).replace(' ', 'T') + 'Z'); return isNaN(d) ? v : `${d.getMonth() + 1}/${d.getDate()} ${hm(d)}`; };
   const isoDay = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const fmtMoment = d => `${d.getMonth() + 1}/${d.getDate()}（${WEEK[d.getDay()]}）${hm(d)}`;
   const isoDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -462,6 +471,13 @@ const TTBoard = (() => {
 
   // ------------------------------------------------------------------ init
   let started = false;
+  // OpenProject sync (admin: 系統設定 → OpenProject): enabled flag + projects to link a card to
+  let opInfo = null;
+  async function loadOp(refresh = false) {
+    if (opInfo && !refresh) return opInfo;
+    try { opInfo = await api('/api/openproject' + (refresh ? '?refresh=1' : '')); } catch { opInfo = { enabled: false, projects: [] }; }
+    return opInfo;
+  }
   let meInfo = { auth: false, is_admin: true, user: {}, board: { view: 'all', edit: 'all', depts: [] } };
   let notes = [];
   async function loadNotes() {
@@ -587,6 +603,8 @@ const TTBoard = (() => {
             + (sub.start || sub.end ? `\n期間 ${sub.start ? fmt(sub.start) : '—'} → ${sub.end ? fmt(sub.end) : '—'}` : ''),
           style: { '--pct': `${pct}%` }, html: svg('check') + `<span>${sub.done}/${counted}</span>` }));
       }
+      if (t.op?.work_package || t.op?.error) chips.push(el('span', { class: 'kb-chip kb-chip-op' + (t.op.error ? ' is-error' : ''),
+        title: t.op.error ? `OpenProject 同步失敗：${t.op.error}` : `已同步到 OpenProject #${t.op.work_package}`, text: t.op.error ? 'OP ⚠' : `OP #${t.op.work_package}` }));
       if (sub?.timer) chips.push(el('span', { class: 'kb-chip kb-chip-timer', title: `計時中：${sub.timer.title}`, html: svg('clock') + '<span>計時中</span>' }));
       if (t.images?.length) chips.push(el('span', { class: 'kb-chip', title: `${t.images.length} 張圖片`, html: svg('image') + `<span>${t.images.length}</span>` }));
       if (t.files?.length) chips.push(el('span', { class: 'kb-chip', title: '附件：' + t.files.map(f => f.name).join('、'), html: svg('paperclip') + `<span>${t.files.length}</span>` }));
@@ -955,6 +973,44 @@ const TTBoard = (() => {
     const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: '取消' });
     const del = task && task.can_delete !== false ? el('button', { class: 'btn btn-danger kb-del', type: 'button', html: svg('trash') + '刪除' }) : null;
     const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': '關閉', html: svg('x') });
+    // --- OpenProject: which project this card is pushed to (+ sync state)
+    let opProject = t.op_project || null;
+    const opBox = el('div', { class: 'field kb-op', hidden: true });
+    const opSel = el('select', { class: 'select', disabled: readOnly });
+    const opStatus = el('div', { class: 'kb-op-status' });
+    function paintOpStatus(card) {
+      const o = card?.op;
+      if (!opProject) { opStatus.replaceChildren(el('span', { class: 'hint', text: '不同步：這張卡片只在 Tool Table。' })); return; }
+      if (!o || (!o.work_package && !o.error)) { opStatus.replaceChildren(el('span', { class: 'hint', text: task && opProject === task.op_project ? '排隊中，幾秒後同步…' : '儲存後開始同步（卡片、子任務、留言、工時、附件）' })); return; }
+      const link = o.work_package && opInfo?.url ? el('a', { href: `${opInfo.url}/work_packages/${o.work_package}`, target: '_blank', rel: 'noopener', html: svg('external') + `#${o.work_package}` }) : null;
+      const now = !readOnly && task ? el('button', { class: 'kb-link-btn', type: 'button', html: svg('refresh') + '<span>立即同步</span>' }) : null;
+      now?.addEventListener('click', async () => {
+        now.disabled = true;
+        try { await api(`/api/tasks/${task.id}/openproject/sync`, { method: 'POST' }); const fresh = await load(true); paintOpStatus(fresh.find(x => x.id === task.id)); toast('已同步到 OpenProject'); }
+        catch (e) { toast(e.message, true); const fresh = await load(true); paintOpStatus(fresh.find(x => x.id === task.id)); }
+        now.disabled = false;
+      });
+      opStatus.replaceChildren(...[
+        o.error ? el('span', { class: 'kb-op-err', html: svg('x') + '<span></span>' }) : el('span', { class: 'kb-op-ok', html: svg('check') + `<span>${o.queued ? '有新變更，稍後同步' : '已同步'}${o.ok_at ? `（${utcLocal(o.ok_at)}）` : ''}</span>` }),
+        link, now].filter(Boolean));
+      if (o.error) opStatus.querySelector('.kb-op-err span').textContent = '同步失敗：' + o.error;
+    }
+    loadOp().then(info => {
+      if (!info.enabled && !t.op_project) return;
+      const projects = info.projects || [];
+      const opts = [el('option', { value: '', text: '不同步' }),
+        ...projects.map(p => el('option', { value: p.id, text: p.name + (p.id === info.default_project ? '（預設）' : '') }))];
+      if (opProject && !projects.some(p => p.id === opProject)) opts.push(el('option', { value: opProject, text: `專案 #${opProject}` }));
+      opSel.replaceChildren(...opts);
+      opSel.value = opProject || '';
+      opSel.addEventListener('change', () => { opProject = opSel.value || null; paintOpStatus(task); });
+      opBox.replaceChildren(...[el('span', { class: 'field-label', html: svg('external') + 'OpenProject 同步' }),
+        el('div', { class: 'kb-op-row' }, opSel, opStatus),
+        info.error ? el('p', { class: 'hint', text: '讀取專案清單失敗：' + info.error }) : null].filter(Boolean));
+      paintOpStatus(task);
+      opBox.hidden = false;
+    });
+
     const meta = task ? el('p', { class: 'hint', text: (task.owner ? `${TT.nameOf(task.owner)} 建立於 ` : '建立於 ') + (task.created_at?.slice(0, 16) || '')
       + (task.completed_at ? ` · 完成於 ${task.completed_at.slice(0, 16)}` : '')
       + (task.mentions?.length ? ` · 協作：${task.mentions.map(TT.nameOf).join('、')}` : '') }) : null;
@@ -1368,6 +1424,7 @@ const TTBoard = (() => {
           weekBox,
           hint,
           repeatHint,
+          opBox,
           meta,
           comments),
         el('div', { class: 'modal-foot' }, del, el('span', { class: 'spacer' }), cancel, ok)));
@@ -1433,6 +1490,7 @@ const TTBoard = (() => {
         repeat_every: Math.min(365, Math.max(1, Number(every.value) || 1)),
       };
       if (canAssign) body.assignees = assignees.map(p => p.username);
+      if (!opBox.hidden && (opProject || null) !== (t.op_project || null)) body.op_project = opProject || '';
       if (body.start_at && body.due_at && body.start_at.slice(0, 10) > body.due_at.slice(0, 10)) { toast('開始日不能晚於到期日', true); return; }
       if (body.repeat && !body.due_at) { toast('重複的卡片需要設定到期日', true); dueD.focus(); return; }
       ok.disabled = true;

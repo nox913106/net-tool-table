@@ -363,12 +363,13 @@ body.is-dragging .atree-root-drop, body.link-dragging .atree-root-drop { display
   font-size: 14px;
   font-weight: 600;
   box-shadow: 0 16px 40px -12px var(--accent);
-  transform: translate(-50%, -160%);
-  transition: transform var(--t) var(--ease);
+  transform: translate(-50%, calc(-100% - 30px));      /* fully off screen, whatever its height */
+  visibility: hidden;
+  transition: transform var(--t) var(--ease), visibility 0s linear var(--t);
   pointer-events: none;
 }
 .drop-hint svg { width: 18px; height: 18px; flex: none; }
-body.link-dragging .drop-hint { transform: translate(-50%, 0); }
+body.link-dragging .drop-hint { transform: translate(-50%, 0); visibility: visible; transition: transform var(--t) var(--ease); }
 body.link-dragging .content-grid .panel,
 body.link-dragging .quick-admin { outline: 2px dashed var(--accent-line); outline-offset: 4px; }
 
@@ -455,3 +456,21 @@ body.link-dragging .quick-admin { outline: 2px dashed var(--accent-line); outlin
 .role-table th, .role-table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); }
 .role-table th { font-size: 12px; color: var(--text-3); font-weight: 700; }
 .role-table td:first-child { font-weight: 650; white-space: nowrap; }
+
+/* ---- OpenProject ---- */
+.sys-actions-left { justify-content: flex-start; }
+.op-sub { font-size: 13px; margin: 14px 0 6px; color: var(--text-2); }
+.op-maps { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px 24px; }
+.op-map { display: flex; flex-direction: column; gap: 6px; }
+.op-map-row { display: grid; grid-template-columns: 150px 16px 1fr; align-items: center; gap: 6px; font-size: 13px; }
+.op-arrow { color: var(--text-3); text-align: center; }
+.op-switches { display: flex; flex-wrap: wrap; gap: 8px 24px; }
+.op-stats { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--text-2); }
+.op-stats b { color: var(--text); font-size: 15px; }
+.op-errors { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 10px;
+  background: color-mix(in srgb, var(--danger) 8%, transparent); border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent); font-size: 12.5px; }
+.op-errors strong { color: var(--danger); }
+.op-error { display: flex; flex-direction: column; }
+.op-error small { color: var(--text-3); word-break: break-word; }
+@media (max-width: 560px) { .op-map-row { grid-template-columns: 1fr; } .op-arrow { display: none; } }
+.sys-advanced:not([open]) > :not(summary) { display: none; }      /* a switch's track would otherwise still paint in Chrome */

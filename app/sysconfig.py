@@ -199,3 +199,49 @@ def save_backup(values: dict):
     data = asdict(backup())
     data.update({k: v for k, v in values.items() if k in data})
     _write("_sys_backup", data)
+
+
+# ---------------------------------------------------------------- OpenProject
+@dataclass
+class OpenProject:
+    """One-way sync of board cards (and their subtasks, comments, time, attachments) to OpenProject."""
+    enabled: bool = False
+    url: str = ""                       # https://openproject.corp.local
+    api_key_enc: str = ""               # AES-GCM; an OpenProject API key (My account → Access tokens)
+    tls_verify: bool = True
+    ca_pem: str = ""
+    timeout: int = 15
+    default_project: str = ""           # project id pre-selected when a card is linked
+    card_type: str = ""                 # type id for cards (summary work packages); "" = project default
+    subtask_type: str = ""              # type id for subtasks
+    status_map: dict = field(default_factory=dict)      # Tool Table status → OpenProject status id
+    priority_map: dict = field(default_factory=dict)    # low / normal / high → priority id
+    time_activity: str = ""             # time entry activity id ("" = OpenProject default)
+    sync_comments: bool = True
+    sync_time: bool = True
+    sync_attachments: bool = True
+    notify: bool = False                # let OpenProject send its own e-mail notifications
+
+    @property
+    def api_key(self) -> str:
+        return decrypt(self.api_key_enc, "openproject")
+
+    def public(self) -> dict:
+        d = asdict(self)
+        d.pop("api_key_enc")
+        d["api_key_set"] = bool(self.api_key_enc)
+        return d
+
+
+def openproject() -> OpenProject:
+    return _merge(OpenProject, _read("_sys_openproject"), {})
+
+
+def save_openproject(values: dict, api_key: Optional[str]):
+    data = asdict(openproject())
+    for k, v in values.items():
+        if k in data and k != "api_key_enc":
+            data[k] = v
+    if api_key is not None:                          # None = keep, "" = clear
+        data["api_key_enc"] = encrypt(api_key, "openproject") if api_key else ""
+    _write("_sys_openproject", data)

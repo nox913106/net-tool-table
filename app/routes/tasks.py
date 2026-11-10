@@ -45,7 +45,7 @@ REMINDS = (0, 15, 60, 1440, 2880, 10080)       # minutes before due; None = no r
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$")
 REPEAT_RE = re.compile(r"^(daily|weekdays|weekly(:[1-7](,[1-7]){0,6})?|monthly(:\d{1,2})?|yearly)$")
 COLUMNS = ("id, title, description, status, priority, start_at, due_at, remind, repeat, repeat_every, next_id, "
-           "overdue_from, overdue_ack, owner_id, sort_order, created_at, updated_at, completed_at")
+           "overdue_from, overdue_ack, owner_id, sort_order, created_at, updated_at, completed_at, op_project")
 
 
 def _repeat(v):
@@ -133,10 +133,10 @@ async def spawn_next(db, task_id: int, today: Optional[date] = None) -> Optional
     cur = await db.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tasks WHERE status = 'recurring'")
     order = (await cur.fetchone())["n"]
     cur = await db.execute(
-        """INSERT INTO tasks (title, description, status, priority, start_at, due_at, remind, repeat, repeat_every, sort_order, owner_id)
-           VALUES (?, ?, 'recurring', ?, ?, ?, ?, ?, ?, ?, ?)""",
+        """INSERT INTO tasks (title, description, status, priority, start_at, due_at, remind, repeat, repeat_every, sort_order, owner_id, op_project)
+           VALUES (?, ?, 'recurring', ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (t["title"], t["description"], t["priority"], _shift(t["start_at"], delta), due, t["remind"],
-         t["repeat"], t["repeat_every"] or 1, order, t["owner_id"]))
+         t["repeat"], t["repeat_every"] or 1, order, t["owner_id"], t["op_project"]))
     new_id = cur.lastrowid
     await db.execute("""INSERT INTO task_members (task_id, user_id, role)
                         SELECT ?, user_id, role FROM task_members WHERE task_id = ?""", (new_id, task_id))
@@ -216,6 +216,15 @@ class TaskIn(BaseModel):
     repeat: Optional[str] = None
     repeat_every: Optional[int] = None
     assignees: Optional[List[str]] = None          # login names (admins only)
+    op_project: Optional[str] = None               # OpenProject project id to sync to; "" / null = not synced
+
+    @field_validator("op_project")
+    @classmethod
+    def v_op(cls, v):
+        v = (v or "").strip()
+        if v and not re.match(r"^[A-Za-z0-9_\-]{1,100}$", v):
+            raise ValueError("OpenProject 專案 id 不正確")
+        return v or None
 
     @field_validator("repeat")
     @classmethod
@@ -270,6 +279,15 @@ class TaskUpdate(BaseModel):
     repeat: Optional[str] = None
     repeat_every: Optional[int] = None
     assignees: Optional[List[str]] = None          # login names (admins only)
+    op_project: Optional[str] = None               # OpenProject project id to sync to; "" / null = not synced
+
+    @field_validator("op_project")
+    @classmethod
+    def v_op(cls, v):
+        v = (v or "").strip()
+        if v and not re.match(r"^[A-Za-z0-9_\-]{1,100}$", v):
+            raise ValueError("OpenProject 專案 id 不正確")
+        return v or None
 
     @field_validator("repeat")
     @classmethod
@@ -461,6 +479,10 @@ async def _enrich(db, rows: List[dict], user: dict) -> List[dict]:
     cur = await db.execute(f"SELECT task_id, COUNT(*) AS c FROM task_comments WHERE task_id IN ({marks}) GROUP BY task_id", ids)
     comments = {c["task_id"]: c["c"] for c in await cur.fetchall()}
     rollup = await _rollup(db, ids, user.get("id"))
+    cur = await db.execute(f"""SELECT t.id, l.remote_id, s.ok_at, s.error, (SELECT 1 FROM op_queue q WHERE q.card_id = t.id) AS queued
+                               FROM tasks t LEFT JOIN op_links l ON l.kind = 'card' AND l.local_id = t.id
+                               LEFT JOIN op_state s ON s.card_id = t.id WHERE t.id IN ({marks})""", ids)
+    op = {r["id"]: r for r in await cur.fetchall()}
     pics = {}
     cur = await db.execute(f"""SELECT id, task_id, name, size, kind FROM task_images
                                WHERE task_id IN ({marks}) AND comment_id IS NULL AND pending = 0 ORDER BY id""", ids)
@@ -477,6 +499,9 @@ async def _enrich(db, rows: List[dict], user: dict) -> List[dict]:
         r["images"] = pics.get((r["id"], "image"), [])
         r["files"] = pics.get((r["id"], "file"), [])
         r["subtasks"] = rollup.get(r["id"])
+        o = op.get(r["id"])
+        r["op"] = {"project": r.get("op_project"), "work_package": o["remote_id"], "ok_at": o["ok_at"], "error": o["error"],
+                   "queued": bool(o["queued"])} if o and (r.get("op_project") or o["remote_id"]) else None
         involved = me is None or r.get("owner_id") == me or any(x["id"] == me for x in p["assignee"] + p["mention"])
         owner = owners.get(r.get("owner_id"))
         card_depts = {d for d in [owner["department"] if owner else None, *[a["department"] for a in p["assignee"]]] if d}
@@ -676,10 +701,10 @@ async def create_task(t: TaskIn, request: Request):
         order = (await cur.fetchone())["n"]
         cur = await db.execute(
             """INSERT INTO tasks (title, description, status, priority, start_at, due_at, remind, repeat, repeat_every,
-                                  sort_order, owner_id, completed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'complete' THEN CURRENT_TIMESTAMP END)""",
+                                  sort_order, owner_id, completed_at, op_project)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'complete' THEN CURRENT_TIMESTAMP END, ?)""",
             (t.title, t.description, t.status, t.priority, t.start_at, t.due_at, t.remind, repeat, t.repeat_every or 1,
-             order, user.get("id"), t.status))
+             order, user.get("id"), t.status, t.op_project))
         task_id = cur.lastrowid
         if user.get("id") is not None:
             if t.assignees is not None and board_access(user)["edit"] in ("all", "dept"):

@@ -31,6 +31,7 @@
 - **週期工作**：卡片可設為每天、每個工作日、每週（可選星期幾）、每月、每年重複，並可設「每 N 天／週／月／年」。到了截止時間（全天卡片為當天 18:00）會跳出視窗問你是否結案：按「結案並排下一次」，這張移到 Complete，同時自動複製一張到下一個截止日、放進「週期工作」欄；也可以「1 小時後再問」。直接把卡片拖到 Complete 或在編輯視窗改成 Complete 也會排下一次（只會建立一張）；錯過好幾期時，下一張直接排到今天之後
 - **協作（伺服器版）**：卡片有建立者與負責人；管理員可以指派，任何人都能在說明或留言 `@` 同事（輸入時自動提示 AD 裡的人），被 @ 的人會看到這張卡片並收到通知；右上角 🔔 列出被指派、被提到與新留言
 - **子任務與留言串（專案管理）**：卡片就是摘要任務（summary task）。每則留言都能「回覆」（留言串，回覆別人的回覆會自動 @ 對方並通知整串的人）；能編輯卡片的人可以把留言「設為子任務」，每個子任務有自己的名稱、狀態（New／On going／Pending／On hold／Complete／Canceled）、負責人、開始日、到期日與預估工時，並可「▶ 開始計時／■ 停止」或手動「記錄工時」（每筆可寫備註與日期，可展開明細）。卡片上方會彙總：完成進度（x/y，% 進度條）、已記錄／預估工時、子任務期間與逾期數；看板上的卡片顯示子任務進度，自己正在計時時顯示「計時中」。被指派子任務的人會收到通知、在 🔔 看到自己子任務的到期與逾期提醒，並且能看到這張卡片（唯讀＋留言），只能更新自己子任務的狀態與工時；改派或結案會停止原本的計時。週期工作排下一次時，子任務會一起複製（狀態歸零、日期順延）。彙總區下方列出子任務大綱（編號、狀態、負責人、到期日），點一下跳到該子任務；能編輯卡片的人可以拖曳或用 Alt+↑/↓ 調整子任務順序，「只看子任務」也依這個順序
+- **OpenProject 同步**：在 Tool Table 寫，自動回寫到 OpenProject 指定專案（單向）。卡片＝工作項目、子任務＝子工作項目（狀態、負責人、日期、預估工時），留言與回覆、子任務工時、附件一併同步；只同步在卡片上選了專案的卡片。後台「系統設定 → OpenProject 同步」設定網址、API 金鑰（加密保存）、預設專案、類型與狀態／優先順序對應；背景佇列在變更後幾秒同步、失敗自動重試，卡片顯示同步狀態並可「立即同步」。詳見 [docs/INSTALL.md](docs/INSTALL.md) 2.6
 - **附件**：卡片與留言都能附加檔案：圖片（PNG、JPG、GIF、WebP，每張 10 MB 內）以及 PDF、Word（doc／docx）、Excel（xls／xlsx）、PowerPoint（ppt／pptx）、md、json、yaml／yml、toml、txt、py、rs、mermaid（mmd／mermaid）（每個 25 MB 內）。按「加入檔案」、直接貼上（Ctrl+V），或把檔案拖進卡片視窗（拖到留言框就附在留言）。圖片顯示縮圖（第一張當封面，點了放大、← → 切換）；文件列成清單：PDF 與文字檔可以直接在瀏覽器開啟，Office 檔下載。每個檔案上傳時都會檢查內容（不只看副檔名），文字檔支援 UTF-8、UTF-16 與 Big5。只有看得到這張卡片的人才能開啟附件；唯讀的管理者不能改卡片附件，但留言可以附檔。週期工作排下一次時會一併複製卡片附件
 - **過期未結案**：單次卡片過了到期日還沒結案，會自動移到「過期未結案」欄（有卡片時才顯示），並在每天早上 09:30（後台可改）跳出提醒、列出所有過期未結案的卡片，可直接結案或開啟，直到結案為止。你手動把卡片拖到其他欄，它就不會再被移回來；把到期日延後，卡片會回到原本的欄位
 - **快速篩選**：依圖示列出同類連結（例如所有 Fortinet 設備），可自訂或自動產生
@@ -199,6 +200,9 @@ docs/INSTALL.md             安裝與運維 SOP
 | PUT | `/api/tasks/{id}/comments/{comment_id}/task` | 留言設為子任務／取消，或更新子任務欄位（title、status、start_at、due_at、assignee、estimate_minutes） |
 | POST | `/api/tasks/{id}/comments/{comment_id}/timer`、`.../time` | 子任務計時（`action: start|stop`）、手動記錄工時（`minutes`、`note`、`work_date`） |
 | DELETE | `/api/tasks/{id}/comments/{comment_id}/time/{entry_id}` | 刪除一筆工時 |
+| GET | `/api/openproject` | OpenProject 是否啟用＋可選的專案 |
+| POST | `/api/tasks/{id}/openproject/sync` | 立即同步這張卡片 |
+| GET / PUT / POST | `/api/system/openproject`、`.../test`、`.../requeue` | OpenProject 設定、測試連線、全部重新同步（管理員） |
 | POST | `/api/tasks/{id}/subtasks/order` | 子任務排序（`ids` 依新順序） |
 | GET / POST | `/api/tasks/{id}/comments` | 留言串與子任務（`parent_id` 回覆；`@帳號` 會通知對方；`images` 帶入已上傳的留言附件） |
 | POST / GET / DELETE | `/api/tasks/{id}/images`、`/api/tasks/{id}/images/{attachment_id}` | 卡片／留言附件：圖片與文件（multipart `file`，`target=card|comment`；GET 加 `?download=1` 強制下載） |

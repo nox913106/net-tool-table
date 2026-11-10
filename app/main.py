@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import ENABLE_DOCS, ICON_DIR, PROJECT_ROOT
 from .database import init_db
 from . import auth as auth_mod
-from .routes import auth as auth_routes, auth_links, dashboard, local, nodes, search, settings, system, tasks
+from .routes import auth as auth_routes, auth_links, dashboard, local, nodes, openproject as op_routes, search, settings, system, tasks
 
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 VERSION = "3.0.0"
@@ -42,13 +42,28 @@ async def _scheduler():
         await asyncio.sleep(60)
 
 
+async def _op_worker():
+    """Push cards queued for OpenProject a few seconds after they change (app/openproject.py)."""
+    import asyncio
+    from . import openproject
+    loop = asyncio.get_running_loop()
+    while True:
+        await asyncio.sleep(3)
+        try:
+            await loop.run_in_executor(None, openproject.run_queue)
+        except Exception:
+            pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import asyncio
     await init_db()
     task = asyncio.create_task(_scheduler())
+    sync = asyncio.create_task(_op_worker())
     yield
     task.cancel()
+    sync.cancel()
 
 
 app = FastAPI(
@@ -70,6 +85,7 @@ app.include_router(tasks.notes_router)
 app.include_router(auth_routes.router)
 app.include_router(dashboard.router)
 app.include_router(system.router)
+app.include_router(op_routes.router)
 
 
 @app.middleware("http")
