@@ -1093,3 +1093,10 @@ body.link-dragging .drop-overlay { display: grid; }
 .kb-op-err { display: inline-flex; align-items: center; gap: 4px; color: var(--danger); font-weight: 600; }
 .kb-chip-op { font-size: 10.5px; letter-spacing: .02em; color: var(--accent-text); }
 .kb-chip-op.is-error { color: #fff; background: var(--danger); border-color: transparent; }
+.kb-sub-edit { flex: none; }
+.kb-sub-row .kb-flag { color: var(--danger); display: grid; }
+.kb-sub-row .kb-flag svg { width: 14px; height: 14px; }
+.kb-sub-row .kb-chip.remind { flex: none; }
+.kb-edited { color: var(--text-3); font-size: 11px; }
+.kb-sub-modal { z-index: 1500; }
+.kb-sub-of { margin: -4px 0 0; }

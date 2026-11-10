@@ -147,15 +147,15 @@ async def spawn_next(db, task_id: int, today: Optional[date] = None) -> Optional
         if copied:
             await db.execute("""INSERT INTO task_images (task_id, user_id, stored, mime, name, size, kind)
                                 VALUES (?, ?, ?, ?, ?, ?, ?)""", (new_id, im["user_id"], copied, im["mime"], im["name"], im["size"], im["kind"]))
-    cur = await db.execute("""SELECT user_id, body, title, start_at, due_at, assignee_id, estimate_minutes, sort_order
+    cur = await db.execute("""SELECT user_id, body, title, start_at, due_at, assignee_id, estimate_minutes, sort_order, priority, remind
                               FROM task_comments WHERE task_id = ? AND is_task = 1 AND parent_id IS NULL
                               AND status != 'canceled' ORDER BY COALESCE(sort_order, id), id""", (task_id,))
     for c in await cur.fetchall():
         await db.execute("""INSERT INTO task_comments (task_id, user_id, body, is_task, title, status, start_at, due_at,
-                                                       assignee_id, estimate_minutes, sort_order)
-                            VALUES (?, ?, ?, 1, ?, 'new', ?, ?, ?, ?, ?)""",
+                                                       assignee_id, estimate_minutes, sort_order, priority, remind)
+                            VALUES (?, ?, ?, 1, ?, 'new', ?, ?, ?, ?, ?, ?, ?)""",
                          (new_id, c["user_id"], c["body"], c["title"], _shift(c["start_at"], delta), _shift(c["due_at"], delta),
-                          c["assignee_id"], c["estimate_minutes"], c["sort_order"]))
+                          c["assignee_id"], c["estimate_minutes"], c["sort_order"], c["priority"], c["remind"]))
     await db.execute("UPDATE tasks SET next_id = ? WHERE id = ?", (new_id, task_id))
     return new_id
 
@@ -519,7 +519,7 @@ async def _rollup(db, ids: List[int], me) -> dict:
     """Summary-task roll-up per card: subtask counts, hours, date span; my open subtasks; my running timer."""
     marks = ",".join("?" * len(ids))
     cur = await db.execute(f"""
-        SELECT c.id, c.task_id, c.title, c.status, c.start_at, c.due_at, c.assignee_id, c.estimate_minutes,
+        SELECT c.id, c.task_id, c.title, c.status, c.start_at, c.due_at, c.assignee_id, c.estimate_minutes, c.remind, c.priority,
                (SELECT COALESCE(SUM(minutes), 0) FROM task_time tt WHERE tt.comment_id = c.id) AS spent
         FROM task_comments c WHERE c.task_id IN ({marks}) AND c.is_task = 1 AND c.parent_id IS NULL
         ORDER BY COALESCE(c.sort_order, c.id), c.id""", ids)
@@ -537,8 +537,8 @@ async def _rollup(db, ids: List[int], me) -> dict:
         if c["due_at"] and (not s["end"] or c["due_at"] > s["end"]):
             s["end"] = c["due_at"]
         if me is not None and c["assignee_id"] == me and c["status"] not in CLOSED:
-            s["mine"].append({"id": c["id"], "title": c["title"], "status": c["status"],
-                              "start_at": c["start_at"], "due_at": c["due_at"]})
+            s["mine"].append({"id": c["id"], "title": c["title"], "status": c["status"], "priority": c["priority"],
+                              "start_at": c["start_at"], "due_at": c["due_at"], "remind": c["remind"]})
     # my running timer (standalone edition: the timer's user is NULL)
     if True:
         cur = await db.execute(f"""SELECT t.task_id, t.comment_id, c.title,
@@ -923,6 +923,18 @@ class SubtaskIn(BaseModel):
     due_at: Optional[str] = None
     assignee: Optional[str] = None          # username; "" = nobody
     estimate_minutes: Optional[int] = None  # 0 / null = none
+    priority: Optional[str] = None          # low | normal | high
+    remind: Optional[int] = None            # minutes before due; null = none
+
+    @field_validator("priority")
+    @classmethod
+    def v_prio(cls, v):
+        return None if v is None else _prio(v)
+
+    @field_validator("remind")
+    @classmethod
+    def v_remind(cls, v):
+        return _remind(v)
 
     @field_validator("title")
     @classmethod
@@ -992,6 +1004,20 @@ async def _can_edit(db, task_id: int, user: dict) -> bool:
     return bool(await cur.fetchone())
 
 
+async def _comment_rights(db, task_id: int, c, user: dict) -> dict:
+    """What this user may do with comment c.
+    edit_body: the author; for a subtask also card editors and its assignee (its text is the description).
+    edit_task: card editors and the subtask's assignee (every field but the assignee).
+    assign: card editors."""
+    me = user.get("id")
+    editor = await _can_edit(db, task_id, user)
+    author = me is None or (c["user_id"] is not None and c["user_id"] == me)
+    mine = me is not None and c["assignee_id"] == me and bool(c["is_task"])
+    task_edit = bool(c["is_task"]) and (editor or mine)
+    return {"editor": editor, "edit_body": author or task_edit or (board_access(user)["edit"] == "all"),
+            "edit_task": task_edit, "assign": editor}
+
+
 async def _comment(db, task_id: int, comment_id: int):
     cur = await db.execute("SELECT * FROM task_comments WHERE id = ? AND task_id = ?", (comment_id, task_id))
     c = await cur.fetchone()
@@ -1053,6 +1079,9 @@ async def list_comments(task_id: int, request: Request):
                 "author": _person(c["user_id"], c["username"], c["display_name"]) or {"id": None, "name": "本機"},
                 "can_delete": acc_all or (c["user_id"] is not None and c["user_id"] == me) or (me is None),
                 "can_reply": True,
+                "edited_at": c["edited_at"],
+                "can_edit_body": acc_all or me is None or (c["user_id"] is not None and c["user_id"] == me)
+                                 or (bool(c["is_task"]) and c["parent_id"] is None and (editor or (me is not None and c["assignee_id"] == me))),
             }
             if c["parent_id"] is None:
                 item["replies"] = []
@@ -1065,7 +1094,7 @@ async def list_comments(task_id: int, request: Request):
                     mine = me is not None and c["assignee_id"] == me
                     item["task"] = {
                         "title": c["title"], "status": c["status"] or "new", "start_at": c["start_at"], "due_at": c["due_at"],
-                        "sort_order": c["sort_order"],
+                        "sort_order": c["sort_order"], "priority": c["priority"] or "normal", "remind": c["remind"],
                         "assignee": assignee, "estimate_minutes": c["estimate_minutes"], "completed_at": c["completed_at"],
                         "spent_minutes": sum(e["minutes"] or 0 for e in entries),
                         "entries": [{"id": e["id"], "minutes": e["minutes"], "note": e["note"], "work_date": e["work_date"],
@@ -1076,7 +1105,8 @@ async def list_comments(task_id: int, request: Request):
                                     for e in entries],
                         "my_timer": next(({"id": e["id"], "elapsed": e["elapsed"]} for e in entries
                                           if e["ended_at"] is None and e["started_at"] is not None and e["user_id"] == me), None),
-                        "can_edit": editor,                     # every field
+                        "can_edit": editor or mine,             # every field but the assignee
+                        "can_assign": editor,
                         "can_update": editor or mine,           # status + time log
                     }
                 out.append(item)
@@ -1137,6 +1167,39 @@ async def add_comment(task_id: int, body: CommentIn, request: Request):
         await db.close()
 
 
+class CommentEdit(BaseModel):
+    body: str
+
+    @field_validator("body")
+    @classmethod
+    def v_body(cls, v):
+        return (v or "").strip()[:4000]
+
+
+@router.put("/{task_id}/comments/{comment_id}")
+async def edit_comment(task_id: int, comment_id: int, body: CommentEdit, request: Request):
+    """Change a comment's text (a subtask's text is its description)."""
+    user = current_user(request)
+    db = await get_db()
+    try:
+        t = await _get_visible(db, task_id, user)
+        c = await _comment(db, task_id, comment_id)
+        if not (await _comment_rights(db, task_id, c, user))["edit_body"]:
+            raise HTTPException(status_code=403, detail="只能修改自己的留言")
+        cur = await db.execute("SELECT COUNT(*) AS n FROM task_images WHERE comment_id = ?", (comment_id,))
+        if not body.body and not c["is_task"] and not (await cur.fetchone())["n"]:
+            raise HTTPException(status_code=400, detail="留言不能是空的（要刪除請按刪除）")
+        if body.body != (c["body"] or ""):
+            await db.execute("UPDATE task_comments SET body = ?, edited_at = CURRENT_TIMESTAMP WHERE id = ?", (body.body, comment_id))
+            if user.get("id") is not None:
+                await add_mentions(db, task_id, body.body, user, t["title"], "留言")
+            await db.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))
+            await db.commit()
+        return {"success": True}
+    finally:
+        await db.close()
+
+
 @router.delete("/{task_id}/comments/{comment_id}")
 async def delete_comment(task_id: int, comment_id: int, request: Request):
     """Deleting a comment also deletes its replies, attachments and logged time."""
@@ -1173,10 +1236,10 @@ async def update_subtask(task_id: int, comment_id: int, body: SubtaskIn, request
         c = await _comment(db, task_id, comment_id)
         if c["parent_id"]:
             raise HTTPException(status_code=400, detail="回覆不能設為子任務，請用原本的留言")
-        editor = await _can_edit(db, task_id, user)
-        mine = me is not None and c["assignee_id"] == me and c["is_task"]
-        if not editor and not (mine and sent <= {"status"}):
-            raise HTTPException(status_code=403, detail="只有能編輯這張卡片的人可以設定子任務；負責人可以更新狀態")
+        rights = await _comment_rights(db, task_id, c, user)
+        editor = rights["editor"]
+        if not editor and not (rights["edit_task"] and not sent & {"assignee", "is_task"}):
+            raise HTTPException(status_code=403, detail="只有能編輯這張卡片的人可以設定或指派子任務；子任務負責人可以修改其他內容")
         is_task = bool(c["is_task"]) if body.is_task is None else body.is_task
         if not is_task:
             await db.execute("UPDATE task_comments SET is_task = 0 WHERE id = ?", (comment_id,))
@@ -1195,7 +1258,7 @@ async def update_subtask(task_id: int, comment_id: int, body: SubtaskIn, request
             if not c["title"] and "title" not in sent:
                 first = next((ln.strip() for ln in (c["body"] or "").splitlines() if ln.strip()), "")
                 fields["title"] = (first[:120] or "子任務")
-        for k in ("title", "status", "start_at", "due_at", "estimate_minutes"):
+        for k in ("title", "status", "start_at", "due_at", "estimate_minutes", "priority", "remind"):
             if k in sent:
                 fields[k] = getattr(body, k)
         if "title" in sent and not body.title:
@@ -1365,7 +1428,10 @@ async def delete_time(task_id: int, comment_id: int, entry_id: int, request: Req
 # Card images: added / removed by whoever may edit the card, right away (not tied to 儲存).
 # Comment images: uploaded as "pending" by the commenter, attached when the comment is posted.
 @router.post("/{task_id}/images")
-async def upload_image(task_id: int, request: Request, file: UploadFile = File(...), target: str = Form("card")):
+async def upload_image(task_id: int, request: Request, file: UploadFile = File(...), target: str = Form("card"),
+                       comment_id: Optional[int] = Form(None)):
+    """target=card: on the card; target=comment: pending, attached when the comment is posted;
+    target=comment with comment_id: added to that existing comment / subtask right away."""
     user = current_user(request)
     if target not in ("card", "comment"):
         raise HTTPException(status_code=400, detail="target 只能是 card 或 comment")
@@ -1378,16 +1444,25 @@ async def upload_image(task_id: int, request: Request, file: UploadFile = File(.
             cur = await db.execute("SELECT COUNT(*) AS n FROM task_images WHERE task_id = ? AND comment_id IS NULL AND pending = 0", (task_id,))
             if (await cur.fetchone())["n"] >= img.MAX_PER_CARD:
                 raise HTTPException(status_code=400, detail=f"一張卡片最多 {img.MAX_PER_CARD} 個附件")
+        elif comment_id:
+            c = await _comment(db, task_id, comment_id)
+            if not (await _comment_rights(db, task_id, c, user))["edit_body"]:
+                raise HTTPException(status_code=403, detail="不能修改這則留言的附件")
+            cur = await db.execute("SELECT COUNT(*) AS n FROM task_images WHERE comment_id = ?", (comment_id,))
+            limit = img.MAX_PER_CARD if c["is_task"] else img.MAX_PER_COMMENT
+            if (await cur.fetchone())["n"] >= limit:
+                raise HTTPException(status_code=400, detail=f"最多 {limit} 個附件")
         try:
             stored, mime, kind = img.store(data, file.filename or "")
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         name = os.path.basename((file.filename or "").replace("\\", "/"))[:120] or None
         try:
-            cur = await db.execute("""INSERT INTO task_images (task_id, user_id, stored, mime, name, size, pending, kind)
-                                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                                   (task_id, user.get("id"), stored, mime, name, len(data), 1 if target == "comment" else 0, kind))
-            if target == "card":
+            cur = await db.execute("""INSERT INTO task_images (task_id, user_id, stored, mime, name, size, pending, kind, comment_id)
+                                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                   (task_id, user.get("id"), stored, mime, name, len(data),
+                                    1 if target == "comment" and not comment_id else 0, kind, comment_id if target == "comment" else None))
+            if target == "card" or comment_id:
                 await db.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))
             await db.commit()
         except Exception:
@@ -1456,7 +1531,9 @@ async def delete_image(task_id: int, image_id: int, request: Request):
         elif im["comment_id"] is None:
             await _require_edit(db, task_id, user)
         else:
-            raise HTTPException(status_code=400, detail="留言裡的附件要連同留言一起刪除")
+            c = await _comment(db, task_id, im["comment_id"])
+            if not (await _comment_rights(db, task_id, c, user))["edit_body"]:
+                raise HTTPException(status_code=403, detail="不能修改這則留言的附件")
         await db.execute("DELETE FROM task_images WHERE id = ?", (image_id,))
         if not im["pending"]:
             await db.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))

@@ -259,9 +259,11 @@ const TTBoard = (() => {
     for (const card of tasks) {                                     // subtasks assigned to me, on any card I can see
       for (const sub of card.subtasks?.mine || []) {
         if (CLOSED.has(card.status)) continue;
-        const t = { id: card.id, sub: sub.id, title: `${sub.title}（${card.title}）`, status: sub.status, due_at: sub.due_at, start_at: sub.start_at, remind: null };
+        const t = { id: card.id, sub: sub.id, title: `${sub.title}（${card.title}）`, status: sub.status, due_at: sub.due_at, start_at: sub.start_at, remind: sub.remind ?? null };
         const tm = timing(t, at);
+        const rm = remindMoment(t);
         if (tm.due === 'overdue') list.push({ t, card, kind: 'overdue', text: '子任務' + tm.dueText, rank: 0 });
+        else if (rm && at >= rm) list.push({ t, card, kind: 'remind', text: '子任務' + (tm.dueText || `${fmt(t.due_at)} 到期`), rank: 1 });
         else if (tm.due === 'today') list.push({ t, card, kind: 'today', text: '子任務' + tm.dueText, rank: 2 });
         else if (tm.start === 'due') list.push({ t, card, kind: 'start', text: `子任務開始日 ${fmt(t.start_at)}，還在 New`, rank: 3 });
       }
@@ -794,6 +796,179 @@ const TTBoard = (() => {
     document.body.append(box);
   }
 
+  // --------------------------------------------------------- subtask editor
+  /** Everything a card has, for one subtask: title, description, attachments, status, priority,
+   *  start / due (date + time), reminder, assignee, estimate. The comment's text is the description. */
+  function openSubtaskEditor(card, c, onSaved) {
+    const s = c.task;
+    const edit = s.can_edit;
+    const split = v => { const [d, tm] = (v || '').split('T'); return [d || '', tm || '']; };
+    const [sd, stt] = split(s.start_at);
+    const [dd, dtt] = split(s.due_at);
+    const title = el('input', { class: 'input kb-title-input', value: s.title || '', maxlength: '200', disabled: !edit });
+    const desc = el('textarea', { class: 'textarea', rows: '4', placeholder: '細節、步驟、注意事項…', disabled: !c.can_edit_body });
+    desc.value = c.body && c.body.trim() !== (s.title || '').trim() ? c.body : '';
+    if (meInfo.auth && c.can_edit_body) TT.mentionInput(desc);
+    const status = el('select', { class: 'select', disabled: !s.can_update },
+      STATUSES.filter(x => x.key !== 'recurring' && x.key !== 'overdue').map(x => el('option', { value: x.key, text: `${x.label}（${x.zh}）` })));
+    status.value = s.status;
+    let priority = s.priority || 'normal';
+    const prio = el('div', { class: 'segmented', role: 'group' }, PRIORITIES.map(([v, label]) => {
+      const b = el('button', { type: 'button', dataset: { v }, disabled: !edit, html: (v === 'high' ? svg('flag') : '') + `<span>${label}</span>` });
+      b.addEventListener('click', () => { priority = v; paintPrio(); });
+      return b;
+    }));
+    const paintPrio = () => prio.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === priority)));
+    paintPrio();
+    const startD = el('input', { class: 'input', type: 'date', value: sd, disabled: !edit });
+    const startT = el('input', { class: 'input kb-time', type: 'time', value: stt, disabled: !edit, title: '時間（選填）' });
+    const dueD = el('input', { class: 'input', type: 'date', value: dd, disabled: !edit });
+    const dueT = el('input', { class: 'input kb-time', type: 'time', value: dtt, disabled: !edit, title: '時間（選填；不填＝當天結束前）' });
+    const remind = el('select', { class: 'select', disabled: !edit }, REMINDS.map(([v, l]) => el('option', { value: v, text: l })));
+    remind.value = s.remind == null ? '' : String(s.remind);
+    const est = el('input', { class: 'input', type: 'number', min: '0', max: '1000', step: '0.5', placeholder: '小時', disabled: !edit,
+      value: s.estimate_minutes ? String(+(s.estimate_minutes / 60).toFixed(2)) : '' });
+    const value = (d, tm) => d.value ? d.value + (tm.value ? 'T' + tm.value : '') : null;
+    const hint = el('p', { class: 'hint kb-remind-hint' });
+    const paintHint = () => {
+      const due = value(dueD, dueT);
+      remind.disabled = !edit || !due;
+      const rm = due ? remindMoment({ due_at: due, remind: remind.value === '' ? null : Number(remind.value) }) : null;
+      hint.textContent = due ? `到期：${fmt(due, true)}${due.includes('T') ? '' : '（當天結束前）'} · ${rm ? '提醒：' + fmtMoment(rm) : '不提醒'}` : '沒有到期日就不會提醒';
+    };
+    [startD, startT, dueD, dueT, remind].forEach(x => x.addEventListener('input', paintHint));
+    paintHint();
+
+    // assignee
+    let assignee = s.assignee ? { ...s.assignee } : null;
+    const who = el('div', { class: 'kb-assignees' });
+    const paintWho = () => {
+      const chip = assignee ? el('span', { class: 'kb-person' }, TT.avatar(assignee, 22), el('span', { text: TT.nameOf(assignee) }),
+        s.can_assign ? (() => { const x = el('button', { type: 'button', class: 'kb-person-x', 'aria-label': '取消指派', html: svg('x') }); x.addEventListener('click', () => { assignee = null; paintWho(); }); return x; })() : null) : null;
+      const inp = s.can_assign ? TT.mentionInput(el('input', { class: 'input kb-assign-input', placeholder: assignee ? '改派給…' : '輸入姓名或帳號，指派負責人…' }),
+        { onPick: p => { assignee = { username: p.username, name: TT.nameOf(p), department: p.department }; paintWho(); } }) : null;
+      who.replaceChildren(...[chip || (inp ? null : el('span', { class: 'hint', text: '未指派' })), inp].filter(Boolean));
+    };
+    paintWho();
+
+    // attachments: saved right away, like a card's
+    let files = (c.images || []).map(x => ({ ...x }));
+    const filesBox = el('div', { class: 'kb-images' });
+    const paintFiles = () => {
+      const add = c.can_edit_body ? el('button', { class: 'btn btn-sm kb-img-add', type: 'button', html: svg('paperclip') + '加入檔案' }) : null;
+      add?.addEventListener('click', () => pickFiles(addFiles));
+      filesBox.replaceChildren(...[
+        files.length ? thumbs(files, { onRemove: c.can_edit_body ? removeFile : null }) : null,
+        add ? el('div', { class: 'kb-img-tools' }, add, el('span', { class: 'hint', text: '也可以貼上（Ctrl+V）或拖進來；加入後立即儲存' })) : null,
+        !add && !files.length ? el('span', { class: 'hint', text: '沒有附件' }) : null].filter(Boolean));
+    };
+    async function addFiles(list) {
+      for (const f of list) {
+        const item = { ...localItem(f), file: null, uploading: true };
+        files.push(item); paintFiles();
+        try {
+          const form = new FormData();
+          form.append('file', f, f.name || 'image.png'); form.append('target', 'comment'); form.append('comment_id', String(c.id));
+          Object.assign(item, await api(`/api/tasks/${card.id}/images`, { method: 'POST', form }), { uploading: false });
+          changed = true;
+        } catch (e) { toast(e.message, true); files = files.filter(x => x !== item); }
+        paintFiles();
+      }
+    }
+    async function removeFile(im) {
+      if (!confirm(`移除「${im.name || '這個附件'}」？`)) return;
+      try { await api(`/api/tasks/${card.id}/images/${im.id}`, { method: 'DELETE' }); files = files.filter(x => x !== im); changed = true; paintFiles(); }
+      catch (e) { toast(e.message, true); }
+    }
+    paintFiles();
+    let changed = false;
+
+    const field = (label, ...ctl) => el('label', { class: 'field' }, el('span', { class: 'field-label', text: label }), ...ctl);
+    const ok = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + '儲存' });
+    const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: edit || c.can_edit_body ? '取消' : '關閉' });
+    const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': '關閉', html: svg('x') });
+    const spent = s.spent_minutes || 0;
+    const wrap = el('div', { class: 'modal kb-sub-modal' },
+      el('div', { class: 'modal-card kb-editor', role: 'dialog', 'aria-modal': 'true', 'aria-label': '子任務' },
+        el('div', { class: 'modal-head' }, el('h3', { html: svg('check') + (edit ? '編輯子任務' : '檢視子任務') }), closeBtn),
+        el('div', { class: 'modal-body' },
+          el('p', { class: 'hint kb-sub-of', text: `「${card.title}」的子任務` }),
+          !edit && !c.can_edit_body ? el('div', { class: 'kb-readonly', html: svg('lock') + '<span>唯讀：只有能編輯卡片的人或子任務負責人可以修改。</span>' }) : null,
+          field('標題', title),
+          field('說明', desc),
+          el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('paperclip') + '附件' }), filesBox),
+          meInfo.auth ? el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('user') + '負責人' }), who) : null,
+          el('div', { class: 'kb-row' }, field('狀態', status), el('div', { class: 'field' }, el('span', { class: 'field-label', text: '優先順序' }), prio)),
+          el('div', { class: 'kb-row' },
+            el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('play') + '開始日' }), el('div', { class: 'kb-dt' }, startD, startT)),
+            el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('clock') + '到期日' }), el('div', { class: 'kb-dt' }, dueD, dueT))),
+          el('div', { class: 'kb-row' }, field('提醒', remind), field('預估工時（小時）', est)),
+          hint,
+          el('p', { class: 'hint', text: `已記錄工時 ${fmtMin(spent)}${s.estimate_minutes ? ` / 預估 ${fmtMin(s.estimate_minutes)}` : ''}（計時與明細在卡片的子任務區）` })),
+        el('div', { class: 'modal-foot' }, el('span', { class: 'spacer' }), cancel, edit || c.can_edit_body || s.can_update ? ok : null)));
+
+    const close = async () => {
+      wrap.remove(); window.removeEventListener('keydown', onKey, true);
+      if (changed) await onSaved?.();
+    };
+    const onKey = e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(); }
+      else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopImmediatePropagation(); ok.click(); }
+    };
+    window.addEventListener('keydown', onKey, true);
+    wrap.addEventListener('mousedown', e => { if (e.target === wrap) close(); });
+    closeBtn.addEventListener('click', close);
+    cancel.addEventListener('click', close);
+    wrap.addEventListener('paste', e => {
+      if (!c.can_edit_body) return;
+      const items = [...(e.clipboardData?.items || [])].filter(i => i.kind === 'file');
+      if (!items.length) return;
+      e.preventDefault();
+      const okFiles = attachFiles(items);
+      if (okFiles.length) addFiles(okFiles);
+    });
+    wrap.addEventListener('dragover', e => { if ([...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); e.stopPropagation(); } });
+    wrap.addEventListener('drop', e => {
+      if (![...(e.dataTransfer?.types || [])].includes('Files')) return;
+      e.preventDefault(); e.stopPropagation();
+      if (!c.can_edit_body) return;
+      const okFiles = attachFiles(e.dataTransfer.files);
+      if (okFiles.length) addFiles(okFiles);
+    });
+    ok.addEventListener('click', async () => {
+      if (edit && !title.value.trim()) { toast('請輸入標題', true); title.focus(); return; }
+      const start = value(startD, startT), due = value(dueD, dueT);
+      if (start && due && start.slice(0, 10) > due.slice(0, 10)) { toast('開始日不能晚於到期日', true); return; }
+      const body = {};
+      if (s.can_update && status.value !== s.status) body.status = status.value;
+      if (edit) {
+        if (title.value.trim() !== s.title) body.title = title.value.trim();
+        if (priority !== (s.priority || 'normal')) body.priority = priority;
+        if (start !== (s.start_at || null)) body.start_at = start;
+        if (due !== (s.due_at || null)) body.due_at = due;
+        const r = remind.value === '' ? null : Number(remind.value);
+        if (r !== (s.remind ?? null)) body.remind = r;
+        const h = parseFloat(est.value);
+        const m = Number.isFinite(h) && h > 0 ? Math.round(h * 60) : null;
+        if (m !== (s.estimate_minutes || null)) body.estimate_minutes = m;
+      }
+      if (s.can_assign && (assignee?.username || '') !== (s.assignee?.username || '')) body.assignee = assignee?.username || '';
+      const oldDesc = c.body && c.body.trim() !== (s.title || '').trim() ? c.body : '';
+      const newDesc = desc.value.trim();
+      ok.disabled = true;
+      try {
+        if (Object.keys(body).length) await api(`/api/tasks/${card.id}/comments/${c.id}/task`, { method: 'PUT', body });
+        if (c.can_edit_body && newDesc !== oldDesc.trim()) await api(`/api/tasks/${card.id}/comments/${c.id}`, { method: 'PUT', body: { body: newDesc || (body.title || s.title) } });
+        changed = true;
+        if (body.due_at && body.remind !== null && (body.remind ?? s.remind) != null) askPermission(true);
+        await close();
+        toast('子任務已儲存');
+      } catch (e) { toast(e.message, true); ok.disabled = false; }
+    });
+    document.body.append(wrap);
+    setTimeout(() => (edit ? title : cancel).focus(), 30);
+  }
+
   // ----------------------------------------------------------------- editor
   function openEditor(task, defaults = {}) {
     const t = task || { title: defaults.title || '', description: '', status: defaults.status || 'new', priority: 'normal', start_at: null, due_at: null, remind: 1440, repeat: defaults.repeat || null, repeat_every: 1 };
@@ -1121,7 +1296,12 @@ const TTBoard = (() => {
         titleIn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); titleIn.blur(); } });
         const tm = timing({ status: s.status, due_at: s.due_at, start_at: s.start_at });
         const dueChip = tm.due && tm.due !== 'later' ? el('span', { class: `kb-chip due-${tm.due}`, html: svg('clock') + `<span>${tm.dueText}</span>` }) : null;
-        box.append(el('div', { class: 'kb-sub-row' }, el('span', { class: 'kb-sub-dot' }), stSel, titleIn, dueChip));
+        const editBtn = el('button', { class: 'kb-link-btn kb-sub-edit', type: 'button', title: edit ? '編輯子任務（說明、附件、時間、提醒…）' : '檢視子任務', html: svg(edit ? 'edit' : 'external') + `<span>${edit ? '編輯' : '檢視'}</span>` });
+        editBtn.addEventListener('click', () => openSubtaskEditor(task, c, async () => { await loadComments(); load(true); }));
+        box.append(el('div', { class: 'kb-sub-row' }, el('span', { class: 'kb-sub-dot' }), stSel,
+          s.priority === 'high' ? el('span', { class: 'kb-flag', title: '高優先', html: svg('flag') }) : null, titleIn,
+          s.due_at && s.remind != null && !CLOSED.has(s.status) ? el('span', { class: 'kb-chip remind', title: `提醒：${fmtMoment(remindMoment(s))}`, html: svg('bell') }) : null,
+          dueChip, editBtn));
 
         // row 2: assignee, start, due, estimate
         const fields = el('div', { class: 'kb-sub-fields' });
@@ -1130,9 +1310,9 @@ const TTBoard = (() => {
           const paintWho = () => {
             const chip = s.assignee
               ? el('span', { class: 'kb-person' }, TT.avatar(s.assignee, 20), el('span', { text: TT.nameOf(s.assignee) }),
-                edit ? (() => { const x = el('button', { type: 'button', class: 'kb-person-x', 'aria-label': '取消指派', html: svg('x') }); x.addEventListener('click', () => subPut(c, { assignee: '' })); return x; })() : null)
+                s.can_assign ? (() => { const x = el('button', { type: 'button', class: 'kb-person-x', 'aria-label': '取消指派', html: svg('x') }); x.addEventListener('click', () => subPut(c, { assignee: '' })); return x; })() : null)
               : null;
-            const pickBtn = edit ? el('button', { class: 'kb-link-btn', type: 'button', html: svg('user') + `<span>${s.assignee ? '改派' : '指派'}</span>` }) : null;
+            const pickBtn = s.can_assign ? el('button', { class: 'kb-link-btn', type: 'button', html: svg('user') + `<span>${s.assignee ? '改派' : '指派'}</span>` }) : null;
             pickBtn?.addEventListener('click', () => {
               const inp = TT.mentionInput(el('input', { class: 'input input-sm kb-sub-assign', placeholder: '輸入姓名或帳號…' }), { onPick: p => subPut(c, { assignee: p.username }) });
               inp.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); paintWho(); } });
@@ -1147,8 +1327,8 @@ const TTBoard = (() => {
         }
         const dateIn = (key, label, icon) => {
           if (!edit) return el('label', { class: 'kb-sub-field' }, el('span', { html: svg(icon) + label }), el('span', { class: 'kb-sub-ro', text: s[key] ? fmt(s[key], true) : '—' }));
-          const inp = el('input', { class: 'input input-sm', type: 'date', value: (s[key] || '').slice(0, 10) });
-          inp.addEventListener('change', () => subPut(c, { [key]: inp.value || null }));
+          const inp = el('input', { class: 'input input-sm', type: 'date', value: (s[key] || '').slice(0, 10), title: s[key]?.includes('T') ? `時間 ${s[key].slice(11, 16)}（在「編輯」裡修改）` : '' });
+          inp.addEventListener('change', () => subPut(c, { [key]: inp.value ? inp.value + (s[key]?.includes('T') ? s[key].slice(10) : '') : null }));
           return el('label', { class: 'kb-sub-field' }, el('span', { html: svg(icon) + label }), inp);
         };
         fields.append(dateIn('start_at', '開始', 'play'), dateIn('due_at', '到期', 'clock'));
@@ -1222,6 +1402,27 @@ const TTBoard = (() => {
         return el('div', { class: 'kb-time-form' }, h, el('span', { text: '小時' }), m, el('span', { text: '分' }), day, note, ok);
       }
 
+      let editing = null;                 // comment id being edited inline
+      function editBox(c) {
+        const box = el('textarea', { class: 'textarea kb-reply-input', rows: '3' });
+        box.value = c.body || '';
+        if (meInfo.auth) TT.mentionInput(box);
+        const ok = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: '儲存' });
+        const cancel = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '取消' });
+        cancel.addEventListener('click', () => { editing = null; paint(); });
+        ok.addEventListener('click', async () => {
+          ok.disabled = true;
+          try { await api(`/api/tasks/${task.id}/comments/${c.id}`, { method: 'PUT', body: { body: box.value } }); editing = null; await loadComments(); load(true); }
+          catch (e) { toast(e.message, true); ok.disabled = false; }
+        });
+        box.addEventListener('keydown', e => {
+          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopPropagation(); ok.click(); }
+          if (e.key === 'Escape') { e.stopPropagation(); cancel.click(); }
+        });
+        setTimeout(() => box.focus(), 0);
+        return el('div', { class: 'kb-reply-new' }, box, el('div', { class: 'kb-comment-btns' }, ok, cancel));
+      }
+
       function replyBox(root) {
         const box = el('textarea', { class: 'textarea kb-reply-input', rows: '2', placeholder: `回覆 ${TT.nameOf(root.author)}…（Ctrl+Enter 送出，Esc 取消）` });
         if (meInfo.auth) TT.mentionInput(box);
@@ -1247,6 +1448,7 @@ const TTBoard = (() => {
         const isRoot = !root;
         const actions = el('span', { class: 'kb-comment-actions' },
           linkBtn('回覆', 'message', () => { replyTo = { root: (root || c).id, mention: isRoot ? null : c.author?.username }; paint(); }),
+          c.can_edit_body && !c.task ? linkBtn('編輯', 'edit', () => { editing = c.id; paint(); }) : null,
           isRoot && c.can_make_task ? (c.task
             ? linkBtn('取消子任務', 'x', () => { if (confirm(`把「${c.task.title}」改回一般留言？（工時記錄會保留）`)) subPut(c, { is_task: false }); }, '改回一般留言')
             : linkBtn('設為子任務', 'check', () => subPut(c, { is_task: true }), '把這則留言變成這張卡片的子任務（可設定狀態、負責人、日期與工時）')) : null,
@@ -1255,7 +1457,9 @@ const TTBoard = (() => {
           el('div', { class: 'kb-comment-main' },
             el('div', { class: 'kb-comment-head' }, el('strong', { text: TT.nameOf(c.author) }), el('small', { text: (c.created_at || '').slice(5, 16) }), actions),
             c.task ? subtaskBox(c) : null,
-            c.body && !(c.task && c.body.trim() === (c.task.title || '').trim()) ? renderBody(c.body) : null,
+            editing === c.id ? editBox(c)
+              : c.body && !(c.task && c.body.trim() === (c.task.title || '').trim()) ? renderBody(c.body) : null,
+            c.edited_at && editing !== c.id ? el('small', { class: 'kb-edited', text: '（已編輯）' }) : null,
             c.images?.length ? thumbs(c.images, { size: 'sm' }) : null,
             isRoot && c.replies.length ? el('div', { class: 'kb-replies' }, c.replies.map(r => commentNode(r, c))) : null,
             isRoot && replyTo?.root === c.id ? replyBox(c) : null));

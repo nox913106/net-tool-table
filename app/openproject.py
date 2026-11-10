@@ -371,7 +371,7 @@ class Sync:
                 f"---\n_Tool Table 子任務 {n}（卡片 #{card_id}，{self.name(s['user_id'])} 建立；由 Tool Table 同步）_"
             body, proj = self.wp_payload(
                 subject=s["title"] or "子任務", description=sdesc, start=s["start_at"], due=s["due_at"], status=s["status"] or "new",
-                priority=None, type_id=self.cfg.subtask_type or None, assignee=self.user(s["assignee_id"]), responsible=False,
+                priority=s["priority"], type_id=self.cfg.subtask_type or None, assignee=self.user(s["assignee_id"]), responsible=False,
                 parent=wp_card, estimate=s["estimate_minutes"] or 0, project=project)
             sub_wp[s["id"]] = self.push_wp("subtask", s["id"], card_id, body, proj)
         for ln in con.execute("SELECT local_id FROM op_links WHERE card_id = ? AND kind = 'subtask'", (card_id,)).fetchall():

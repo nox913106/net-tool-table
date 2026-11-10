@@ -185,7 +185,8 @@ async def init_db():
                          ("is_task", "INTEGER NOT NULL DEFAULT 0"), ("title", "TEXT"), ("status", "TEXT"),
                          ("start_at", "TEXT"), ("due_at", "TEXT"),
                          ("assignee_id", "INTEGER REFERENCES users(id) ON DELETE SET NULL"),
-                         ("estimate_minutes", "INTEGER"), ("completed_at", "TIMESTAMP"), ("sort_order", "INTEGER")):
+                         ("estimate_minutes", "INTEGER"), ("completed_at", "TIMESTAMP"), ("sort_order", "INTEGER"),
+                         ("priority", "TEXT"), ("remind", "INTEGER"), ("edited_at", "TIMESTAMP")):
             if col not in comment_cols:
                 await db.execute(f"ALTER TABLE task_comments ADD COLUMN {col} {ddl}")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_comments_parent ON task_comments(parent_id)")
