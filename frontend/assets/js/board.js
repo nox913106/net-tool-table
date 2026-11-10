@@ -1195,7 +1195,7 @@ const TTBoard = (() => {
             ? linkBtn('取消子任務', 'x', () => { if (confirm(`把「${c.task.title}」改回一般留言？（工時記錄會保留）`)) subPut(c, { is_task: false }); }, '改回一般留言')
             : linkBtn('設為子任務', 'check', () => subPut(c, { is_task: true }), '把這則留言變成這張卡片的子任務（可設定狀態、負責人、日期與工時）')) : null,
           delBtn(c, isRoot));
-        const node = el('div', { class: 'kb-comment' + (isRoot ? '' : ' is-reply') + (c.task ? ' is-task' : '') }, TT.avatar(c.author, isRoot ? 28 : 22),
+        const node = el('div', { class: 'kb-comment' + (isRoot ? '' : ' is-reply') + (c.task ? ' is-task' : ''), dataset: { cid: c.id } }, TT.avatar(c.author, isRoot ? 28 : 22),
           el('div', { class: 'kb-comment-main' },
             el('div', { class: 'kb-comment-head' }, el('strong', { text: TT.nameOf(c.author) }), el('small', { text: (c.created_at || '').slice(5, 16) }), actions),
             c.task ? subtaskBox(c) : null,
@@ -1206,8 +1206,78 @@ const TTBoard = (() => {
         return node;
       }
 
+      const byOrder = (a, b) => (a.task.sort_order ?? a.id) - (b.task.sort_order ?? b.id) || a.id - b.id;
+      const canOrder = () => threads.some(c => c.can_make_task);
+      async function saveOrder(ids) {
+        try { await api(`/api/tasks/${task.id}/subtasks/order`, { method: 'POST', body: { ids } }); } catch (e) { toast(e.message, true); }
+        await loadComments(); load(true);
+      }
+      /** Ordered outline of the subtasks: click to jump, drag (or Alt+↑/↓) to reorder. */
+      function outline(subs) {
+        const editable = canOrder();
+        const list = el('ol', { class: 'kb-outline' + (editable ? ' can-drag' : '') });
+        let dragId = null;
+        subs.forEach((c, i) => {
+          const s = c.task;
+          const st = STATUS[s.status] || STATUS.new;
+          const tm = timing({ status: s.status, due_at: s.due_at });
+          const row = el('li', { class: `kb-outline-row st-${s.status}`, style: { '--st': st.color }, tabindex: '0', draggable: editable ? 'true' : 'false',
+            dataset: { id: c.id }, title: editable ? '點一下跳到子任務；拖曳或 Alt+↑/↓ 調整順序' : '點一下跳到子任務' },
+            editable ? el('span', { class: 'kb-outline-grip', html: svg('grip') }) : null,
+            el('span', { class: 'kb-outline-no', text: String(i + 1) }),
+            el('span', { class: 'kb-sub-dot' }),
+            el('span', { class: 'kb-outline-title', text: s.title }),
+            meInfo.auth && s.assignee ? TT.avatar(s.assignee, 18) : null,
+            s.due_at ? el('span', { class: `kb-outline-due due-${tm.due || ''}`, text: fmt(s.due_at) }) : null);
+          row.addEventListener('click', () => {
+            const target = listBox.querySelector(`.kb-comment[data-cid="${c.id}"]`);
+            if (!target) { onlyTasks = false; paintOrder(); paint(); }
+            const t2 = listBox.querySelector(`.kb-comment[data-cid="${c.id}"]`);
+            t2?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            t2?.classList.add('kb-flash'); setTimeout(() => t2?.classList.remove('kb-flash'), 1200);
+          });
+          if (editable) {
+            row.addEventListener('keydown', e => {
+              if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+              e.preventDefault(); e.stopPropagation();
+              const ids = subs.map(x => x.id);
+              const j = i + (e.key === 'ArrowUp' ? -1 : 1);
+              if (j < 0 || j >= ids.length) return;
+              [ids[i], ids[j]] = [ids[j], ids[i]];
+              saveOrder(ids).then(() => rollBox.querySelector(`.kb-outline-row[data-id="${c.id}"]`)?.focus());
+            });
+            row.addEventListener('dragstart', e => {
+              dragId = c.id;
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('application/x-tool-table-subtask', String(c.id));
+              requestAnimationFrame(() => row.classList.add('dragging'));
+            });
+            row.addEventListener('dragend', () => { dragId = null; row.classList.remove('dragging'); list.querySelectorAll('.drop-before,.drop-after').forEach(x => x.classList.remove('drop-before', 'drop-after')); });
+            row.addEventListener('dragover', e => {
+              if (!dragId || dragId === c.id) return;
+              e.preventDefault(); e.stopPropagation();
+              const r = row.getBoundingClientRect();
+              const after = e.clientY > r.top + r.height / 2;
+              list.querySelectorAll('.drop-before,.drop-after').forEach(x => x.classList.remove('drop-before', 'drop-after'));
+              row.classList.add(after ? 'drop-after' : 'drop-before');
+            });
+            row.addEventListener('drop', e => {
+              if (!dragId || dragId === c.id) return;
+              e.preventDefault(); e.stopPropagation();
+              const after = row.classList.contains('drop-after');
+              const ids = subs.map(x => x.id).filter(x => x !== dragId);
+              ids.splice(ids.indexOf(c.id) + (after ? 1 : 0), 0, dragId);
+              dragId = null;
+              saveOrder(ids);
+            });
+          }
+          list.append(row);
+        });
+        return list;
+      }
+
       function paintRollup() {
-        const subs = threads.filter(c => c.task);
+        const subs = threads.filter(c => c.task).sort(byOrder);
         if (!subs.length) { rollBox.replaceChildren(); rollBox.hidden = true; return; }
         rollBox.hidden = false;
         const done = subs.filter(c => c.task.status === 'complete').length;
@@ -1226,13 +1296,14 @@ const TTBoard = (() => {
             el('span', { text: `工時 ${fmtMin(spent)}${est ? ` / 預估 ${fmtMin(est)}` : ''}` }),
             starts.length || dues.length ? el('span', { text: `期間 ${starts.length ? fmt(starts[0]) : '—'} → ${dues.length ? fmt(dues[dues.length - 1]) : '—'}` }) : null,
             late ? el('span', { class: 'kb-rollup-late', text: `${late} 項逾期` }) : null,
-            subs.length > counted ? el('span', { text: `${subs.length - counted} 項取消` }) : null));
+            subs.length > counted ? el('span', { text: `${subs.length - counted} 項取消` }) : null),
+          outline(subs));
       }
 
       function paint() {
         paintRollup();
-        let list = onlyTasks ? threads.filter(c => c.task) : threads.slice();
-        if (newestFirst) list.reverse();
+        let list = onlyTasks ? threads.filter(c => c.task).sort(byOrder) : threads.slice();
+        if (newestFirst && !onlyTasks) list.reverse();
         listBox.replaceChildren(...(list.length ? list.map(c => commentNode(c, null))
           : [el('p', { class: 'hint', text: onlyTasks ? '還沒有子任務：在留言上按「設為子任務」' : '還沒有留言' })]));
         tick();

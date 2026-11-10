@@ -1040,6 +1040,7 @@ async def list_comments(task_id: int, request: Request):
                     mine = me is not None and c["assignee_id"] == me
                     item["task"] = {
                         "title": c["title"], "status": c["status"] or "new", "start_at": c["start_at"], "due_at": c["due_at"],
+                        "sort_order": c["sort_order"],
                         "assignee": assignee, "estimate_minutes": c["estimate_minutes"], "completed_at": c["completed_at"],
                         "spent_minutes": sum(e["minutes"] or 0 for e in entries),
                         "entries": [{"id": e["id"], "minutes": e["minutes"], "note": e["note"], "work_date": e["work_date"],
@@ -1162,6 +1163,8 @@ async def update_subtask(task_id: int, comment_id: int, body: SubtaskIn, request
         fields = {}
         if not c["is_task"]:
             fields["is_task"] = 1
+            cur = await db.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM task_comments WHERE task_id = ? AND is_task = 1", (task_id,))
+            fields["sort_order"] = (await cur.fetchone())["n"]
             if not c["status"]:
                 fields["status"] = "new"
             if not c["title"] and "title" not in sent:
@@ -1214,6 +1217,31 @@ async def update_subtask(task_id: int, comment_id: int, body: SubtaskIn, request
         await db.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))
         await db.commit()
         return {"success": True, "is_task": True}
+    finally:
+        await db.close()
+
+
+class OrderIn(BaseModel):
+    ids: List[int]
+
+
+@router.post("/{task_id}/subtasks/order")
+async def order_subtasks(task_id: int, body: OrderIn, request: Request):
+    """Put the card's subtasks in this order (drag and drop in the card editor)."""
+    user = current_user(request)
+    db = await get_db()
+    try:
+        await _get_visible(db, task_id, user)
+        await _require_edit(db, task_id, user)
+        cur = await db.execute("SELECT id FROM task_comments WHERE task_id = ? AND is_task = 1 AND parent_id IS NULL", (task_id,))
+        mine = {r["id"] for r in await cur.fetchall()}
+        ids = [i for i in dict.fromkeys(body.ids) if i in mine]
+        rest = sorted(mine - set(ids))                    # anything not sent keeps its place at the end
+        for n, cid in enumerate(ids + rest):
+            await db.execute("UPDATE task_comments SET sort_order = ? WHERE id = ?", (n, cid))
+        await db.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))
+        await db.commit()
+        return {"success": True, "order": ids + rest}
     finally:
         await db.close()
 
