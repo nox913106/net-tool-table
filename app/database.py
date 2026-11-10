@@ -124,7 +124,7 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS task_members (
                 task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                role TEXT NOT NULL,                           -- assignee | mention
+                role TEXT NOT NULL,                           -- assignee | mention | subtask (sees the card for a subtask)
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (task_id, user_id, role)
             )
@@ -178,6 +178,33 @@ async def init_db():
         if "kind" not in {row[1] for row in await cursor.fetchall()}:          # images only → images + files
             await db.execute("ALTER TABLE task_images ADD COLUMN kind TEXT NOT NULL DEFAULT 'image'")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_comments_task ON task_comments(task_id)")
+        # Comment threads and subtasks (a card is a summary task; a comment can become one of its subtasks)
+        cursor = await db.execute("PRAGMA table_info(task_comments)")
+        comment_cols = {row[1] for row in await cursor.fetchall()}
+        for col, ddl in (("parent_id", "INTEGER REFERENCES task_comments(id) ON DELETE CASCADE"),
+                         ("is_task", "INTEGER NOT NULL DEFAULT 0"), ("title", "TEXT"), ("status", "TEXT"),
+                         ("start_at", "TEXT"), ("due_at", "TEXT"),
+                         ("assignee_id", "INTEGER REFERENCES users(id) ON DELETE SET NULL"),
+                         ("estimate_minutes", "INTEGER"), ("completed_at", "TIMESTAMP"), ("sort_order", "INTEGER")):
+            if col not in comment_cols:
+                await db.execute(f"ALTER TABLE task_comments ADD COLUMN {col} {ddl}")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_comments_parent ON task_comments(parent_id)")
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS task_time (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                comment_id INTEGER NOT NULL REFERENCES task_comments(id) ON DELETE CASCADE,
+                user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                minutes INTEGER,                              -- NULL while the timer runs
+                note TEXT,
+                work_date TEXT,                               -- YYYY-MM-DD (local day the work was done)
+                started_at TIMESTAMP,                         -- timer entries
+                ended_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_time_comment ON task_time(comment_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_time_user_running ON task_time(user_id, ended_at)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_notes_user ON notifications(user_id, read)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)")
 
