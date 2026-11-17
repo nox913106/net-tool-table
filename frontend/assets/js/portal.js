@@ -377,6 +377,7 @@
     if (open) view.dataset.dropFolder = open.id; else delete view.dataset.dropFolder;
     let m;
     document.body.classList.remove('nav-open');
+    if (typeof TTBoard !== 'undefined' && TTBoard.selecting) TTBoard.setSelecting(false);   // leave select mode with the page
 
     if ((m = hash.match(/^#\/f\/(\d+)/)) && state.byId.has(Number(m[1]))) renderFolder(state.byId.get(Number(m[1])));
     else if ((m = hash.match(/^#\/search\/(.+)/))) renderSearch(m[1]);
@@ -644,6 +645,8 @@
       el('input', { type: 'checkbox', checked: hideClosed }), el('span', { class: 'track' }), el('span', { text: '隱藏完成／取消' }));
     const add = el('button', { class: 'btn btn-primary', type: 'button', html: svg('plus') + '新增卡片' });
     add.addEventListener('click', () => TTBoard.openEditor(null));
+    const pick = el('button', { class: 'btn', type: 'button', title: '多選卡片後匯出 Excel（也可以 Ctrl／⌘＋點卡片）', html: svg('check') + '選取／匯出' });
+    pick.addEventListener('click', () => TTBoard.setSelecting(!TTBoard.selecting));
     // whose cards: everyone I can see / mine / (admins) one person
     const auth = state.me?.auth;
     let filter = auth ? store.get('board-filter', state.me.is_admin ? 'all' : 'all') : 'all';
@@ -667,7 +670,7 @@
       title: '待辦看板',
       desc: '拖曳卡片換狀態；設定開始日與到期日，時間到會在右上角 🔔 提醒。',
       meta: ' ',
-      tools: el('div', { class: 'board-tools' }, auth ? who : null, toggle, add),
+      tools: el('div', { class: 'board-tools' }, auth ? who : null, toggle, pick, add),
     }));
     const box = el('div');
     const board = TTBoard.mount(box, { hideClosed, full: true, filter });

@@ -44,6 +44,82 @@ const TTBoard = (() => {
   const pad = n => String(n).padStart(2, '0');
   const now = () => (window.TTClock && TTClock.now ? TTClock.now() : new Date());
 
+  // -------------------------------------------------- multi-select + Excel export
+  const selection = new Set();            // card ids
+  let selecting = false;
+  let selBar = null;
+  function setSelecting(on) {
+    selecting = on;
+    if (!on) selection.clear();
+    document.body.classList.toggle('kb-selecting', on);
+    paintSelBar();
+    boards.forEach(f => f());
+  }
+  function toggleSelect(id, on = !selection.has(id)) {
+    if (on) selection.add(id); else selection.delete(id);
+    document.querySelectorAll(`.kb-card[data-id="${id}"]`).forEach(c => {
+      c.classList.toggle('is-selected', on);
+      const box = c.querySelector('.kb-select input'); if (box) box.checked = on;
+    });
+    document.querySelectorAll('.kb-col').forEach(paintColCheck);
+    paintSelBar();
+  }
+  const shownIds = (scope = document) => [...new Set([...scope.querySelectorAll('.kb .kb-card[data-id]')].map(c => Number(c.dataset.id)))];
+  function paintColCheck(col) {
+    const box = col.querySelector('.kb-col-select input');
+    if (!box) return;
+    const ids = shownIds(col);
+    const n = ids.filter(i => selection.has(i)).length;
+    box.checked = !!ids.length && n === ids.length;
+    box.indeterminate = n > 0 && n < ids.length;
+  }
+  function paintSelBar() {
+    if (!selecting) { selBar?.remove(); selBar = null; return; }
+    if (!selBar) {
+      const count = el('strong', { class: 'kb-selbar-count' });
+      const all = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', html: svg('check') + '全選目前顯示的' });
+      const none = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '清除選取' });
+      const xls = el('button', { class: 'btn btn-sm btn-primary', type: 'button', html: svg('download') + '匯出 Excel' });
+      const done = el('button', { class: 'icon-btn', type: 'button', title: '結束選取（Esc）', 'aria-label': '結束選取', html: svg('x') });
+      all.addEventListener('click', () => shownIds().forEach(i => toggleSelect(i, true)));
+      none.addEventListener('click', () => [...selection].forEach(i => toggleSelect(i, false)));
+      xls.addEventListener('click', async () => {
+        if (!selection.size) { toast('先勾選要匯出的卡片', true); return; }
+        xls.disabled = true;
+        try { await exportXlsx([...selection]); } finally { xls.disabled = false; }
+      });
+      done.addEventListener('click', () => setSelecting(false));
+      selBar = el('div', { class: 'kb-selbar', role: 'toolbar', 'aria-label': '已選取的卡片' },
+        el('span', { class: 'kb-selbar-text' }, count, el('span', { class: 'hint', text: '點卡片或欄位標題的方框勾選' })),
+        all, none, el('span', { class: 'spacer' }), xls, done);
+      selBar.count = count;
+      document.body.append(selBar);
+    }
+    selBar.count.textContent = `已選 ${selection.size} 張`;
+  }
+  document.addEventListener('keydown', e => { if (selecting && e.key === 'Escape' && !document.querySelector('.modal:not([hidden])')) setSelecting(false); });
+
+  /** Download the cards as an .xlsx (卡片 / 子任務 / 留言 / 工時). */
+  async function exportXlsx(ids) {
+    try {
+      const res = await fetch('/api/tasks/export.xlsx', { method: 'POST', headers: { 'X-Tool-Table': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try { msg = (await res.json()).detail || msg; } catch { /* not json */ }
+        throw new Error(msg);
+      }
+      const blob = await res.blob();
+      const cd = res.headers.get('Content-Disposition') || '';
+      const m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+      const name = m ? decodeURIComponent(m[1]) : 'cards.xlsx';
+      const url = URL.createObjectURL(blob);
+      const a = el('a', { href: url, download: name });
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+      toast(`已匯出 ${ids.length} 張卡片：${name}`);
+    } catch (e) { toast('匯出失敗：' + e.message, true); }
+  }
+
   // ------------------------------------------------------------------ data
   function load(force = false) {
     if (!loading || force) loading = api('/api/tasks').then(t => { tasks = t; changed(); return tasks; });
@@ -542,6 +618,8 @@ const TTBoard = (() => {
       const cols = STATUSES.filter(s => !(hideClosed && CLOSED.has(s.key)) && !(s.key === 'overdue' && !colItems('overdue').length));
       root.style.setProperty('--kb-cols', cols.length);
       root.replaceChildren(...cols.map(column));
+      root.classList.toggle('is-selecting', selecting);
+      if (selecting) root.querySelectorAll('.kb-col').forEach(paintColCheck);
     };
 
     function column(s) {
@@ -557,6 +635,11 @@ const TTBoard = (() => {
         el('header', { class: 'kb-col-head' },
           el('span', { class: 'kb-dot' }),
           el('span', { class: 'kb-name' }, el('strong', { text: s.label }), el('span', { class: 'kb-zh', text: s.zh })),
+          selecting && items.length ? (() => {
+            const lab = el('label', { class: 'kb-col-select', title: '全選這一欄' }, el('input', { type: 'checkbox' }));
+            lab.querySelector('input').addEventListener('change', e => { items.forEach(t => toggleSelect(t.id, e.target.checked)); });
+            return lab;
+          })() : null,
           el('span', { class: 'kb-count', text: items.length })),
         list,
         CLOSED.has(s.key) || s.key === 'overdue' ? null : add);
@@ -612,9 +695,10 @@ const TTBoard = (() => {
       if (t.files?.length) chips.push(el('span', { class: 'kb-chip', title: '附件：' + t.files.map(f => f.name).join('、'), html: svg('paperclip') + `<span>${t.files.length}</span>` }));
       const c = el('article', {
         class: `kb-card prio-${t.priority}` + (tm.due ? ` is-${tm.due}` : '') + (tm.start === 'due' ? ' is-start' : '') + (CLOSED.has(t.status) ? ' is-closed' : ''),
-        draggable: t.can_edit === false ? 'false' : 'true', tabindex: '0', dataset: { id: t.id },
+        draggable: t.can_edit === false || selecting ? 'false' : 'true', tabindex: '0', dataset: { id: t.id },
         title: t.can_edit === false ? '唯讀：你可以檢視與留言' : null,
       },
+        selecting ? el('label', { class: 'kb-select', title: '選取' }, el('input', { type: 'checkbox', checked: selection.has(t.id), tabindex: '-1' })) : null,
         t.images?.length ? el('div', { class: 'kb-cover' }, el('img', { src: t.images[0].url, alt: '', loading: 'lazy', draggable: 'false' })) : null,
         el('div', { class: 'kb-card-title' },
           t.priority === 'high' ? el('span', { class: 'kb-flag', title: '高優先', html: svg('flag') }) : null,
@@ -622,8 +706,16 @@ const TTBoard = (() => {
         t.description ? el('p', { class: 'kb-card-desc', text: t.description }) : null,
         chips.length ? el('div', { class: 'kb-chips' }, chips) : null,
         meInfo.auth ? cardPeople(t) : null);
-      c.addEventListener('click', () => openEditor(t));
-      c.addEventListener('keydown', e => { if (e.key === 'Enter') openEditor(t); });
+      if (selection.has(t.id)) c.classList.add('is-selected');
+      c.addEventListener('click', e => {
+        if (selecting) { e.preventDefault(); toggleSelect(t.id); return; }
+        if (e.ctrlKey || e.metaKey) { setSelecting(true); toggleSelect(t.id, true); return; }     // Ctrl/⌘-click starts selecting
+        openEditor(t);
+      });
+      c.addEventListener('keydown', e => {
+        if (e.key === 'Enter') openEditor(t);
+        else if (e.key === ' ' && selecting) { e.preventDefault(); toggleSelect(t.id); }
+      });
       c.addEventListener('dragstart', e => {
         if (t.can_edit === false) { e.preventDefault(); return; }
         drag = { id: t.id };
@@ -1147,6 +1239,8 @@ const TTBoard = (() => {
     const ok = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + (task ? '儲存' : '新增') });
     const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: '取消' });
     const del = task && task.can_delete !== false ? el('button', { class: 'btn btn-danger kb-del', type: 'button', html: svg('trash') + '刪除' }) : null;
+    const xlsBtn = task ? el('button', { class: 'btn btn-ghost', type: 'button', title: '把這張卡片（含子任務、留言、工時）匯出成 Excel', html: svg('download') + 'Excel' }) : null;
+    xlsBtn?.addEventListener('click', () => exportXlsx([task.id]));
     const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': '關閉', html: svg('x') });
     // --- OpenProject: which project this card is pushed to (+ sync state)
     let opProject = t.op_project || null;
@@ -1631,7 +1725,7 @@ const TTBoard = (() => {
           opBox,
           meta,
           comments),
-        el('div', { class: 'modal-foot' }, del, el('span', { class: 'spacer' }), cancel, ok)));
+        el('div', { class: 'modal-foot' }, del, xlsBtn, el('span', { class: 'spacer' }), cancel, ok)));
 
     const close = () => { stopTicker(); wrap.remove(); document.removeEventListener('keydown', onKey); document.body.classList.remove('modal-open'); };
     const onKey = e => {
@@ -1834,5 +1928,5 @@ const TTBoard = (() => {
         el('div', { class: 'palette-item-sub', text: sub })));
   }
 
-  return { init, load, mount, mountBell, openEditor, openTask, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; } };
+  return { init, load, mount, mountBell, openEditor, openTask, exportXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; } };
 })();

@@ -84,6 +84,12 @@ jobs:
             $code = (Invoke-WebRequest "$B/api/tasks/$($card.id)/images" -Method Post -Headers $H -Form @{ file = Get-Item $bad } -SkipHttpErrorCheck -UseBasicParsing).StatusCode
             Write-Host "html upload → $code (expect 400)"
             if ($code -ne 400) { throw 'html attachment was not refused' }
+            # Excel export (openpyxl must be in the build)
+            $xlsx = Join-Path $env:RUNNER_TEMP 'cards.xlsx'
+            Invoke-WebRequest "$B/api/tasks/export.xlsx" -Method Post -Headers $H -ContentType 'application/json' -Body (@{ ids = @($card.id) } | ConvertTo-Json) -OutFile $xlsx -UseBasicParsing
+            $sig = [IO.File]::ReadAllBytes($xlsx)[0..1]
+            Write-Host "excel export → $((Get-Item $xlsx).Length) bytes"
+            if ($sig[0] -ne 0x50 -or $sig[1] -ne 0x4B) { throw 'excel export is not an xlsx file' }
             Invoke-RestMethod "$B/api/tasks/$($card.id)" -Method Delete -Headers $H | Out-Null
 
             $w = Invoke-RestMethod "$B/api/whoami"

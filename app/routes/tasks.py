@@ -643,6 +643,67 @@ def _snippet(text: str, kw: str, width: int = 60) -> str:
     return ("…" if start else "") + text[start:start + width] + ("…" if start + width < len(text) else "")
 
 
+class ExportIn(BaseModel):
+    ids: List[int] = []                    # empty = every card I can see
+
+
+@router.post("/export.xlsx")
+async def export_xlsx(body: ExportIn, request: Request):
+    """Selected cards (only ones this user may see) → .xlsx with 卡片 / 子任務 / 留言 / 工時 sheets."""
+    from fastapi.responses import Response
+    from .. import xlsx_export
+    user = current_user(request)
+    ids = list(dict.fromkeys(body.ids))[:2000]
+    where, args = _visible_sql(user)
+    db = await get_db()
+    try:
+        q = f"SELECT {COLUMNS} FROM tasks t WHERE {where}"
+        if ids:
+            q += f" AND t.id IN ({','.join('?' * len(ids))})"
+        cur = await db.execute(q, (*args, *ids))
+        rows = [row_dict(r) for r in await cur.fetchall()]
+        if not rows:
+            raise HTTPException(status_code=404, detail="沒有可以匯出的卡片")
+        rows.sort(key=lambda r: (STATUSES.index(r["status"]) if r["status"] in STATUSES else 99, r["sort_order"] or 0, r["id"]))   # board order
+        cards = await _enrich(db, rows, user)
+        found = [c["id"] for c in cards]
+        marks = ",".join("?" * len(found))
+        cur = await db.execute(f"SELECT * FROM task_comments WHERE task_id IN ({marks}) ORDER BY id", found)
+        comments, subtasks = {}, {}
+        for c in await cur.fetchall():
+            comments.setdefault(c["task_id"], []).append(c)
+            if c["is_task"] and c["parent_id"] is None:
+                subtasks.setdefault(c["task_id"], []).append(c)
+        for lst in subtasks.values():
+            lst.sort(key=lambda c: (c["sort_order"] if c["sort_order"] is not None else c["id"], c["id"]))
+        cur = await db.execute(f"""SELECT * FROM task_time WHERE task_id IN ({marks}) AND minutes IS NOT NULL
+                                   ORDER BY COALESCE(work_date, created_at), id""", found)
+        times = {}
+        for e in await cur.fetchall():
+            times.setdefault(e["task_id"], []).append(e)
+        cur = await db.execute(f"SELECT task_id, comment_id, name, stored FROM task_images WHERE task_id IN ({marks}) AND pending = 0 ORDER BY id", found)
+        files = {}
+        for f in await cur.fetchall():
+            files.setdefault(f["task_id"], []).append({"comment_id": f["comment_id"], "name": f["name"] or f["stored"]})
+        cur = await db.execute("SELECT id, username, display_name FROM users")
+        names = {u["id"]: u["display_name"] or u["username"] for u in await cur.fetchall()}
+    finally:
+        await db.close()
+    for c in cards:
+        c["assignees"] = [p["name"] for p in c.get("assignees") or []]
+        c["mentions"] = [p["name"] for p in c.get("mentions") or []]
+        c["op_work_package"] = (c.get("op") or {}).get("work_package")
+    data = await asyncio.get_running_loop().run_in_executor(None, xlsx_export.build, cards, subtasks, comments, times, files, names)
+    from datetime import datetime
+    stamp = datetime.now().strftime("%Y%m%d-%H%M")
+    safe = re.sub(r'[\\/:*?"<>|\s]+', "_", cards[0]["title"])[:60]
+    name = f"看板卡片-{stamp}.xlsx" if len(cards) > 1 else f"{safe}-{stamp}.xlsx"
+    return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={
+        "Content-Disposition": f"attachment; filename=\"cards-{stamp}.xlsx\"; filename*=UTF-8''{quote(name)}",
+        "Cache-Control": "no-store",
+    })
+
+
 @router.get("/search")
 async def search_tasks(request: Request, q: str = "", limit: int = 30):
     """Cards the viewer may see whose title, description, comments or people match q."""

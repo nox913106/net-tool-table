@@ -11,6 +11,7 @@ hidden = (
     collect_submodules('uvicorn')
     + collect_submodules('app')
     + collect_submodules('icoextract')
+    + collect_submodules('openpyxl')          # Excel export of board cards
     + ['aiosqlite', 'multipart', 'python_multipart', 'pefile', 'PIL.IcoImagePlugin', 'PIL.PngImagePlugin',
        'PIL.JpegImagePlugin', 'PIL.GifImagePlugin', 'PIL.BmpImagePlugin', 'PIL.WebPImagePlugin']
 )
