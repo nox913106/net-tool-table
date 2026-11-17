@@ -1120,3 +1120,8 @@ body.link-dragging .drop-overlay { display: grid; }
 body.kb-selecting .view { padding-bottom: 90px; }
 @media (max-width: 640px) { .kb-selbar .hint, .kb-selbar .btn-ghost:first-of-type { display: none; } }
 @media (max-width: 760px) { .kb-selbar-alt { display: none; } }
+/* bell: the whole popover scrolls (two lists sharing the height squeezed the reminders to a sliver) */
+.bell-pop { overflow-y: auto; overscroll-behavior: contain; }
+.bell-pop .bell-list { overflow: visible; flex-shrink: 0; }
+.bell-pop .bell-head, .bell-pop .hint { flex-shrink: 0; }
+.bell-pop .bell-foot { position: sticky; bottom: 0; z-index: 1; flex-shrink: 0; margin-top: auto; }
