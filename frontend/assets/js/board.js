@@ -61,11 +61,26 @@ const TTBoard = (() => {
     [...(t.assignees || []).slice(1), ...(t.mentions || []), t.owner].forEach(p => {
       if (!p || seen.has(p.id) || withSub.has(p.id)) return;
       seen.add(p.id);
-      out.push({ p, kind: 'collab', status: t.status, why: (t.mentions || []).some(m => m.id === p.id) ? '@協作' : (t.assignees || []).some(a => a.id === p.id) ? '共同負責' : '建立者' });
+      const why = (t.assignees || []).some(a => a.id === p.id) ? '共同負責' : (t.mentions || []).some(m => m.id === p.id) ? '@協作' : '建立者';
+      out.push({ p, kind: 'collab', status: t.status, why, counts: why !== '建立者', done: !!p.done });
     });
     return out;
   }
   const expanded = new Set();             // cards whose task tree is open
+  /** Main card %: finished subtasks + collaborators who marked their part done, over all of them
+   *  (canceled subtasks and a creator who only handed the card out do not count). */
+  function progressOf(t) {
+    const subs = (t.subtasks?.items || []).filter(s => s.status !== 'canceled');
+    const collab = involvement(t).filter(x => x.kind === 'collab' && x.counts);
+    const total = subs.length + collab.length;
+    if (!total) return null;
+    const done = subs.filter(s => s.status === 'complete').length + collab.filter(x => x.done).length;
+    return { done, total, pct: Math.round(done / total * 100), subs: subs.length, collab: collab.length };
+  }
+  async function setCollabDone(t, p, done) {
+    try { await api(`/api/tasks/${t.id}/collab/${p.id}/done`, { method: 'POST', body: { done } }); await load(true); }
+    catch (e) { toast(e.message, true); }
+  }
 
   // -------------------------------------------------- multi-select + Excel export
   const selection = new Set();            // card ids
@@ -854,6 +869,13 @@ const TTBoard = (() => {
           t.team ? el('span', { class: 'kb-team-tag', title: '下級的卡片（你是上級，可以' + (meInfo.board?.team_edit ? '檢視、留言與增刪修）' : '檢視與留言）'), text: '下級' }) : null),
         t.description ? el('p', { class: 'kb-card-desc', text: t.description }) : null,
         chips.length ? el('div', { class: 'kb-chips' }, chips) : null,
+        (() => {
+          const pr = progressOf(t);
+          if (!pr) return null;
+          return el('div', { class: 'kb-progress' + (pr.pct === 100 ? ' full' : ''), title: `完成 ${pr.done} / ${pr.total}（子任務 ${pr.subs}${pr.collab ? `、協作 ${pr.collab}` : ''}）` },
+            el('span', { class: 'kb-progress-bar' }, el('span', { style: { width: pr.pct + '%' } })),
+            el('span', { class: 'kb-progress-text', text: `${pr.pct}%` }));
+        })(),
         meInfo.auth ? cardPeople(t) : null,
         taskTree(t));
       const lead = leadOf(t);
@@ -900,7 +922,7 @@ const TTBoard = (() => {
       const open = expanded.has(t.id);
       const done = subs.filter(s => s.status === 'complete').length;
       const btn = el('button', { class: 'kb-tree-toggle' + (open ? ' open' : ''), type: 'button', title: open ? '收合任務樹' : '展開任務樹：子任務與協作人' },
-        el('span', { text: [subs.length ? `子任務 ${done}/${subs.length}` : null, collab.length ? `協作 ${collab.length}` : null].filter(Boolean).join(' · ') }),
+        el('span', { text: [subs.length ? `子任務 ${done}/${subs.length}` : null, collab.length ? `協作 ${collab.filter(x => x.done).length}/${collab.filter(x => x.counts).length || collab.length}` : null].filter(Boolean).join(' · ') }),
         el('span', { class: 'kb-tree-caret', text: open ? '▾' : '▸' }));
       btn.addEventListener('click', e => { e.stopPropagation(); open ? expanded.delete(t.id) : expanded.add(t.id); render(); });
       btn.addEventListener('mousedown', e => e.stopPropagation());
@@ -921,11 +943,17 @@ const TTBoard = (() => {
                 s.due_at ? el('span', { class: `kb-chip due-${tm.due || ''}`, html: svg('clock') + `<span>${tm.dueText || fmt(s.due_at)}</span>` }) : null,
                 s.estimate || s.spent ? el('span', { class: 'kb-chip', html: svg('clock') + `<span>${fmtMin(s.spent)}${s.estimate ? ' / ' + fmtMin(s.estimate) : ''}</span>` }) : null)));
         }),
-        ...collab.map((x, i) => el('div', { class: 'kb-tree-node collab' + (focusId != null && x.p.id === focusId ? ' me' : '') },
-          el('span', { class: 'kb-tree-branch', text: subs.length + i === last ? '└' : '├' }),
-          el('div', { class: 'kb-tree-sub kb-tree-collab' },
-            el('div', { class: 'kb-tree-row' }, el('span', { class: 'kb-part-badge', text: '協作' }), el('span', { class: 'hint', text: x.why })),
-            el('div', { class: 'kb-tree-row' }, el('span', { class: 'kb-tree-who' }, TT.avatar(x.p, 18), el('span', { text: TT.nameOf(x.p) })))))),
+        ...collab.map((x, i) => {
+          const can = x.counts && (x.p.id === meInfo.user?.id || t.can_edit !== false);
+          const box = x.counts ? el('label', { class: 'kb-collab-done' + (x.done ? ' on' : ''), title: can ? '標記這位協作人的部分已完成（計入主卡完成度）' : '協作人或能編輯卡片的人可以標記' },
+            el('input', { type: 'checkbox', checked: x.done, disabled: !can }), el('span', { text: x.done ? '已完成' : '完成' })) : null;
+          box?.querySelector('input').addEventListener('change', e => setCollabDone(t, x.p, e.target.checked));
+          return el('div', { class: 'kb-tree-node collab' + (focusId != null && x.p.id === focusId ? ' me' : '') + (x.done ? ' done' : '') },
+            el('span', { class: 'kb-tree-branch', text: subs.length + i === last ? '└' : '├' }),
+            el('div', { class: 'kb-tree-sub kb-tree-collab' },
+              el('div', { class: 'kb-tree-row' }, el('span', { class: 'kb-part-badge', text: '協作' }), el('span', { class: 'hint', text: x.why }), el('span', { class: 'spacer' }), box),
+              el('div', { class: 'kb-tree-row' }, el('span', { class: 'kb-tree-who' }, TT.avatar(x.p, 18), el('span', { text: TT.nameOf(x.p) })))));
+        }),
       ];
       const tree = el('div', { class: 'kb-tree' }, ...nodes);
       tree.addEventListener('click', e => e.stopPropagation());       // reading the tree does not open the card

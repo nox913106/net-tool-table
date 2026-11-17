@@ -210,6 +210,9 @@ async def init_db():
         await db.execute("CREATE INDEX IF NOT EXISTS idx_time_comment ON task_time(comment_id)")
         # OpenProject sync (app/openproject.py): which card goes to which project, what was pushed,
         # and a queue filled by triggers whenever anything on a linked card changes
+        cursor = await db.execute("PRAGMA table_info(task_members)")
+        if "done_at" not in {row[1] for row in await cursor.fetchall()}:     # a collaborator marked their part done
+            await db.execute("ALTER TABLE task_members ADD COLUMN done_at TIMESTAMP")
         cursor = await db.execute("PRAGMA table_info(tasks)")
         if "op_project" not in {row[1] for row in await cursor.fetchall()}:
             await db.execute("ALTER TABLE tasks ADD COLUMN op_project TEXT")

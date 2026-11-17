@@ -480,11 +480,12 @@ async def _enrich(db, rows: List[dict], user: dict) -> List[dict]:
     marks = ",".join("?" * len(ids))
     people = {}
     cur = await db.execute(
-        f"""SELECT m.task_id, m.role, u.id, u.username, u.display_name, u.department FROM task_members m
+        f"""SELECT m.task_id, m.role, m.done_at, u.id, u.username, u.display_name, u.department FROM task_members m
             JOIN users u ON u.id = m.user_id WHERE m.task_id IN ({marks}) ORDER BY m.created_at""", ids)
     for m in await cur.fetchall():
         people.setdefault(m["task_id"], {"assignee": [], "mention": [], "subtask": []}).setdefault(m["role"], []).append(
-            {"id": m["id"], "username": m["username"], "name": m["display_name"] or m["username"], "department": m["department"]})
+            {"id": m["id"], "username": m["username"], "name": m["display_name"] or m["username"], "department": m["department"],
+             "done": bool(m["done_at"])})
     owners = {}
     owner_ids = list({r["owner_id"] for r in rows if r.get("owner_id")})
     if owner_ids:
@@ -1406,6 +1407,32 @@ async def update_subtask(task_id: int, comment_id: int, body: SubtaskIn, request
         await db.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))
         await db.commit()
         return {"success": True, "is_task": True}
+    finally:
+        await db.close()
+
+
+class CollabDoneIn(BaseModel):
+    done: bool
+
+
+@router.post("/{task_id}/collab/{user_id}/done")
+async def collab_done(task_id: int, user_id: int, body: CollabDoneIn, request: Request):
+    """A collaborator (co-assignee or @mentioned) marks their part of the card done; counts toward its %."""
+    user = current_user(request)
+    db = await get_db()
+    try:
+        t = await _get_visible(db, task_id, user)
+        if user.get("id") != user_id and not await _can_edit(db, task_id, user):
+            raise HTTPException(status_code=403, detail="只有協作人自己或能編輯卡片的人可以標記完成")
+        cur = await db.execute("""UPDATE task_members SET done_at = CASE WHEN ? THEN CURRENT_TIMESTAMP END
+                                  WHERE task_id = ? AND user_id = ? AND role IN ('assignee', 'mention')""", (body.done, task_id, user_id))
+        if not cur.rowcount:
+            raise HTTPException(status_code=404, detail="這個人不是這張卡片的協作人")
+        if body.done and user.get("id") is not None:
+            await notify(db, {t.get("owner_id")}, task_id, user, "subtask", f"{_who(user)} 完成了「{t['title']}」裡的協作部分")
+        await db.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))
+        await db.commit()
+        return {"success": True}
     finally:
         await db.close()
 
