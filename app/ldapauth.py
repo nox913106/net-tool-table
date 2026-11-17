@@ -80,7 +80,10 @@ def _connect(user: Optional[str], password: Optional[str], cfg=None):
 
 
 def _attrs(c):
-    return [c.login_attr, c.name_attr, c.dept_attr, c.mail_attr, "cn"]
+    attrs = [c.login_attr, c.name_attr, c.dept_attr, c.mail_attr, "cn"]
+    if getattr(c, "sync_manager", False) and getattr(c, "manager_attr", ""):
+        attrs.append(c.manager_attr)
+    return attrs
 
 
 def _first(entry, attr) -> str:
@@ -101,6 +104,7 @@ def _account(entry, c) -> dict:
         "email": _first(entry, c.mail_attr),
         "department": _first(entry, c.dept_attr),
         "dn": entry.entry_dn,
+        "manager_dn": _first(entry, c.manager_attr) if getattr(c, "sync_manager", False) and getattr(c, "manager_attr", "") else "",
     }
 
 
@@ -193,4 +197,22 @@ def lookup(username: str, cfg=None) -> Optional[dict]:
             conn.unbind()
     except Exception as e:
         log.warning("LDAP lookup failed: %s", e)
+        return None
+
+
+def login_of_dn(dn: str, cfg=None) -> Optional[str]:
+    """Login name of the account at `dn` (used for AD's manager attribute; needs the service account)."""
+    c = _cfg(cfg)
+    if not dn or not directory_enabled(c):
+        return None
+    from ldap3 import BASE
+    try:
+        conn = _connect(c.bind_dn, c.bind_password, c)
+        try:
+            conn.search(dn, "(objectClass=*)", search_scope=BASE, attributes=[c.login_attr])
+            return _first(conn.entries[0], c.login_attr).lower() if conn.entries else None
+        finally:
+            conn.unbind()
+    except Exception as e:
+        log.warning("LDAP manager lookup failed for %s: %s", dn, e)
         return None

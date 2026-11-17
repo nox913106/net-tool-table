@@ -534,8 +534,12 @@ kbd {
 }
 .mention-item { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 9px; cursor: pointer; }
 .mention-item.active, .mention-item:hover { background: var(--accent-soft); }
-.mention-item span:last-child { display: flex; flex-direction: column; min-width: 0; }
+.mention-item .mention-text { display: flex; flex-direction: column; min-width: 0; }
 .mention-item strong { font-size: 13.5px; }
 .mention-item small { font-size: 11.5px; color: var(--text-3); }
 .notice-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; font-size: 13.5px; font-weight: 600; background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--text); border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent); }
 .notice-bar svg { width: 18px; height: 18px; color: var(--warning); flex: none; }
+.mention-rel { margin-left: auto; flex: none; font-style: normal; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 99px; background: var(--surface-2); color: var(--text-2); }
+.mention-rel.rel-up { background: color-mix(in srgb, #f59e0b 18%, transparent); color: #b45309; }
+.mention-rel.rel-down { background: color-mix(in srgb, #3b82f6 16%, transparent); color: #1d4ed8; }
+.mention-rel.rel-peer { background: color-mix(in srgb, #10b981 16%, transparent); color: #047857; }

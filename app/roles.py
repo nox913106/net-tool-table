@@ -43,14 +43,23 @@ def scope_departments(user: dict) -> List[str]:
 
 
 def board_access(user: dict) -> dict:
-    """{'view': all|dept|own, 'edit': all|dept|own, 'depts': [...]} for the task board."""
+    """{'view': all|dept|own, 'edit': all|dept|own, 'depts': [...], 'team': [...], 'team_view': bool, 'team_edit': bool}.
+    team = everyone below this person in the reporting line (app/team.py); on top of the role, a
+    supervisor sees (team_view) and, with board_supervisor = rw, edits (team_edit) their team's cards."""
     role = user.get("role")
     if user.get("id") is None or role in ("superadmin", "sysadmin", "board_admin"):
-        return {"view": "all", "edit": "all", "depts": []}
-    if role == "board_viewer":
-        return {"view": "all", "edit": "own", "depts": []}
-    if role == "dept_admin":
-        return {"view": "dept", "edit": "dept", "depts": scope_departments(user)}
-    if role == "dept_viewer":
-        return {"view": "dept", "edit": "own", "depts": scope_departments(user)}
-    return {"view": "own", "edit": "own", "depts": []}
+        acc = {"view": "all", "edit": "all", "depts": []}
+    elif role == "board_viewer":
+        acc = {"view": "all", "edit": "own", "depts": []}
+    elif role == "dept_admin":
+        acc = {"view": "dept", "edit": "dept", "depts": scope_departments(user)}
+    elif role == "dept_viewer":
+        acc = {"view": "dept", "edit": "own", "depts": scope_departments(user)}
+    else:
+        acc = {"view": "own", "edit": "own", "depts": []}
+    mode = user.get("supervisor", "rw")
+    team = [i for i in (user.get("team") or []) if isinstance(i, int)]
+    acc["team"] = team if mode != "off" else []
+    acc["team_view"] = bool(acc["team"])
+    acc["team_edit"] = bool(acc["team"]) and mode == "rw"
+    return acc

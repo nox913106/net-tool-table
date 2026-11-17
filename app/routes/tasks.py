@@ -403,15 +403,26 @@ def _dept_sql(alias: str, depts: List[str]):
             f"WHERE dm.task_id = {alias}.id AND dm.role = 'assignee' AND du.department IN ({marks})))", [*depts, *depts])
 
 
+def _team_sql(alias: str, team: List[int]):
+    """Cards created by, or assigned to, someone in the team (everyone below me in the reporting line)."""
+    marks = ",".join("?" * len(team))
+    return (f"({alias}.owner_id IN ({marks}) OR EXISTS (SELECT 1 FROM task_members tm WHERE tm.task_id = {alias}.id "
+            f"AND tm.role = 'assignee' AND tm.user_id IN ({marks})))", [*team, *team])
+
+
 def _scope_sql(user: dict, level: str, alias: str = "t"):
     acc = board_access(user)
     if acc[level] == "all":
         return "1 = 1", []
     inv, args = _involved_sql(alias, user.get("id"), edit=level == "edit")
+    parts, pargs = [inv], list(args)
     if acc[level] == "dept" and acc["depts"]:
         d, dargs = _dept_sql(alias, acc["depts"])
-        return f"({inv} OR {d})", args + dargs
-    return inv, args
+        parts.append(d); pargs += dargs
+    if acc["team_view" if level == "view" else "team_edit"]:
+        tsql, targs = _team_sql(alias, acc["team"])
+        parts.append(tsql); pargs += targs
+    return (parts[0], pargs) if len(parts) == 1 else ("(" + " OR ".join(parts) + ")", pargs)
 
 
 def _visible_sql(user: dict, alias: str = "t"):
@@ -438,13 +449,17 @@ async def _check_assignees(db, user: dict, task_id: Optional[int], people: List[
     acc = board_access(user)
     if acc["edit"] == "all":
         return
-    if acc["edit"] != "dept":
-        raise HTTPException(status_code=403, detail="只有看板管理者可以指派負責人")
+    if acc["edit"] != "dept" and not acc["team_edit"]:
+        raise HTTPException(status_code=403, detail="只有看板管理者或上級可以指派負責人")
     before = await _members(db, task_id, "assignee") if task_id else set()
-    depts = await _members_of(db, [p["id"] for p in people])
-    outside = [p for p in people if p["id"] not in before and depts.get(p["id"]) not in acc["depts"]]
+    depts = await _members_of(db, [p["id"] for p in people]) if acc["edit"] == "dept" else {}
+    ok = lambda p: (p["id"] in before or p["id"] == user.get("id") or (acc["team_edit"] and p["id"] in acc["team"])
+                    or (acc["edit"] == "dept" and depts.get(p["id"]) in acc["depts"]))
+    outside = [p for p in people if not ok(p)]
     if outside:
-        raise HTTPException(status_code=403, detail="只能指派你管理的部門（" + "、".join(acc["depts"]) + "）的人："
+        scope = "、".join(filter(None, ["你的下級" if acc["team_edit"] else "",
+                                       ("你管理的部門（" + "、".join(acc["depts"]) + "）") if acc["edit"] == "dept" else ""]))
+        raise HTTPException(status_code=403, detail=f"只能指派{scope}的人："
                             + "、".join(p.get("display_name") or p["username"] for p in outside) + " 不在範圍內")
 
 
@@ -506,11 +521,14 @@ async def _enrich(db, rows: List[dict], user: dict) -> List[dict]:
         owner = owners.get(r.get("owner_id"))
         card_depts = {d for d in [owner["department"] if owner else None, *[a["department"] for a in p["assignee"]]] if d}
         r["departments"] = sorted(card_depts)
-        in_scope = acc["edit"] == "all" or (acc["edit"] == "dept" and bool(card_depts & set(acc["depts"])))
+        card_people = {r.get("owner_id"), *[a["id"] for a in p["assignee"]]}
+        in_scope = (acc["edit"] == "all" or (acc["edit"] == "dept" and bool(card_depts & set(acc["depts"])))
+                    or (acc["team_edit"] and bool(card_people & set(acc["team"]))))
+        r["team"] = bool(card_people & set(acc["team"])) and me not in card_people   # a card of someone below me
         r["mine"] = involved
         r["can_edit"] = in_scope or involved
         r["can_delete"] = in_scope or (me is not None and r.get("owner_id") == me)
-        r["can_assign"] = in_scope
+        r["can_assign"] = in_scope or (acc["team_edit"] and involved)
         r["can_comment"] = True                   # only visible cards are ever returned
     return rows
 
@@ -770,7 +788,8 @@ async def create_task(t: TaskIn, request: Request):
              order, user.get("id"), t.status, t.op_project))
         task_id = cur.lastrowid
         if user.get("id") is not None:
-            if t.assignees is not None and board_access(user)["edit"] in ("all", "dept"):
+            acc_c = board_access(user)
+            if t.assignees is not None and (acc_c["edit"] in ("all", "dept") or acc_c["team_edit"]):
                 await _check_assignees(db, user, None, await _resolve_people(db, t.assignees))
                 await set_assignees(db, task_id, t.assignees, user, t.title)
             elif user.get("source") == "ldap":
@@ -794,11 +813,19 @@ async def update_task(task_id: int, t: TaskUpdate, request: Request):
         assignees = t.assignees if "assignees" in t.model_fields_set else None
         if assignees is not None:
             acc = board_access(user)
-            if acc["edit"] == "dept":
-                d, dargs = _dept_sql("t", acc["depts"])
-                cur = await db.execute(f"SELECT 1 FROM tasks t WHERE t.id = ? AND {d}", (task_id, *dargs))
-                if not await cur.fetchone():
-                    raise HTTPException(status_code=403, detail="這張卡片不屬於你管理的部門，不能改負責人")
+            if acc["edit"] != "all":
+                checks = []
+                if acc["edit"] == "dept":
+                    checks.append(_dept_sql("t", acc["depts"]))
+                if acc["team_edit"]:
+                    checks.append(_team_sql("t", acc["team"]))
+                    checks.append(_involved_sql("t", user.get("id"), edit=True))   # a supervisor's own card: assign the team
+                allowed = False
+                for sql, sargs in checks:
+                    cur = await db.execute(f"SELECT 1 FROM tasks t WHERE t.id = ? AND {sql}", (task_id, *sargs))
+                    allowed = allowed or bool(await cur.fetchone())
+                if not allowed:
+                    raise HTTPException(status_code=403, detail="這張卡片不屬於你管理的部門或下級，不能改負責人")
             await _check_assignees(db, user, task_id, await _resolve_people(db, assignees))
         for k in ("title", "status", "priority"):
             if k in changes and changes[k] is None:
@@ -848,6 +875,10 @@ async def delete_task(task_id: int, request: Request):
         allowed = acc["edit"] == "all" or (user.get("id") is not None and t.get("owner_id") == user.get("id"))
         if not allowed and acc["edit"] == "dept" and acc["depts"]:
             d, dargs = _dept_sql("t", acc["depts"])
+            cur = await db.execute(f"SELECT 1 FROM tasks t WHERE t.id = ? AND {d}", (task_id, *dargs))
+            allowed = bool(await cur.fetchone())
+        if not allowed and acc["team_edit"]:
+            d, dargs = _team_sql("t", acc["team"])
             cur = await db.execute(f"SELECT 1 FROM tasks t WHERE t.id = ? AND {d}", (task_id, *dargs))
             allowed = bool(await cur.fetchone())
         if not allowed:
@@ -1408,8 +1439,10 @@ async def _check_subtask_assignee(db, user: dict, card: dict, person: dict):
         return
     if acc["edit"] == "dept" and (await _members_of(db, [person["id"]])).get(person["id"]) in acc["depts"]:
         return
+    if acc["team_edit"] and person["id"] in acc["team"]:
+        return
     who = person.get("display_name") or person["username"]
-    raise HTTPException(status_code=403, detail=f"{who} 不在這張卡片上：先在說明或留言 @{person['username']} 邀請他協作，再指派子任務")
+    raise HTTPException(status_code=403, detail=f"{who} 不在這張卡片上，也不是你的下級：先在說明或留言 @{person['username']} 邀請他協作，再指派子任務")
 
 
 async def _subtask_for_time(db, task_id: int, comment_id: int, user: dict):

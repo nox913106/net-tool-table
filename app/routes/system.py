@@ -60,6 +60,8 @@ class LdapIn(BaseModel):
     name_attr: str = "displayName"
     dept_attr: str = "department"
     mail_attr: str = "mail"
+    manager_attr: str = "manager"
+    sync_manager: bool = True
     starttls: bool = False
     tls_verify: bool = True
     ca_pem: str = ""
@@ -77,7 +79,9 @@ def _validate(body: LdapIn) -> dict:
     v = {k: (x.strip() if isinstance(x, str) and k != "ca_pem" else x) for k, x in v.items()}
     if v["url"] and not URL_RE.match(v["url"]):
         raise HTTPException(status_code=400, detail="伺服器網址格式：ldaps://dc1.corp.local 或 ldap://10.0.0.5:389")
-    for k in ("login_attr", "name_attr", "dept_attr", "mail_attr"):
+    if not v.get("manager_attr"):
+        v["manager_attr"] = "manager"
+    for k in ("login_attr", "name_attr", "dept_attr", "mail_attr", "manager_attr"):
         if not ATTR_RE.match(v[k] or ""):
             raise HTTPException(status_code=400, detail=f"屬性名稱無效：{v[k]}")
     if v["user_filter"] and not (v["user_filter"].startswith("(") and v["user_filter"].endswith(")")

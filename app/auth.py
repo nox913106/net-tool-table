@@ -118,7 +118,15 @@ async def session_user(token: Optional[str]) -> Optional[dict]:
         if now - row["last_seen"] > 300:                  # sliding expiry, written at most every 5 min
             await db.execute("UPDATE sessions SET last_seen = ? WHERE token_hash = ?", (now, _token_hash(token)))
             await db.commit()
-        return public_user(row)
+        user = public_user(row)
+        # reporting line: who is below this person, and what a supervisor may do with their cards
+        from .team import team_ids
+        user["team"] = await team_ids(db, row["id"])
+        cur = await db.execute("SELECT value FROM settings WHERE key = 'board_supervisor'")
+        s = await cur.fetchone()
+        mode = (s[0] or '"rw"').strip('"') if s else "rw"
+        user["supervisor"] = mode if mode in ("rw", "ro", "off") else "rw"
+        return user
     finally:
         await db.close()
 
@@ -136,7 +144,7 @@ async def end_session(token: Optional[str]):
 
 def public_user(row) -> dict:
     keys = ("id", "username", "source", "display_name", "email", "department", "role", "active", "last_login", "created_at",
-            "must_change_password", "scope_departments")
+            "must_change_password", "scope_departments", "manager_id", "manager_source")
     out = {k: row[k] for k in keys if k in row.keys()}
     if isinstance(out.get("scope_departments"), str):
         import json

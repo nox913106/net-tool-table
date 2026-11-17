@@ -113,6 +113,8 @@ class Ldap:
     name_attr: str = "displayName"
     dept_attr: str = "department"
     mail_attr: str = "mail"
+    manager_attr: str = "manager"       # AD: DN of the person's 上級
+    sync_manager: bool = True           # set 上級 from AD at sign-in (unless an admin set it by hand)
     starttls: bool = False
     tls_verify: bool = True
     ca_pem: str = ""                    # internal CA chain, pasted in the UI

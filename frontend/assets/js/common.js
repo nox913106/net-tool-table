@@ -485,7 +485,8 @@ const TT = (() => {
     const paint = () => {
       box.replaceChildren(...items.map((p, i) => {
         const row = el('div', { class: 'mention-item' + (i === index ? ' active' : ''), role: 'option' },
-          avatar(p, 24), el('span', {}, el('strong', { text: nameOf(p) }), el('small', { text: `@${p.username}` + (p.department ? ` · ${p.department}` : '') })));
+          avatar(p, 24), el('span', { class: 'mention-text' }, el('strong', { text: nameOf(p) }), el('small', { text: `@${p.username}` + (p.department ? ` · ${p.department}` : '') })),
+          p.relation ? el('em', { class: `mention-rel rel-${{ 上級: 'up', 下級: 'down', 同級: 'peer' }[p.relation] || 'x'}`, text: p.relation }) : null);
         row.addEventListener('mousedown', e => { e.preventDefault(); pick(i); });
         return row;
       }));

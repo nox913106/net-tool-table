@@ -1159,6 +1159,7 @@
       { key: 'board_enabled', label: '啟用待辦看板（側邊欄入口與右上角 🔔 提醒）', type: 'switch' },
       { key: 'board_notify', label: '桌面通知', type: 'switch', hint: '到期、提醒時間或開始日到了會跳出系統通知；每位使用者第一次要在瀏覽器按「允許」' },
       { key: 'board_due_soon_days', label: '幾天內到期算「即將到期」', type: 'number' },
+      { key: 'board_supervisor', label: '上級對下級卡片的權限', type: 'seg', options: [['rw', '可編輯'], ['ro', '檢視＋留言'], ['off', '不分享']], hint: '上級＝帳號的上級（AD 的 manager 或在「帳號與權限」設定），可以多層。可編輯：瀏覽、留言、增刪修、指派給下級；檢視＋留言：只能看與留言' },
       { key: 'public_dashboard', label: '公開進度看板 /dashboard（不需登入、只顯示數量）', type: 'switch', hint: '依部門 → 帳號 → 狀態顯示卡片數，不含任何卡片內容與週期工作；關閉後該頁顯示「已關閉」' },
       { key: 'board_overdue_remind_time', label: '過期未結案：每天提醒時間', type: 'text', hint: '格式 HH:MM（預設 09:30）。單次卡片過了到期日還沒結案，會移到「過期未結案」，每天這個時間跳出提醒直到結案' },
     ] },
@@ -1297,7 +1298,7 @@
       const q = filter.value.trim().toLowerCase();
       const rows = data.users.filter(u => !q || [u.username, u.display_name, u.department].some(v => (v || '').toLowerCase().includes(q)));
       list.replaceChildren(el('div', { class: 'users-row users-head' },
-        el('span', { text: '帳號' }), el('span', { text: '部門' }), el('span', { text: '卡片' }), el('span', { text: '最後登入' }), el('span', { text: '權限' }), el('span', { text: '啟用' })),
+        el('span', { text: '帳號' }), el('span', { text: '部門' }), el('span', { text: '上級' }), el('span', { text: '卡片' }), el('span', { text: '最後登入' }), el('span', { text: '權限' }), el('span', { text: '啟用' })),
         ...rows.map(u => {
           const local = u.role === 'superadmin';
           const label = k => (data.roles.find(r => r.key === k) || {}).label || k;
@@ -1337,10 +1338,38 @@
             try { Object.assign(u, await api(`/api/users/${u.id}`, { method: 'PUT', body: { active: v } })); toast(v ? '已啟用' : '已停用（已登出）'); }
             catch (e) { toast(e.message, true); paint(); }
           });
+          // 上級 (reporting line): from AD's manager attribute, or picked here (then AD leaves it alone)
+          const boss = el('div', { class: 'boss-cell' });
+          const paintBoss = () => {
+            if (local) { boss.replaceChildren(el('span', { class: 'muted', text: '—' })); return; }
+            const pick = el('button', { class: 'boss-btn', type: 'button', title: '設定上級' },
+              u.manager ? TT.avatar({ ...u.manager }, 20) : null, el('span', { text: u.manager ? u.manager.name : '（無）' }),
+              u.manager_source ? el('small', { class: 'boss-src', text: u.manager_source === 'manual' ? '手動' : 'AD' }) : null);
+            pick.addEventListener('click', () => {
+              const inp = TT.mentionInput(el('input', { class: 'input input-sm', placeholder: '輸入上級的姓名或帳號…' }), {
+                onPick: async p => {
+                  try { Object.assign(u, await api(`/api/users/${u.id}`, { method: 'PUT', body: { manager: p.username } })); data = { ...data, ...(await api('/api/users')) }; paint(); toast(`${u.display_name || u.username} 的上級：${TT.nameOf(p)}`); }
+                  catch (e) { toast(e.message, true); paintBoss(); }
+                } });
+              const none = el('button', { class: 'kb-link-btn', type: 'button', text: '無上級' });
+              none.addEventListener('mousedown', e => e.preventDefault());
+              none.addEventListener('click', async () => { try { await api(`/api/users/${u.id}`, { method: 'PUT', body: { manager: '' } }); data = { ...data, ...(await api('/api/users')) }; paint(); } catch (e) { toast(e.message, true); } });
+              const ad = u.manager_source === 'manual' && data.sync_manager ? el('button', { class: 'kb-link-btn', type: 'button', text: '改回依 AD' }) : null;
+              ad?.addEventListener('mousedown', e => e.preventDefault());
+              ad?.addEventListener('click', async () => { try { await api(`/api/users/${u.id}`, { method: 'PUT', body: { manager: '@ad' } }); toast('下次登入時依 AD 更新'); data = { ...data, ...(await api('/api/users')) }; paint(); } catch (e) { toast(e.message, true); } });
+              inp.addEventListener('keydown', e => { if (e.key === 'Escape') paintBoss(); });
+              inp.addEventListener('blur', () => setTimeout(() => boss.isConnected && boss.contains(inp) && paintBoss(), 250));
+              boss.replaceChildren(...[inp, none, ad].filter(Boolean));
+              inp.focus();
+            });
+            boss.replaceChildren(...[pick, u.reports ? el('small', { class: 'muted', text: `下級 ${u.reports} 人` }) : null].filter(Boolean));
+          };
+          paintBoss();
           return el('div', { class: 'users-row' + (u.active ? '' : ' is-off') },
             el('span', { class: 'users-who' }, TT.avatar({ ...u, name: u.display_name }, 32),
               el('span', {}, el('strong', { text: u.display_name || u.username }), el('small', { text: `${u.username}${u.source === 'local' ? ' · 本機帳號' : ''}${u.email ? ' · ' + u.email : ''}` }))),
             el('span', { text: u.department || '—' }),
+            boss,
             el('span', { class: 'muted', text: `建 ${u.created_cards} · 負責 ${u.assigned_cards}` }),
             el('span', { class: 'muted', text: u.last_login ? u.last_login.slice(0, 16) : '尚未登入' }),
             role, active);
@@ -1360,6 +1389,7 @@
           ['部門看板管理者（RW）', '—', '管理部門的卡片 ＋ 自己的', '管理部門的卡片（只能指派該部門的人）＋ 自己的'],
           ['部門看板管理者（RO）', '—', '管理部門的卡片 ＋ 自己的', '只有自己的卡片；其他卡片可留言'],
           ['使用者', '—', '自己建立、被指派、被 @ 的卡片', '同左（不能指派）'],
+          ['＋ 上級（任何權限都適用）', '—', '另外加上所有下級（多層）的卡片', '依「外觀與設定 → 上級對下級卡片的權限」：可編輯（增刪修、指派給下級）／檢視＋留言'],
         ].map(r => el('tr', {}, ...r.map(c => el('td', { text: c })))))),
       el('p', { class: 'hint', html: `卡片屬於「建立者」與「負責人」所在的部門（AD 的 department）。部門看板管理者預設管理自己的部門，可以在上面勾選其他部門。<br>至少要保留一位 AD 系統管理者。本機最高管理員（${esc((data.users.find(u => u.role === 'superadmin') || {}).username || 'localadmin')}）只在緊急時使用，密碼可在右上角選單修改，或在伺服器執行 <code>tool-table.sh reset-admin</code>。` }));
     paint();
@@ -1585,6 +1615,8 @@
         domain: input(L.domain, { placeholder: 'corp.local' }),
         user_filter: input(L.user_filter, { placeholder: '(memberOf=CN=ToolTable-Users,OU=Groups,DC=corp,DC=local)' }),
         login_attr: input(L.login_attr), name_attr: input(L.name_attr), dept_attr: input(L.dept_attr), mail_attr: input(L.mail_attr),
+        manager_attr: input(L.manager_attr || 'manager'),
+        sync_manager: switchCtl(L.sync_manager !== false, '從 AD 同步上級（manager 屬性；登入時更新，在「帳號與權限」手動設定的不受影響）', () => {}),
         starttls: switchCtl(L.starttls, 'ldap:// 時使用 StartTLS 加密', () => {}),
         tls_verify: switchCtl(L.tls_verify, '驗證網域控制站憑證（建議）', () => {}),
         ca_pem: el('textarea', { class: 'textarea mono', rows: '4', placeholder: '-----BEGIN CERTIFICATE-----\n（內部 CA 簽發時貼上，可多張）' }),
@@ -1600,6 +1632,7 @@
         bind_password: f.bind_password.value ? f.bind_password.value : (clearPw ? '' : null),
         domain: f.domain.value.trim(), user_filter: f.user_filter.value.trim(),
         login_attr: f.login_attr.value.trim(), name_attr: f.name_attr.value.trim(), dept_attr: f.dept_attr.value.trim(), mail_attr: f.mail_attr.value.trim(),
+        manager_attr: f.manager_attr.value.trim() || 'manager', sync_manager: chk(f.sync_manager),
         starttls: chk(f.starttls), tls_verify: chk(f.tls_verify), ca_pem: f.ca_pem.value, timeout: Number(f.timeout.value) || 6,
       });
       const res = resultBox();
@@ -1636,6 +1669,7 @@
           el('details', { class: 'sys-advanced' }, el('summary', { text: '進階：屬性名稱、TLS、逾時' }),
             el('div', { class: 'sys-form' },
               field('帳號屬性', f.login_attr), field('姓名屬性', f.name_attr), field('部門屬性（公開看板分組）', f.dept_attr), field('信箱屬性', f.mail_attr),
+              field('上級屬性', f.manager_attr), el('div', { class: 'field span-all' }, f.sync_manager),
               el('div', { class: 'field span-all' }, f.starttls, f.tls_verify),
               el('div', { class: 'span-all' }, field('內部 CA 憑證（PEM）', f.ca_pem, L.ca_subjects?.length ? '目前信任：' + L.ca_subjects.join('；') : '網域控制站的憑證由內部 CA 簽發時才需要')),
               field('逾時（秒）', f.timeout)))),

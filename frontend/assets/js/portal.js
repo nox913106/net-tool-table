@@ -646,6 +646,16 @@
     const add = el('button', { class: 'btn btn-primary', type: 'button', html: svg('plus') + '新增卡片' });
     add.addEventListener('click', () => TTBoard.openEditor(null));
     const pick = el('button', { class: 'btn', type: 'button', title: '多選卡片後匯出 Excel（也可以 Ctrl／⌘＋點卡片）', html: svg('check') + '選取／匯出' });
+    // meeting view: one row per person (me, then everyone below me), columns by status
+    let lanes = !!store.get('board-lanes', false);
+    const layout = el('div', { class: 'segmented board-layout', role: 'group', title: '看板版面' },
+      ...[['cols', '看板', 'kanban'], ['lanes', '依人員（會議）', 'users']].map(([v, l, icon]) => {
+        const b = el('button', { type: 'button', dataset: { v }, html: svg(icon) + `<span>${l}</span>` });
+        b.addEventListener('click', () => { lanes = v === 'lanes'; store.set('board-lanes', lanes); paintLayout(); board.setLanes(lanes); });
+        return b;
+      }));
+    const paintLayout = () => layout.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.v === 'lanes') === lanes)));
+    paintLayout();
     pick.addEventListener('click', () => TTBoard.setSelecting(!TTBoard.selecting));
     // whose cards: everyone I can see / mine / (admins) one person
     const auth = state.me?.auth;
@@ -656,7 +666,10 @@
       TTBoard.tasks.forEach(t => [t.owner, ...(t.assignees || [])].forEach(p => { if (p) people.set(String(p.id), p); }));
       const view = state.me?.board?.view || 'own';
       const depts = [...new Set(TTBoard.tasks.flatMap(t => t.departments || []))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+      const team = state.me?.team || [];
       const opts = [['all', view === 'all' ? '全部卡片' : '我看得到的全部'], ['mine', '只看我的']]
+        .concat(team.length ? [['team', `我和下級（${team.length} 人）`]] : [])
+        .concat(view === 'own' ? team.map(p => [`user:${p.id}`, `下級：${p.name}`]) : [])
         .concat(view !== 'own' ? depts.map(d => [`dept:${d}`, `部門：${d}`]) : [])
         .concat(view !== 'own' ? [...people.values()].sort((a, b) => TT.nameOf(a).localeCompare(TT.nameOf(b), 'zh-Hant'))
           .map(p => [`user:${p.id}`, `${TT.nameOf(p)}${p.department ? '（' + p.department + '）' : ''}`]) : []);
@@ -670,10 +683,10 @@
       title: '待辦看板',
       desc: '拖曳卡片換狀態；設定開始日與到期日，時間到會在右上角 🔔 提醒。',
       meta: ' ',
-      tools: el('div', { class: 'board-tools' }, auth ? who : null, toggle, pick, add),
+      tools: el('div', { class: 'board-tools' }, auth ? who : null, layout, toggle, pick, add),
     }));
     const box = el('div');
-    const board = TTBoard.mount(box, { hideClosed, full: true, filter });
+    const board = TTBoard.mount(box, { hideClosed, full: true, filter, lanes });
     toggle.querySelector('input').addEventListener('change', e => { hideClosed = e.target.checked; store.set('board-hide-closed', hideClosed); board.setHideClosed(hideClosed); });
     frag.append(box);
     $('view').replaceChildren(frag);

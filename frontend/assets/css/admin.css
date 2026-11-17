@@ -388,7 +388,7 @@ body.link-dragging .quick-admin { outline: 2px dashed var(--accent-line); outlin
 .users-add { display: flex; gap: 8px; margin-bottom: 14px; max-width: 640px; }
 .users-add .input { flex: 1; }
 .users-list { padding: 6px; margin-bottom: 14px; overflow-x: auto; }
-.users-row { display: grid; grid-template-columns: minmax(200px, 2fr) minmax(80px, 1fr) 110px 120px minmax(220px, 1.4fr) 56px; align-items: center; gap: 14px; padding: 10px 12px; border-radius: 12px; min-width: 760px; }
+.users-row { display: grid; grid-template-columns: minmax(200px, 2fr) minmax(80px, 1fr) minmax(130px, 1fr) 110px 120px minmax(220px, 1.4fr) 56px; align-items: center; gap: 14px; padding: 10px 12px; border-radius: 12px; min-width: 900px; }
 .users-row + .users-row { border-top: 1px solid var(--border); }
 .users-row:not(.users-head):hover { background: var(--surface-2); }
 .users-head { font-size: 12px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
@@ -474,3 +474,12 @@ body.link-dragging .quick-admin { outline: 2px dashed var(--accent-line); outlin
 .op-error small { color: var(--text-3); word-break: break-word; }
 @media (max-width: 560px) { .op-map-row { grid-template-columns: 1fr; } .op-arrow { display: none; } }
 .sys-advanced:not([open]) > :not(summary) { display: none; }      /* a switch's track would otherwise still paint in Chrome */
+.boss-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
+.boss-cell .input-sm { height: 30px; font-size: 12.5px; padding: 0 8px; width: 100%; }
+.boss-btn { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 8px 3px 4px; border-radius: 99px; border: 1px dashed var(--border-strong, var(--border));
+  background: transparent; color: var(--text); font-size: 13px; cursor: pointer; }
+.boss-btn:hover { border-style: solid; border-color: var(--accent); }
+.boss-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.boss-src { font-size: 10.5px; color: var(--text-3); border: 1px solid var(--border); border-radius: 5px; padding: 0 4px; }
+.kb-link-btn { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 7px; border-radius: 7px; border: 0; background: transparent; color: var(--text-3); font-size: 12px; font-weight: 600; cursor: pointer; }
+.kb-link-btn:hover { color: var(--accent-text); }

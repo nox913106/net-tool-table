@@ -609,11 +609,14 @@ const TTBoard = (() => {
     if (opts.full) root.classList.add('kb-full');
     let hideClosed = !!opts.hideClosed;
     let filter = opts.filter || 'all';                          // all | mine | user:<id>
+    const teamIds = () => new Set([meInfo.user?.id, ...(meInfo.team || []).map(p => p.id)].filter(x => x != null));
     const pass = t => filter === 'all' ? true : filter === 'mine' ? t.mine !== false
+      : filter === 'team' ? [t.owner, ...(t.assignees || [])].some(p => p && teamIds().has(p.id))
       : filter.startsWith('user:') ? [t.owner, ...(t.assignees || [])].some(p => p && String(p.id) === filter.slice(5))
       : filter.startsWith('dept:') ? (t.departments || []).includes(filter.slice(5)) : true;
     const colItems = key => byStatus(key).filter(pass);
     let drag = null;                                           // { id, from }
+    let lanes = !!opts.lanes;                                  // meeting view: one row per person
     const placeholder = el('div', { class: 'kb-placeholder' });
 
     const render = () => {
@@ -621,7 +624,9 @@ const TTBoard = (() => {
       root.dataset.mounted = '1';
       const cols = STATUSES.filter(s => !(hideClosed && CLOSED.has(s.key)) && !(s.key === 'overdue' && !colItems('overdue').length));
       root.style.setProperty('--kb-cols', cols.length);
-      root.replaceChildren(...cols.map(column));
+      root.classList.toggle('kb-lanes', lanes);
+      if (lanes) renderLanes(cols);
+      else root.replaceChildren(...cols.map(column));
       root.classList.toggle('is-selecting', selecting);
       if (selecting) root.querySelectorAll('.kb-col').forEach(paintColCheck);
     };
@@ -673,6 +678,74 @@ const TTBoard = (() => {
       return col;
     }
 
+    // ------------------------------------------------ meeting view (swimlanes)
+    /** Whose row a card goes in: its first assignee, else its creator. */
+    const laneOf = t => (t.assignees?.[0] || t.owner || null);
+    function renderLanes(cols) {
+      const people = new Map();                                // id → person
+      const me = meInfo.user?.id;
+      const add = p => { if (p && !people.has(p.id ?? 'none')) people.set(p.id ?? 'none', p); };
+      if (meInfo.auth && me != null) add({ id: me, username: meInfo.user.username, name: meInfo.user.display_name || meInfo.user.username, department: meInfo.user.department });
+      if (filter === 'all' || filter === 'team') (meInfo.team || []).forEach(add);   // the team shows even with nothing on it
+      const visible = cols.flatMap(s => colItems(s.key));
+      visible.forEach(t => add(laneOf(t) || { id: 'none', name: '未指派' }));
+      if (filter.startsWith('user:')) [...people.keys()].forEach(k => { if (String(k) !== filter.slice(5)) people.delete(k); });
+      const teamSet = new Set((meInfo.team || []).map(p => p.id));
+      const rank = p => p.id === me ? 0 : teamSet.has(p.id) ? 1 : p.id === 'none' ? 3 : 2;
+      const order = [...people.values()].sort((a, b) => rank(a) - rank(b) || TT.nameOf(a).localeCompare(TT.nameOf(b), 'zh-Hant'));
+      const head = el('div', { class: 'kb-lane kb-lane-head' }, el('div', { class: 'kb-lane-who' }, el('strong', { text: '人員' })),
+        ...cols.map(s => el('div', { class: 'kb-lane-col', style: { '--st': s.color } }, el('span', { class: 'kb-dot' }), el('strong', { text: s.label }), el('span', { class: 'kb-zh', text: s.zh }),
+          el('span', { class: 'kb-count', text: colItems(s.key).length }))));
+      const rows = order.map(p => {
+        const mineCards = visible.filter(t => (laneOf(t)?.id ?? 'none') === p.id);
+        const overdue = mineCards.filter(t => timing(t).due === 'overdue').length;
+        const open = mineCards.filter(t => !CLOSED.has(t.status)).length;
+        const addBtn = p.id !== 'none' && (p.id === me || meInfo.board?.edit !== 'own' || meInfo.board?.team_edit)
+          ? el('button', { class: 'kb-link-btn', type: 'button', title: p.id === me ? '新增我的卡片' : `新增卡片並指派給 ${TT.nameOf(p)}`, html: svg('plus') + '<span>新增</span>' }) : null;
+        addBtn?.addEventListener('click', () => openEditor(null, { status: 'new', assignees: p.id === me ? [] : [{ id: p.id, username: p.username, name: TT.nameOf(p), department: p.department }] }));
+        const who = el('div', { class: 'kb-lane-who' },
+          p.id === 'none' ? el('span', { class: 'kb-lane-none', html: svg('user') }) : TT.avatar(p, 30),
+          el('div', { class: 'kb-lane-name' }, el('strong', { text: TT.nameOf(p) + (p.id === me ? '（我）' : '') }),
+            el('small', { text: [p.department, teamSet.has(p.id) ? '下級' : null].filter(Boolean).join(' · ') || ' ' }),
+            el('span', { class: 'kb-lane-stats' }, el('span', { text: `${open} 進行` }), overdue ? el('span', { class: 'is-late', text: `${overdue} 逾期` }) : null)),
+          addBtn);
+        return el('div', { class: 'kb-lane' + (overdue ? ' has-late' : ''), dataset: { person: p.id } }, who,
+          ...cols.map(s => laneCell(s, mineCards.filter(t => t.status === s.key).sort((a, b) => a.sort_order - b.sort_order || a.id - b.id))));
+      });
+      root.replaceChildren(head, ...(rows.length ? rows : [el('p', { class: 'hint kb-lane-empty', text: '沒有卡片' })]));
+    }
+    function laneCell(s, items) {
+      const list = el('div', { class: 'kb-list kb-lane-cell', dataset: { status: s.key } }, items.map(card));
+      list.addEventListener('dragover', e => {
+        if (!drag || drag.lane !== list.parentElement.dataset.person) return;      // move between statuses, not people
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const after = [...list.querySelectorAll('.kb-card:not(.dragging)')].find(c => { const r = c.getBoundingClientRect(); return e.clientY < r.top + r.height / 2; });
+        if (after) list.insertBefore(placeholder, after); else list.append(placeholder);
+        list.classList.add('drop-over');
+      });
+      list.addEventListener('dragleave', e => { if (!list.contains(e.relatedTarget)) list.classList.remove('drop-over'); });
+      list.addEventListener('drop', e => {
+        if (!drag) return;
+        e.preventDefault(); e.stopPropagation();
+        const next = placeholder.nextElementSibling;
+        const id = drag.id;
+        drag = null;
+        placeholder.remove();
+        list.classList.remove('drop-over');
+        // place it before the next card of this row in the column's overall order
+        const colOrder = byStatus(s.key).filter(x => x.id !== id);
+        const nextId = next?.classList.contains('kb-card') ? Number(next.dataset.id) : null;
+        let index = nextId != null ? colOrder.findIndex(x => x.id === nextId) : -1;
+        if (index < 0) {
+          const last = [...list.querySelectorAll('.kb-card')].map(c => Number(c.dataset.id)).filter(x => x !== id).pop();
+          index = last != null ? colOrder.findIndex(x => x.id === last) + 1 : colOrder.length;
+        }
+        moveTo(id, s.key, index);
+      });
+      return list;
+    }
+
     function card(t) {
       const tm = timing(t);
       const chips = [];
@@ -706,11 +779,13 @@ const TTBoard = (() => {
         t.images?.length ? el('div', { class: 'kb-cover' }, el('img', { src: t.images[0].url, alt: '', loading: 'lazy', draggable: 'false' })) : null,
         el('div', { class: 'kb-card-title' },
           t.priority === 'high' ? el('span', { class: 'kb-flag', title: '高優先', html: svg('flag') }) : null,
-          el('span', { text: t.title })),
+          el('span', { text: t.title }),
+          t.team ? el('span', { class: 'kb-team-tag', title: '下級的卡片（你是上級，可以' + (meInfo.board?.team_edit ? '檢視、留言與增刪修）' : '檢視與留言）'), text: '下級' }) : null),
         t.description ? el('p', { class: 'kb-card-desc', text: t.description }) : null,
         chips.length ? el('div', { class: 'kb-chips' }, chips) : null,
         meInfo.auth ? cardPeople(t) : null);
       if (selection.has(t.id)) c.classList.add('is-selected');
+      if (t.team) c.classList.add('is-team');
       c.addEventListener('click', e => {
         if (selecting) { e.preventDefault(); toggleSelect(t.id); return; }
         if (e.ctrlKey || e.metaKey) { setSelecting(true); toggleSelect(t.id, true); return; }     // Ctrl/⌘-click starts selecting
@@ -722,7 +797,7 @@ const TTBoard = (() => {
       });
       c.addEventListener('dragstart', e => {
         if (t.can_edit === false) { e.preventDefault(); return; }
-        drag = { id: t.id };
+        drag = { id: t.id, lane: lanes ? String(laneOf(t)?.id ?? 'none') : null };
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('application/x-tool-table-task', String(t.id));
         requestAnimationFrame(() => c.classList.add('dragging'));
@@ -776,6 +851,7 @@ const TTBoard = (() => {
     return {
       setHideClosed(v) { hideClosed = v; render(); },
       setFilter(v) { filter = v; render(); },
+      setLanes(v) { lanes = v; render(); },
       render,
     };
   }
@@ -1067,7 +1143,7 @@ const TTBoard = (() => {
 
   // ----------------------------------------------------------------- editor
   function openEditor(task, defaults = {}) {
-    const t = task || { title: defaults.title || '', description: '', status: defaults.status || 'new', priority: 'normal', start_at: null, due_at: null, remind: 1440, repeat: defaults.repeat || null, repeat_every: 1 };
+    const t = task || { title: defaults.title || '', description: '', status: defaults.status || 'new', priority: 'normal', start_at: null, due_at: null, remind: 1440, repeat: defaults.repeat || null, repeat_every: 1, assignees: defaults.assignees || [] };
     const split = v => { const [d, tm] = (v || '').split('T'); return [d || '', tm || '']; };
     const [sd, st] = split(t.start_at);
     const [dd, dt] = split(t.due_at);
@@ -1122,7 +1198,7 @@ const TTBoard = (() => {
     paintImages();
 
     // --- people (server edition)
-    const canAssign = meInfo.auth && (task ? task.can_assign : meInfo.board?.edit !== 'own');
+    const canAssign = meInfo.auth && (task ? task.can_assign : meInfo.board?.edit !== 'own' || !!meInfo.board?.team_edit);
     const readOnly = !!task && task.can_edit === false;          // RO managers: view + comment
     let assignees = (t.assignees || []).map(p => ({ ...p }));
     const assignBox = el('div', { class: 'kb-assignees' });

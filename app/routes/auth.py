@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from .. import config as C
-from .. import ldapauth
+from .. import ldapauth, sysconfig
 from ..auth import (ANON, COOKIE, clear_failures, client_ip, create_session, current_user, end_session,
                     hash_password, is_admin, public_user, record_failure, require_admin, set_cookie,
                     too_many, verify_password)
@@ -43,6 +43,7 @@ class PasswordIn(BaseModel):
 class UserUpdate(BaseModel):
     role: Optional[str] = None
     active: Optional[bool] = None
+    manager: Optional[str] = None                     # 上級: username; "" = none; "@ad" = follow AD again
     scope_departments: Optional[List[str]] = None     # department managers; [] = their own AD department
 
 
@@ -81,6 +82,34 @@ async def upsert_ldap_user(db, info: dict, login: bool = False) -> dict:
     return dict(await cur.fetchone())
 
 
+async def sync_manager(db, user: dict, info: dict):
+    """上級 from AD's manager attribute (AD: manager = DN). An admin's manual choice is kept."""
+    cfg = sysconfig.ldap()
+    if not cfg.sync_manager or user.get("manager_source") == "manual":
+        return
+    dn = info.get("manager_dn") or ""
+    manager_id = None
+    if dn:
+        login = await asyncio.get_running_loop().run_in_executor(None, ldapauth.login_of_dn, dn)
+        if not login:
+            return                                           # unknown right now: keep what we had
+        cur = await db.execute("SELECT * FROM users WHERE username = ?", (login,))
+        row = await cur.fetchone()
+        if row is None:
+            found = await asyncio.get_running_loop().run_in_executor(None, ldapauth.lookup, login)
+            if not found:
+                return
+            row = await upsert_ldap_user(db, found)
+        manager_id = row["id"]
+        from ..team import would_cycle
+        if await would_cycle(db, user["id"], manager_id):
+            return
+    if manager_id != user.get("manager_id") or (manager_id and user.get("manager_source") != "ad"):
+        await db.execute("UPDATE users SET manager_id = ?, manager_source = ? WHERE id = ?",
+                         (manager_id, "ad" if manager_id else None, user["id"]))
+        await db.commit()
+
+
 @router.post("/api/auth/login")
 async def login(body: LoginIn, request: Request):
     if not C.AUTH:
@@ -108,6 +137,7 @@ async def login(body: LoginIn, request: Request):
                 raise HTTPException(status_code=503, detail=str(e))
             if info:
                 user = await upsert_ldap_user(db, info, login=True)
+                await sync_manager(db, user, info)
         elif row is None:
             record_failure(ip, username)
             raise HTTPException(status_code=401, detail="尚未設定 AD 連線，目前只能用本機管理員帳號登入")
@@ -139,6 +169,19 @@ async def logout(request: Request):
 async def me(user: dict = Depends(current_user)):
     out = {"user": user, "auth": C.AUTH, "is_admin": is_admin(user), "board": board_access(user),
            "role_label": LABELS.get(user.get("role"), user.get("role"))}
+    if C.AUTH and user.get("id") is not None:
+        db = await get_db()
+        try:
+            ids = [i for i in [user.get("manager_id"), *(user.get("team") or [])] if i]
+            people = {}
+            if ids:
+                cur = await db.execute(f"SELECT id, username, display_name, department, manager_id FROM users WHERE id IN ({','.join('?' * len(ids))})", ids)
+                people = {r["id"]: {"id": r["id"], "username": r["username"], "name": r["display_name"] or r["username"],
+                                    "department": r["department"], "manager_id": r["manager_id"]} for r in await cur.fetchall()}
+            out["manager"] = people.get(user.get("manager_id"))
+            out["team"] = [people[i] for i in user.get("team") or [] if i in people]
+        finally:
+            await db.close()
     if C.AUTH and is_admin(user):
         db = await get_db()
         try:
@@ -180,11 +223,16 @@ async def list_users(_: dict = Depends(require_admin)):
             FROM users u ORDER BY (u.role = 'superadmin') DESC, u.department, u.display_name, u.username""")
         rows = [{**public_user(r), "created_cards": r["created_cards"], "assigned_cards": r["assigned_cards"]}
                 for r in await cur.fetchall()]
+        by_id = {u["id"]: u for u in rows}
+        for u in rows:
+            m = by_id.get(u.get("manager_id"))
+            u["manager"] = {"id": m["id"], "username": m["username"], "name": m["display_name"] or m["username"]} if m else None
+            u["reports"] = sum(1 for x in rows if x.get("manager_id") == u["id"])
         cur = await db.execute("SELECT DISTINCT department FROM users WHERE department IS NOT NULL AND department != '' ORDER BY department")
         departments = [r["department"] for r in await cur.fetchall()]
         return {"users": rows, "ad_admins": await ad_admin_count(db), "directory": ldapauth.directory_enabled(),
                 "ldap": ldapauth.enabled(), "roles": [{"key": k, "label": LABELS[k]} for k in ASSIGNABLE],
-                "departments": departments}
+                "departments": departments, "sync_manager": sysconfig.ldap().sync_manager}
     finally:
         await db.close()
 
@@ -227,6 +275,23 @@ async def update_user(user_id: int, body: UserUpdate, me_: dict = Depends(requir
             clean = sorted({d.strip()[:100] for d in body.scope_departments if isinstance(d, str) and d.strip()})
             scope = json.dumps(clean, ensure_ascii=False) if clean else None
         await db.execute("UPDATE users SET role = ?, active = ?, scope_departments = ? WHERE id = ?", (role, active, scope, user_id))
+        if body.manager is not None:
+            from ..team import would_cycle
+            if body.manager == "@ad":                       # follow AD again (applied at the next sign-in)
+                await db.execute("UPDATE users SET manager_source = NULL WHERE id = ?", (user_id,))
+            elif body.manager == "":
+                await db.execute("UPDATE users SET manager_id = NULL, manager_source = 'manual' WHERE id = ?", (user_id,))
+            else:
+                cur = await db.execute("SELECT id FROM users WHERE username = ?", (ldapauth.normalize(body.manager),))
+                m = await cur.fetchone()
+                if not m:
+                    found = await asyncio.get_running_loop().run_in_executor(None, ldapauth.lookup, body.manager)
+                    if not found:
+                        raise HTTPException(status_code=400, detail=f"找不到帳號 {body.manager}")
+                    m = await upsert_ldap_user(db, found)
+                if await would_cycle(db, user_id, m["id"]):
+                    raise HTTPException(status_code=400, detail="不能把自己或自己的下級設為上級")
+                await db.execute("UPDATE users SET manager_id = ?, manager_source = 'manual' WHERE id = ?", (m["id"], user_id))
         if not active or role != row["role"] or scope != row["scope_departments"]:
             await db.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))   # takes effect immediately
         await db.commit()
@@ -244,9 +309,15 @@ async def people(q: str = "", user: dict = Depends(current_user)):
     try:
         cur = await db.execute(
             """SELECT id, username, display_name, department FROM users
-               WHERE active = 1 AND source = 'ldap' AND (? = '' OR lower(username) LIKE ? OR lower(display_name) LIKE ?)
-               ORDER BY display_name LIMIT 20""", (text, f"%{text}%", f"%{text}%"))
+               WHERE active = 1 AND source = 'ldap' AND id IS NOT ? AND (? = '' OR lower(username) LIKE ? OR lower(display_name) LIKE ?)
+               ORDER BY display_name LIMIT 20""", (user.get("id"), text, f"%{text}%", f"%{text}%"))
         out = [{**dict(r), "known": True} for r in await cur.fetchall()]
+        from ..team import relations
+        rel = await relations(db, user.get("id"))
+        for p in out:
+            p["relation"] = rel.get(p["id"])
+        order = {"上級": 0, "下級": 1, "同級": 2}
+        out.sort(key=lambda p: order.get(p["relation"], 3))      # my own reporting line first
     finally:
         await db.close()
     if text and ldapauth.directory_enabled():
