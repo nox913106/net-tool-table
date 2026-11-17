@@ -58,7 +58,7 @@ const TTBoard = (() => {
     subs.forEach(s => { if (s.assignee) out.push({ p: s.assignee, kind: 'sub', status: s.status, sub: s }); });
     const withSub = new Set(subs.map(s => s.assignee?.id).filter(x => x != null));
     const seen = new Set([lead?.id]);
-    [...(t.assignees || []).slice(1), ...(t.mentions || []), t.owner].forEach(p => {
+    [...(t.assignees || []), ...(t.mentions || []), t.owner].forEach(p => {
       if (!p || seen.has(p.id) || withSub.has(p.id)) return;
       seen.add(p.id);
       const why = (t.assignees || []).some(a => a.id === p.id) ? '共同負責' : (t.mentions || []).some(m => m.id === p.id) ? '@協作' : '建立者';
@@ -120,22 +120,21 @@ const TTBoard = (() => {
       const count = el('strong', { class: 'kb-selbar-count' });
       const all = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', html: svg('check') + '全選目前顯示的' });
       const none = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '清除選取' });
-      const xls = el('button', { class: 'btn btn-sm btn-primary', type: 'button', title: '一個分頁、卡片 > 子任務 > 回覆／工時的階層（可在 Excel 左側 +／− 折疊）', html: svg('download') + '匯出 Excel' });
-      const xlsSheets = el('button', { class: 'btn btn-sm btn-ghost kb-selbar-alt', type: 'button', title: '舊格式：卡片／子任務／留言／工時 各一個工作表', text: '分開工作表' });
+      const xls = el('button', { class: 'btn btn-sm btn-primary', type: 'button', title: '工作進度報告：一個分頁，主任務 > 子任務／協作（可在 Excel 左側 +／− 折疊），可直接列印', html: svg('download') + '匯出報告' });
+      const imp = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', title: '把匯出的報告（可在 Excel 修改、新增列）匯回看板，先預覽再套用', html: svg('upload') + '匯入報告…' });
       const done = el('button', { class: 'icon-btn', type: 'button', title: '結束選取（Esc）', 'aria-label': '結束選取', html: svg('x') });
       all.addEventListener('click', () => shownIds().forEach(i => toggleSelect(i, true)));
       none.addEventListener('click', () => [...selection].forEach(i => toggleSelect(i, false)));
-      const run = layout => async () => {
+      xls.addEventListener('click', async () => {
         if (!selection.size) { toast('先勾選要匯出的卡片', true); return; }
-        xls.disabled = xlsSheets.disabled = true;
-        try { await exportXlsx([...selection], layout); } finally { xls.disabled = xlsSheets.disabled = false; }
-      };
-      xls.addEventListener('click', run('tree'));
-      xlsSheets.addEventListener('click', run('sheets'));
+        xls.disabled = true;
+        try { await exportXlsx([...selection]); } finally { xls.disabled = false; }
+      });
+      imp.addEventListener('click', () => importXlsx());
       done.addEventListener('click', () => setSelecting(false));
       selBar = el('div', { class: 'kb-selbar', role: 'toolbar', 'aria-label': '已選取的卡片' },
         el('span', { class: 'kb-selbar-text' }, count, el('span', { class: 'hint', text: '點卡片或欄位標題的方框勾選' })),
-        all, none, el('span', { class: 'spacer' }), xlsSheets, xls, done);
+        all, none, el('span', { class: 'spacer' }), imp, xls, done);
       selBar.count = count;
       document.body.append(selBar);
     }
@@ -143,11 +142,10 @@ const TTBoard = (() => {
   }
   document.addEventListener('keydown', e => { if (selecting && e.key === 'Escape' && !document.querySelector('.modal:not([hidden])')) setSelecting(false); });
 
-  /** Download the cards as an .xlsx: one sheet as a card > subtask > reply / time tree (default),
-   *  or layout 'sheets' = 卡片 / 子任務 / 留言 / 工時 sheets. */
-  async function exportXlsx(ids, layout = 'tree') {
+  /** Download the cards as a one-sheet progress report (.xlsx): 主任務 > 子任務／協作. */
+  async function exportXlsx(ids) {
     try {
-      const res = await fetch('/api/tasks/export.xlsx', { method: 'POST', headers: { 'X-Tool-Table': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, layout }) });
+      const res = await fetch('/api/tasks/export.xlsx', { method: 'POST', headers: { 'X-Tool-Table': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
       if (!res.ok) {
         let msg = `HTTP ${res.status}`;
         try { msg = (await res.json()).detail || msg; } catch { /* not json */ }
@@ -163,6 +161,84 @@ const TTBoard = (() => {
       setTimeout(() => URL.revokeObjectURL(url), 30000);
       toast(`已匯出 ${ids.length} 張卡片：${name}`);
     } catch (e) { toast('匯出失敗：' + e.message, true); }
+  }
+
+  /** Import a report (same layout as the export): pick a file → preview what changes → apply. */
+  function importXlsx() {
+    if (selecting) setSelecting(false);          // the selection bar would sit on top of the dialog
+    const KIND = { card: '主任務', sub: '子任務', collab: '協作' };
+    const ACT = { create: ['新增', 'create'], update: ['更新', 'update'], unchanged: ['不變', 'same'], error: ['錯誤', 'error'], skip: ['略過', 'skip'] };
+    const input = el('input', { type: 'file', accept: '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', hidden: true });
+    const pickBtn = el('button', { class: 'btn', type: 'button', html: svg('upload') + '選擇 Excel 檔…' });
+    const fileName = el('span', { class: 'hint', text: '用「匯出報告」產生的檔案；可在 Excel 修改狀態、日期、負責人，或新增列（系統ID 留空＝新增）' });
+    const body = el('div', { class: 'kb-imp-body' });
+    const apply = el('button', { class: 'btn btn-primary', type: 'button', disabled: true, html: svg('check') + '套用' });
+    const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: '關閉' });
+    let file = null;
+    const wrap = el('div', { class: 'modal' },
+      el('div', { class: 'modal-card kb-imp', role: 'dialog', 'aria-modal': 'true', 'aria-label': '匯入報告' },
+        el('div', { class: 'modal-head' }, el('h3', { html: svg('upload') + '匯入工作進度報告' })),
+        el('div', { class: 'modal-body' }, el('div', { class: 'kb-imp-pick' }, pickBtn, fileName, input), body),
+        el('div', { class: 'modal-foot' }, cancel, apply)));
+    const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey, true); };
+    const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+    document.addEventListener('keydown', onKey, true);
+    cancel.addEventListener('click', close);
+    pickBtn.addEventListener('click', () => input.click());
+    async function send(doApply) {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('apply', doApply ? 'true' : 'false');
+      const res = await fetch('/api/tasks/import.xlsx', { method: 'POST', headers: { 'X-Tool-Table': '1' }, body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+      return data;
+    }
+    function paint(r) {
+      const c = r.counts || {};
+      const todo = (c.create || 0) + (c.update || 0);
+      const chips = el('div', { class: 'kb-imp-counts' }, ...Object.entries(ACT).filter(([k]) => c[k]).map(([k, [label, cls]]) =>
+        el('span', { class: `kb-imp-badge is-${cls}`, text: `${label} ${c[k]}` })));
+      const rows = r.rows.map(o => {
+        const [label, cls] = ACT[o.action] || [o.action, 'same'];
+        const notes = [...o.changes.map(t => el('div', { text: t })), ...o.warnings.map(t => el('div', { class: 'warn', text: '⚠ ' + t })),
+          ...o.errors.map(t => el('div', { class: 'err', text: '✕ ' + t }))];
+        return el('tr', { class: `k-${o.kind}` + (o.done ? ' is-done' : '') },
+          el('td', { class: 'num', text: o.row }), el('td', { text: KIND[o.kind] || o.kind }),
+          el('td', { class: 'title', text: (o.kind === 'card' ? '' : '└ ') + (o.title || '') }),
+          el('td', {}, el('span', { class: `kb-imp-badge is-${cls}`, text: o.done ? `✓ ${label}` : label })),
+          el('td', { class: 'notes' }, ...notes));
+      });
+      body.replaceChildren(
+        el('div', { class: 'kb-imp-sum' }, r.applied ? el('strong', { text: '已套用：' }) : el('strong', { text: '預覽：' }), chips,
+          el('span', { class: 'hint', text: r.applied ? '' : (c.error ? '有錯誤的列不會匯入（底下的子任務一併略過），可以修正後重新選檔' : '確認無誤後按「套用」') })),
+        el('div', { class: 'kb-imp-table' }, el('table', {},
+          el('thead', {}, el('tr', {}, ...['列', '類型', '項目', '動作', '內容'].map(h => el('th', { text: h })))),
+          el('tbody', {}, ...rows))));
+      apply.disabled = r.applied || !todo;
+      apply.innerHTML = svg('check') + (r.applied ? '已套用' : `套用 ${todo} 筆`);
+    }
+    input.addEventListener('change', async () => {
+      file = input.files[0];
+      input.value = '';
+      if (!file) return;
+      fileName.textContent = file.name;
+      body.replaceChildren(el('p', { class: 'hint', text: '讀取中…' }));
+      apply.disabled = true;
+      try { paint(await send(false)); }
+      catch (e) { body.replaceChildren(el('p', { class: 'kb-imp-error', text: e.message })); }
+    });
+    apply.addEventListener('click', async () => {
+      apply.disabled = true;
+      try {
+        const r = await send(true);
+        paint(r);
+        await load(true);
+        const n = r.rows.filter(o => o.done).length;
+        toast(`已匯入 ${n} 筆` + (r.counts.error ? `，${r.counts.error} 筆有錯誤` : ''), !!r.counts.error);
+      } catch (e) { toast('匯入失敗：' + e.message, true); apply.disabled = false; }
+    });
+    document.body.append(wrap);
   }
 
   // ------------------------------------------------------------------ data
@@ -2170,5 +2246,5 @@ const TTBoard = (() => {
         el('div', { class: 'palette-item-sub', text: sub })));
   }
 
-  return { init, load, mount, mountBell, openEditor, openTask, exportXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; } };
+  return { init, load, mount, mountBell, openEditor, openTask, exportXlsx, importXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; } };
 })();

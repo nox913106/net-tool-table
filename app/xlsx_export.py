@@ -1,31 +1,51 @@
 """
-Board cards → Excel workbook (.xlsx).
+Board cards → a one-sheet progress report (.xlsx) for supervisors, and back.
 
-Sheets
-  卡片    one row per card: status, priority, dates, people, subtask progress, hours, description …
-  子任務  one row per subtask (in the card's subtask order)
-  留言    comments and replies (subtask texts are in 子任務)
-  工時    every logged time entry
-Every sheet has a bold frozen header row and filters, so it is ready to sort and pivot.
+Layout (sheet 「工作報告」)
+  rows 1-3   title, who / when / scope, status summary and overall completion
+  row 5      column headers (repeated on every printed page)
+  rows 6…    the tree:
+               1     主任務   card            (completion % = its subtasks + collaborators)
+               1.1   子任務   └ subtask
+               1.2   協作     └ collaborator  (co-assignee / @mentioned without a subtask of their own)
+             Excel outline grouping folds a card's children (+/- on the left).
+Columns  編號 類型 項目 負責人 狀態 優先 開始 到期 完成% 預估(h) 實際(h) 最新進度／說明 備註 系統ID
+  系統ID (T12 / S45 / C7) lets the same file be imported back to update those items; rows without
+  one are created. 備註 is free space for the reader and is ignored on import.
+Printing: A4 landscape, fit to one page wide, header row repeated, page numbers in the footer;
+the 系統ID column is outside the print area.
 The caller passes only cards the user may see (routes/tasks.py export_xlsx).
 """
 import io
 import re
 from datetime import date, datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
 
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
 
-STATUS = {"recurring": "週期工作", "overdue": "過期未結案", "new": "New（新建）", "ongoing": "On going（進行中）",
-          "pending": "Pending（待確認）", "onhold": "On hold（暫緩）", "complete": "Complete（完成）", "canceled": "Canceled（取消）"}
+STATUS_ZH = {"recurring": "週期工作", "overdue": "過期未結案", "new": "新建", "ongoing": "進行中", "pending": "待確認",
+             "onhold": "暫緩", "complete": "完成", "canceled": "取消"}
 PRIORITY = {"low": "低", "normal": "一般", "high": "高"}
-REMIND = {0: "到期時", 15: "15 分鐘前", 60: "1 小時前", 1440: "1 天前", 2880: "2 天前", 10080: "1 週前"}
-REPEAT_UNIT = {"daily": "天", "weekly": "週", "monthly": "個月", "yearly": "年"}
-WEEK = "一二三四五六日"
-HEAD_FILL = PatternFill("solid", fgColor="E8EAF6")
+KIND = {"card": "主任務", "sub": "子任務", "collab": "協作"}
+COLLAB_DONE, COLLAB_OPEN = "完成", "未完成"
 ILLEGAL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")           # characters Excel refuses
+STATUS_FILL = {"recurring": "CCFBF1", "overdue": "FFE4E6", "new": "F1F5F9", "ongoing": "DBEAFE", "pending": "FEF3C7",
+               "onhold": "F3E8FF", "complete": "D1FAE5", "canceled": "FEE2E2"}
+HEAD_FILL = PatternFill("solid", fgColor="1E3A8A")
+CARD_FILL = PatternFill("solid", fgColor="EEF2FF")
+THIN = Side(style="thin", color="CBD5E1")
+BOX = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
+SHEET = "工作報告"
+HEADER_ROW = 5
+# (header, width, kind)
+COLUMNS = [("編號", 7, ""), ("類型", 8, ""), ("項目", 44, "wrap"), ("負責人", 16, "wrap"), ("狀態", 11, ""), ("優先", 6, ""),
+           ("開始", 16, "date"), ("到期", 16, "date"), ("完成%", 8, "pct"), ("預估(h)", 8, "hours"), ("實際(h)", 8, "hours"),
+           ("最新進度／說明", 52, "wrap"), ("備註", 22, "wrap"), ("系統ID", 9, "")]
+COL = {c[0]: i for i, c in enumerate(COLUMNS)}
+PRINT_COLS = len(COLUMNS) - 1                                  # 系統ID is not printed
 
 
 def _txt(v):
@@ -51,247 +71,302 @@ def _dt(v):
 
 
 def _hours(minutes):
-    return round((minutes or 0) / 60, 2) if minutes else None
+    return round(minutes / 60, 2) if minutes else None
 
 
-def repeat_text(rule, every):
-    if not rule:
+def _one_line(text, limit=240):
+    s = " ".join((text or "").split())
+    return s if len(s) <= limit else s[:limit - 1] + "…"
+
+
+def _md(ts):
+    d = _dt(ts)
+    return f"{d.month}/{d.day}" if isinstance(d, (date, datetime)) else ""
+
+
+def lead_and_collaborators(card: dict, subtasks: list):
+    """主責 and the collaborators who count (same rule as the board): lead = creator if also an assignee,
+    else the first assignee, else the creator; collaborators = other assignees and @mentioned people
+    without a subtask of their own (a creator who only handed the card out is not one)."""
+    assignees = card.get("assignees") or []
+    owner = card.get("owner")
+    lead = next((a for a in assignees if owner and a["id"] == owner["id"]), None) or (assignees[0] if assignees else owner)
+    with_sub = {s["assignee_id"] for s in subtasks if s["assignee_id"]}
+    seen = {lead["id"]} if lead else set()
+    out = []
+    for p, why in [*[(a, "共同負責") for a in assignees], *[(m, "@協作") for m in card.get("mentions") or []]]:
+        if p["id"] in seen or p["id"] in with_sub:
+            continue
+        seen.add(p["id"])
+        out.append({**p, "why": why})
+    return lead, out
+
+
+def _latest(comments: list, names: Dict[int, str], under: Optional[int]):
+    """Newest comment in a thread: under=None → the card's own threads (not subtasks); else replies to that subtask."""
+    pick = None
+    roots = {c["id"]: c for c in comments if c["parent_id"] is None}
+    for c in comments:
+        if under is None:
+            root = roots.get(c["parent_id"]) if c["parent_id"] else c
+            if not root or root["is_task"]:
+                continue
+        elif c["parent_id"] != under:
+            continue
+        if not (c["body"] or "").strip():
+            continue
+        if pick is None or (c["created_at"] or "", c["id"]) > (pick["created_at"] or "", pick["id"]):
+            pick = c
+    if not pick:
         return None
-    kind, _, arg = rule.partition(":")
-    n = every or 1
-    if kind == "weekdays":
-        return "每個工作日"
-    if kind == "weekly" and arg:
-        days = "、".join("週" + WEEK[int(d) - 1] for d in arg.split(",") if d.isdigit() and 1 <= int(d) <= 7)
-        return (f"每 {n} 週" if n > 1 else "每週") + (f"（{days}）" if days else "")
-    if kind == "monthly" and arg:
-        return (f"每 {n} 個月" if n > 1 else "每月") + f" {arg} 日"
-    unit = REPEAT_UNIT.get(kind, kind)
-    return f"每 {n} {unit}" if n > 1 else f"每{unit}"
+    who = names.get(pick["user_id"]) if pick["user_id"] else None
+    return f"{_md(pick['created_at'])} {who or '本機'}：{_one_line(pick['body'])}"
 
 
-def _sheet(wb, title, columns, rows, first=False):
-    ws = wb.active if first else wb.create_sheet()
-    ws.title = title
-    ws.append([c[0] for c in columns])
-    for cell in ws[1]:
-        cell.font = Font(bold=True)
-        cell.fill = HEAD_FILL
-        cell.alignment = Alignment(vertical="center")
-    for r in rows:
-        ws.append(r)
-    for i, (name, width, kind) in enumerate(columns, start=1):
-        letter = get_column_letter(i)
-        ws.column_dimensions[letter].width = width
-        fmt = {"date": "yyyy-mm-dd", "datetime": "yyyy-mm-dd hh:mm", "hours": "0.00", "pct": "0%"}.get(kind)
-        for cell in ws[letter][1:]:
-            if fmt and not isinstance(cell.value, str):
-                # an all-day date stays a date; a date with a time shows the time
-                cell.number_format = "yyyy-mm-dd" if kind == "datetime" and type(cell.value) is date else fmt
-            if kind == "wrap":
-                cell.alignment = Alignment(wrap_text=True, vertical="top")
-            elif kind != "wrap":
-                cell.alignment = Alignment(vertical="top")
-    ws.freeze_panes = "B2" if len(columns) > 2 else "A2"
-    if rows:
-        ws.auto_filter.ref = f"A1:{get_column_letter(len(columns))}{len(rows) + 1}"
-    return ws
+def _is_late(due, status, today: date) -> bool:
+    if not due or status in ("complete", "canceled"):
+        return False
+    d = due if isinstance(due, date) and not isinstance(due, datetime) else due.date() if isinstance(due, datetime) else None
+    return bool(d and d < today)
 
 
-def build(cards: List[dict], subtasks: Dict[int, list], comments: Dict[int, list], times: Dict[int, list],
-          files: Dict[int, list], names: Dict[int, str], op_url: str = "") -> bytes:
-    """cards: dict rows (+ owner_id, assignees, mentions, departments, op_work_package); the other
-    dicts are keyed by card id. names: user id → display name."""
-    who = lambda uid: names.get(uid) if uid else None
-    wb = Workbook()
-
-    card_rows = []
-    for t in cards:
-        subs = subtasks.get(t["id"], [])
-        counted = [s for s in subs if s["status"] != "canceled"]
-        done = sum(1 for s in counted if s["status"] == "complete")
-        est = sum(s["estimate_minutes"] or 0 for s in subs)
-        spent = sum(e["minutes"] or 0 for e in times.get(t["id"], []))
-        wp = t.get("op_work_package")
-        card_rows.append([
-            t["id"], _txt(t["title"]), STATUS.get(t["status"], t["status"]), PRIORITY.get(t["priority"], t["priority"]),
-            _dt(t["start_at"]), _dt(t["due_at"]), REMIND.get(t["remind"]) if t["due_at"] else None,
-            repeat_text(t["repeat"], t["repeat_every"]),
-            _txt(who(t["owner_id"])), _txt("、".join(t.get("assignees") or [])) or None, _txt("、".join(t.get("mentions") or [])) or None,
-            _txt("、".join(t.get("departments") or [])) or None,
-            f"{done}/{len(counted)}" if subs else None, (done / len(counted)) if counted else None,
-            _hours(est), _hours(spent), len(comments.get(t["id"], [])) or None,
-            _txt("、".join(f["name"] for f in files.get(t["id"], []) if f["comment_id"] is None)) or None,
-            _dt(t["created_at"]), _dt(t["updated_at"]), _dt(t["completed_at"]),
-            (f"#{wp}" if wp else None), _txt(t["description"]),
-        ])
-    _sheet(wb, "卡片", [
-        ("ID", 7, ""), ("標題", 36, "wrap"), ("狀態", 18, ""), ("優先", 7, ""), ("開始", 16, "datetime"), ("到期", 16, "datetime"),
-        ("提醒", 11, ""), ("重複", 16, ""), ("建立者", 12, ""), ("負責人", 18, ""), ("協作", 18, ""), ("部門", 14, ""),
-        ("子任務完成", 11, ""), ("進度", 8, "pct"), ("預估工時(h)", 11, "hours"), ("已記錄工時(h)", 13, "hours"), ("留言數", 8, ""),
-        ("附件", 24, "wrap"), ("建立時間(UTC)", 17, "datetime"), ("更新時間(UTC)", 17, "datetime"), ("完成時間(UTC)", 17, "datetime"),
-        ("OpenProject", 12, ""), ("說明", 60, "wrap"),
-    ], card_rows, first=True)
-
-    title_of = {t["id"]: t["title"] for t in cards}
-    sub_rows, sub_title = [], {}
-    for t in cards:
-        for n, s in enumerate(subtasks.get(t["id"], []), start=1):
-            sub_title[s["id"]] = s["title"]
-            spent = sum(e["minutes"] or 0 for e in times.get(t["id"], []) if e["comment_id"] == s["id"])
-            desc = s["body"] if s["body"] and s["body"].strip() != (s["title"] or "").strip() else None
-            sub_rows.append([
-                t["id"], _txt(t["title"]), n, _txt(s["title"]), STATUS.get(s["status"] or "new"), PRIORITY.get(s["priority"] or "normal"),
-                _txt(who(s["assignee_id"])), _dt(s["start_at"]), _dt(s["due_at"]), REMIND.get(s["remind"]) if s["due_at"] else None,
-                _hours(s["estimate_minutes"]), _hours(spent), _dt(s["completed_at"]),
-                _txt("、".join(f["name"] for f in files.get(t["id"], []) if f["comment_id"] == s["id"])) or None, _txt(desc),
-            ])
-    _sheet(wb, "子任務", [
-        ("卡片 ID", 8, ""), ("卡片", 28, "wrap"), ("#", 5, ""), ("子任務", 32, "wrap"), ("狀態", 18, ""), ("優先", 7, ""),
-        ("負責人", 12, ""), ("開始", 16, "datetime"), ("到期", 16, "datetime"), ("提醒", 11, ""), ("預估工時(h)", 11, "hours"),
-        ("已記錄工時(h)", 13, "hours"), ("完成時間(UTC)", 17, "datetime"), ("附件", 24, "wrap"), ("說明", 50, "wrap"),
-    ], sub_rows)
-
-    com_rows = []
-    for t in cards:
-        rows = comments.get(t["id"], [])
-        by_id = {c["id"]: c for c in rows}
-        for c in rows:
-            if c["is_task"] and c["parent_id"] is None:
-                continue                                     # a subtask's text is in 子任務
-            root = by_id.get(c["parent_id"]) if c["parent_id"] else None
-            thread = (root and (root["title"] if root["is_task"] else None)) or None
-            com_rows.append([
-                t["id"], _txt(t["title"]), _txt(thread), _dt(c["created_at"]), _txt(who(c["user_id"]) or "本機"),
-                _txt(who(root["user_id"]) or "本機") if root else None, _txt(c["body"]),
-                _txt("、".join(f["name"] for f in files.get(t["id"], []) if f["comment_id"] == c["id"])) or None,
-                _dt(c["edited_at"]),
-            ])
-    _sheet(wb, "留言", [
-        ("卡片 ID", 8, ""), ("卡片", 28, "wrap"), ("子任務", 22, "wrap"), ("時間(UTC)", 17, "datetime"), ("作者", 12, ""),
-        ("回覆給", 12, ""), ("內容", 70, "wrap"), ("附件", 24, "wrap"), ("編輯時間(UTC)", 17, "datetime"),
-    ], com_rows)
-
-    time_rows = []
-    for t in cards:
-        for e in times.get(t["id"], []):
-            time_rows.append([t["id"], _txt(t["title"]), _txt(sub_title.get(e["comment_id"])), _txt(who(e["user_id"]) or "本機"),
-                              _dt(e["work_date"]), _hours(e["minutes"]), _txt(e["note"])])
-    _sheet(wb, "工時", [
-        ("卡片 ID", 8, ""), ("卡片", 28, "wrap"), ("子任務", 28, "wrap"), ("人員", 12, ""), ("日期", 12, "date"),
-        ("工時(h)", 9, "hours"), ("備註", 40, "wrap"),
-    ], time_rows)
-
-    out = io.BytesIO()
-    wb.save(out)
-    return out.getvalue()
-
-
-# ------------------------------------------------------------ one sheet, as a tree
-STATUS_FILL = {"recurring": "CCFBF1", "overdue": "FFE4E6", "new": "F1F5F9", "ongoing": "DBEAFE", "pending": "FEF3C7",
-               "onhold": "F3E8FF", "complete": "D1FAE5", "canceled": "FEE2E2"}
-KIND_FONT = {0: Font(bold=True, size=12), 1: Font(bold=True), 2: Font(color="555555")}
-
-
-def build_tree(cards: List[dict], subtasks: Dict[int, list], comments: Dict[int, list], times: Dict[int, list],
-               files: Dict[int, list], names: Dict[int, str]) -> bytes:
-    """Everything on one sheet with Excel row grouping (outline):
-         1      card
-         1.1      subtask            ← its replies and time entries one level below
-         —        comment on the card ← its replies one level below
-    so the +/- buttons on the left fold a card or a subtask, and filters still work on every column."""
-    who = lambda uid: (names.get(uid) if uid else None) or "本機"
+def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[int, list], times: Dict[int, list],
+                 names: Dict[int, str], author: str = "", now: Optional[datetime] = None) -> bytes:
+    """cards: enriched rows (owner / assignees / mentions as dicts with id, username, name, done).
+    subtasks / comments / times are keyed by card id; names maps user id → display name."""
+    now = now or datetime.now()
+    today = now.date()
     wb = Workbook()
     ws = wb.active
-    ws.title = "看板"
-    cols = [("編號", 8), ("類型", 8), ("標題／內容", 46), ("狀態", 17), ("優先", 6), ("負責人／作者", 13),
-            ("開始", 16), ("到期／時間", 16), ("提醒", 10), ("預估工時(h)", 11), ("已記錄工時(h)", 12), ("進度", 8),
-            ("附件", 22), ("說明", 50), ("重複", 14), ("部門", 12), ("卡片 ID", 8), ("OpenProject", 11), ("完成時間(UTC)", 16)]
-    ws.append([c[0] for c in cols])
-    for i, (_, w) in enumerate(cols, start=1):
-        ws.column_dimensions[get_column_letter(i)].width = w
-    for cell in ws[1]:
-        cell.font = Font(bold=True)
-        cell.fill = HEAD_FILL
-    ws.sheet_properties.outlinePr.summaryBelow = False       # the card / subtask row is above its children
-    rows = []                                                # (level, kind, values, status)
-
-    def files_of(card_id, comment_id):
-        return _txt("、".join(f["name"] for f in files.get(card_id, []) if f["comment_id"] == comment_id)) or None
+    ws.title = SHEET
+    rows = []                                            # (level, values, status, late)
+    tally, done_all, total_all, late_n = {}, 0, 0, 0
 
     for n, t in enumerate(cards, start=1):
         subs = subtasks.get(t["id"], [])
-        counted = [s for s in subs if s["status"] != "canceled"]
-        done = sum(1 for s in counted if s["status"] == "complete")
+        lead, collab = lead_and_collaborators(t, subs)
+        counted = [s for s in subs if (s["status"] or "new") != "canceled"]
+        done = sum(1 for s in counted if s["status"] == "complete") + sum(1 for c in collab if c.get("done"))
+        total = len(counted) + len(collab)
+        pct = (done / total) if total else (1.0 if t["status"] == "complete" else None)
         card_times = times.get(t["id"], [])
-        people = "、".join(t.get("assignees") or []) or (names.get(t["owner_id"]) if t.get("owner_id") else None)
-        wp = t.get("op_work_package")
-        rows.append((0, "卡片", [
-            str(n), "卡片", _txt(t["title"]), STATUS.get(t["status"], t["status"]), PRIORITY.get(t["priority"], t["priority"]),
-            _txt(people), _dt(t["start_at"]), _dt(t["due_at"]), REMIND.get(t["remind"]) if t["due_at"] else None,
-            _hours(sum(s["estimate_minutes"] or 0 for s in subs)), _hours(sum(e["minutes"] or 0 for e in card_times)),
-            (done / len(counted)) if counted else None, files_of(t["id"], None), _txt(t["description"]),
-            repeat_text(t["repeat"], t["repeat_every"]), _txt("、".join(t.get("departments") or [])) or None, t["id"],
-            f"#{wp}" if wp else None, _dt(t["completed_at"])], t["status"]))
-        all_comments = comments.get(t["id"], [])
-        replies = {}
-        for c in all_comments:
-            if c["parent_id"]:
-                replies.setdefault(c["parent_id"], []).append(c)
-
-        def reply_rows(parent, level):
-            for r in replies.get(parent["id"], []):
-                rows.append((level, "回覆", [
-                    None, "回覆", _txt(r["body"]), None, None, _txt(who(r["user_id"])), None, _dt(r["created_at"]), None,
-                    None, None, None, files_of(t["id"], r["id"]), None, None, None, t["id"], None, None], None))
-
-        for m, s in enumerate(subs, start=1):
-            spent = [e for e in card_times if e["comment_id"] == s["id"]]
-            desc = s["body"] if s["body"] and s["body"].strip() != (s["title"] or "").strip() else None
+        est = sum(s["estimate_minutes"] or 0 for s in subs)
+        spent = sum(e["minutes"] or 0 for e in card_times)
+        tally[t["status"]] = tally.get(t["status"], 0) + 1
+        if total:
+            done_all, total_all = done_all + done, total_all + total
+        else:
+            done_all, total_all = done_all + (t["status"] == "complete"), total_all + (t["status"] != "canceled")
+        due = _dt(t["due_at"])
+        late = _is_late(due, t["status"], today) or t["status"] == "overdue"
+        late_n += late
+        cmts = comments.get(t["id"], [])
+        rows.append((0, [
+            str(n), KIND["card"], _txt(t["title"]), _txt(lead["name"]) if lead else None, STATUS_ZH.get(t["status"], t["status"]),
+            PRIORITY.get(t["priority"], t["priority"]), _dt(t["start_at"]), due, pct, _hours(est), _hours(spent),
+            _txt(_latest(cmts, names, None) or (_one_line(t["description"]) or None)), None, f"T{t['id']}"], t["status"], late))
+        m = 0
+        for s in subs:
+            m += 1
             st = s["status"] or "new"
-            rows.append((1, "子任務", [
-                f"{n}.{m}", "子任務", _txt(s["title"]), STATUS.get(st), PRIORITY.get(s["priority"] or "normal"),
-                _txt(names.get(s["assignee_id"])) if s["assignee_id"] else None, _dt(s["start_at"]), _dt(s["due_at"]),
-                REMIND.get(s["remind"]) if s["due_at"] else None, _hours(s["estimate_minutes"]), _hours(sum(e["minutes"] or 0 for e in spent)),
-                1.0 if st == "complete" else None, files_of(t["id"], s["id"]), _txt(desc), None, None, t["id"], None, _dt(s["completed_at"])], st))
-            reply_rows(s, 2)
-            for e in spent:
-                rows.append((2, "工時", [
-                    None, "工時", _txt(f"{who(e['user_id'])} {_hours(e['minutes'])}h" + (f"：{e['note']}" if e["note"] else "")), None, None,
-                    _txt(who(e["user_id"])), None, _dt(e["work_date"]), None, None, _hours(e["minutes"]), None, None, None, None, None,
-                    t["id"], None, None], None))
-        for c in all_comments:
-            if c["parent_id"] is None and not c["is_task"]:
-                rows.append((1, "留言", [
-                    None, "留言", _txt(c["body"]), None, None, _txt(who(c["user_id"])), None, _dt(c["created_at"]), None,
-                    None, None, None, files_of(t["id"], c["id"]), None, None, None, t["id"], None, None], None))
-                reply_rows(c, 2)
+            desc = s["body"] if s["body"] and s["body"].strip() != (s["title"] or "").strip() else None
+            sdue = _dt(s["due_at"])
+            rows.append((1, [
+                f"{n}.{m}", KIND["sub"], _txt("└ " + (s["title"] or "子任務")), _txt(names.get(s["assignee_id"])) if s["assignee_id"] else None,
+                STATUS_ZH.get(st, st), PRIORITY.get(s["priority"] or "normal"), _dt(s["start_at"]), sdue,
+                1.0 if st == "complete" else 0.0 if st != "canceled" else None, _hours(s["estimate_minutes"]),
+                _hours(sum(e["minutes"] or 0 for e in card_times if e["comment_id"] == s["id"])),
+                _txt(_latest(cmts, names, s["id"]) or (_one_line(desc) or None)), None, f"S{s['id']}"], st, _is_late(sdue, st, today)))
+        for c in collab:
+            m += 1
+            rows.append((1, [
+                f"{n}.{m}", KIND["collab"], _txt(f"└ 協作（{c['why']}）"), _txt(c["name"]), COLLAB_DONE if c.get("done") else COLLAB_OPEN,
+                None, None, None, 1.0 if c.get("done") else 0.0, None, None, None, None, f"C{c['id']}"],
+                "complete" if c.get("done") else None, False))
 
-    for level, kind, values, status in rows:
-        if level and isinstance(values[2], str):          # visible tree in every viewer (some ignore cell indent)
-            values[2] = "　" * (level - 1) + "└ " + values[2]
-        ws.append(values)
-        r = ws.max_row
+    # ---- report header
+    last_col = get_column_letter(PRINT_COLS)
+    ws["A1"] = "工作進度報告"
+    ws["A1"].font = Font(bold=True, size=16, color="1E3A8A")
+    ws["A2"] = _txt(f"製表人：{author or '—'}　　製表時間：{now:%Y-%m-%d %H:%M}　　範圍：{len(cards)} 項主任務")
+    ws["A2"].font = Font(color="475569")
+    order = ["overdue", "ongoing", "pending", "onhold", "new", "recurring", "complete", "canceled"]
+    parts = [f"{STATUS_ZH[k]} {tally[k]}" for k in order if tally.get(k)]
+    overall = f"整體完成率 {round(done_all / total_all * 100)}%" if total_all else ""
+    ws["A3"] = _txt("　".join(x for x in ["／".join(parts), overall, f"逾期 {late_n} 項" if late_n else ""] if x))
+    ws["A3"].font = Font(bold=True)
+    for r in (1, 2, 3):
+        ws.merge_cells(f"A{r}:{last_col}{r}")
+        ws.row_dimensions[r].height = 26 if r == 1 else 18
+    # ---- table
+    for i, (name, width, _) in enumerate(COLUMNS, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = width
+        cell = ws.cell(row=HEADER_ROW, column=i, value=name)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = HEAD_FILL if name != "系統ID" else PatternFill("solid", fgColor="94A3B8")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = BOX
+    ws.row_dimensions[HEADER_ROW].height = 22
+    ws.sheet_properties.outlinePr.summaryBelow = False          # the card row is above its children
+    r = HEADER_ROW
+    for level, values, status, late in rows:
+        r += 1
+        for i, v in enumerate(values, start=1):
+            ws.cell(row=r, column=i, value=v)
         if level:
-            ws.row_dimensions[r].outline_level = level
-        font = KIND_FONT.get(level)
-        fill = PatternFill("solid", fgColor=STATUS_FILL[status]) if status in STATUS_FILL and level < 2 else None
+            ws.row_dimensions[r].outline_level = 1
         for i, cell in enumerate(ws[r], start=1):
-            name = cols[i - 1][0]
-            wrap = name in ("標題／內容", "說明", "附件")
-            cell.alignment = Alignment(vertical="top", wrap_text=wrap, indent=level if name == "標題／內容" else 0)
-            if font and name in ("編號", "標題／內容"):
-                cell.font = font
-            if fill and name in ("編號", "類型", "標題／內容", "狀態"):
-                cell.fill = fill
-            if isinstance(cell.value, (int, float)) and name.endswith("(h)"):
-                cell.number_format = "0.00"
-            elif name == "進度" and cell.value is not None:
+            name, _, kind = COLUMNS[i - 1]
+            cell.border = BOX
+            cell.alignment = Alignment(vertical="top", wrap_text=kind == "wrap",
+                                       horizontal="center" if name in ("編號", "類型", "狀態", "優先", "完成%") else None)
+            if level == 0:
+                cell.fill = CARD_FILL
+                if name in ("編號", "項目"):
+                    cell.font = Font(bold=True)
+            if name == "狀態" and status in STATUS_FILL:
+                cell.fill = PatternFill("solid", fgColor=STATUS_FILL[status])
+            if kind == "pct" and cell.value is not None:
                 cell.number_format = "0%"
-            elif name in ("開始", "到期／時間", "完成時間(UTC)") and cell.value is not None and not isinstance(cell.value, str):
+            elif kind == "hours" and cell.value is not None:
+                cell.number_format = "0.0#"
+            elif kind == "date" and cell.value is not None and not isinstance(cell.value, str):
                 cell.number_format = "yyyy-mm-dd" if type(cell.value) is date else "yyyy-mm-dd hh:mm"
-    ws.freeze_panes = "D2"
-    ws.auto_filter.ref = f"A1:{get_column_letter(len(cols))}{max(2, ws.max_row)}"
+            if name == "到期" and late:
+                cell.font = Font(bold=True, color="DC2626")
+            if name == "系統ID":
+                cell.font = Font(color="94A3B8", size=9)
+    last = max(r, HEADER_ROW + 1)
+    # ---- helpers for whoever edits the file before importing
+    dv = DataValidation(type="list", allow_blank=True, formula1='"' + ",".join(list(STATUS_ZH.values()) + [COLLAB_OPEN]) + '"')
+    dv_p = DataValidation(type="list", allow_blank=True, formula1='"低,一般,高"')
+    dv_k = DataValidation(type="list", allow_blank=True, formula1='"主任務,子任務,協作"')
+    for d, col in ((dv, "狀態"), (dv_p, "優先"), (dv_k, "類型")):
+        letter = get_column_letter(COL[col] + 1)
+        d.add(f"{letter}{HEADER_ROW + 1}:{letter}{HEADER_ROW + 1000}")
+        ws.add_data_validation(d)
+    ws.freeze_panes = f"D{HEADER_ROW + 1}"
+    ws.auto_filter.ref = f"A{HEADER_ROW}:{get_column_letter(len(COLUMNS))}{last}"
+    # ---- printing
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.print_title_rows = f"{HEADER_ROW}:{HEADER_ROW}"
+    ws.print_area = f"A1:{last_col}{last}"
+    ws.page_margins.left = ws.page_margins.right = 0.4
+    ws.page_margins.top, ws.page_margins.bottom, ws.page_margins.footer = 0.6, 0.75, 0.3
+    ws.oddFooter.center.text = "第 &P 頁，共 &N 頁"
+    ws.oddFooter.right.text = f"{now:%Y-%m-%d}"
     out = io.BytesIO()
     wb.save(out)
     return out.getvalue()
+
+
+# ------------------------------------------------------------------ import
+STATUS_IN = {**{v: k for k, v in STATUS_ZH.items()}, **{k: k for k in STATUS_ZH},
+             "on going": "ongoing", "on hold": "onhold", "未開始": "new", "已完成": "complete", "已取消": "canceled"}
+PRIORITY_IN = {"低": "low", "一般": "normal", "中": "normal", "普通": "normal", "高": "high", "low": "low", "normal": "normal", "high": "high"}
+ID_RE = re.compile(r"^\s*([TSC])\s*(\d+)\s*$", re.I)
+
+
+class ImportError_(ValueError):
+    pass
+
+
+def _cell_date(v):
+    """A date cell → 'YYYY-MM-DD' / 'YYYY-MM-DDTHH:MM'. Raises ValueError for text it cannot read."""
+    if v is None or v == "":
+        return None
+    if isinstance(v, datetime):
+        return v.strftime("%Y-%m-%d") if (v.hour, v.minute) == (0, 0) else v.strftime("%Y-%m-%dT%H:%M")
+    if isinstance(v, date):
+        return v.isoformat()
+    s = str(v).strip().replace("/", "-").replace(".", "-")
+    m = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?$", s)
+    if not m:
+        raise ValueError(f"看不懂的日期「{v}」（請用 2026-12-31 或 2026/12/31 14:00）")
+    y, mo, d, hh, mm = m.groups()
+    datetime(int(y), int(mo), int(d))
+    return f"{int(y):04d}-{int(mo):02d}-{int(d):02d}" + (f"T{int(hh):02d}:{mm}" if hh else "")
+
+
+def _clean_title(v) -> str:
+    s = str(v or "").strip()
+    s = re.sub(r"^[　\s]*└\s*", "", s)
+    return s.lstrip("'")
+
+
+def parse(data: bytes) -> List[dict]:
+    """Read a report back: [{row, kind: card|sub|collab, id, title, person, status, priority, start_at, due_at,
+    estimate_minutes, errors: [...]}]. Raises ImportError_ when the file is not a report at all."""
+    try:
+        wb = load_workbook(io.BytesIO(data), data_only=True, read_only=True)
+    except Exception:
+        raise ImportError_("這不是 Excel 檔（.xlsx），或檔案已損毀")
+    ws = wb[SHEET] if SHEET in wb.sheetnames else wb.worksheets[0]
+    head, cols = None, {}
+    rows = list(ws.iter_rows(values_only=True, max_row=5000))
+    for i, r in enumerate(rows[:30]):
+        names = [str(c).strip() if c is not None else "" for c in r]
+        if "項目" in names and ("類型" in names or "編號" in names):
+            head, cols = i, {n: j for j, n in enumerate(names) if n}
+            break
+    if head is None:
+        raise ImportError_("找不到表頭（需要「項目」與「類型」或「編號」欄）。請用看板匯出的報告格式")
+    get = lambda r, name: r[cols[name]] if name in cols and cols[name] < len(r) else None
+    out = []
+    for i, r in enumerate(rows[head + 1:], start=head + 2):
+        title = _clean_title(get(r, "項目"))
+        sid = str(get(r, "系統ID") or "").strip()
+        kind_txt = str(get(r, "類型") or "").strip()
+        num = str(get(r, "編號") or "").strip()
+        if not title and not sid and not kind_txt:
+            continue
+        item = {"row": i, "errors": [], "title": title}
+        m = ID_RE.match(sid) if sid else None
+        if sid and not m:
+            item["errors"].append(f"系統ID「{sid}」格式不對（應為 T12／S45／C7，新項目請留空）")
+        prefix = m.group(1).upper() if m else None
+        item["id"] = int(m.group(2)) if m else None
+        kind = {"主任務": "card", "卡片": "card", "子任務": "sub", "協作": "collab"}.get(kind_txt) \
+            or {"T": "card", "S": "sub", "C": "collab"}.get(prefix) or ("sub" if "." in num else "card")
+        if prefix and {"T": "card", "S": "sub", "C": "collab"}[prefix] != kind:
+            item["errors"].append(f"類型「{kind_txt}」和系統ID「{sid}」不一致")
+        item["kind"] = kind
+        person = str(get(r, "負責人") or "").strip()
+        item["person"] = person or None
+        st = str(get(r, "狀態") or "").strip()
+        if kind == "collab":
+            item["done"] = None if not st else st in (COLLAB_DONE, "complete", "已完成")
+        elif st:
+            key = STATUS_IN.get(st) or STATUS_IN.get(st.lower()) or STATUS_IN.get(re.sub(r"[（(].*$", "", st).strip().lower())
+            if not key:
+                item["errors"].append(f"狀態「{st}」不認得（可用：{'、'.join(STATUS_ZH.values())}）")
+            item["status"] = key
+        pr = str(get(r, "優先") or "").strip()
+        if pr and kind != "collab":
+            item["priority"] = PRIORITY_IN.get(pr) or PRIORITY_IN.get(pr.lower())
+            if not item["priority"]:
+                item["errors"].append(f"優先「{pr}」不認得（低／一般／高）")
+        for col, key in (("開始", "start_at"), ("到期", "due_at")):
+            try:
+                v = _cell_date(get(r, col))
+                if v:
+                    item[key] = v
+            except ValueError as e:
+                item["errors"].append(str(e))
+        est = get(r, "預估(h)")
+        if kind == "sub" and est not in (None, ""):
+            try:
+                item["estimate_minutes"] = max(0, round(float(est) * 60))
+            except (TypeError, ValueError):
+                item["errors"].append(f"預估工時「{est}」不是數字")
+        if kind != "collab" and not title:
+            item["errors"].append("項目（名稱）是空的")
+        out.append(item)
+        if len(out) > 2000:
+            raise ImportError_("一次最多匯入 2000 列")
+    wb.close()
+    return out

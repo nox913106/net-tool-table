@@ -671,12 +671,12 @@ def _snippet(text: str, kw: str, width: int = 60) -> str:
 
 class ExportIn(BaseModel):
     ids: List[int] = []                    # empty = every card I can see
-    layout: str = "tree"                   # tree = one sheet, card > subtask > replies / time; sheets = 卡片 / 子任務 / 留言 / 工時
+    layout: str = "report"                 # kept for old clients; there is one layout now
 
 
 @router.post("/export.xlsx")
 async def export_xlsx(body: ExportIn, request: Request):
-    """Selected cards (only ones this user may see) → .xlsx with 卡片 / 子任務 / 留言 / 工時 sheets."""
+    """Selected cards (only ones this user may see) → a one-sheet progress report (card > subtasks / collaborators)."""
     from fastapi.responses import Response
     from .. import xlsx_export
     user = current_user(request)
@@ -703,33 +703,300 @@ async def export_xlsx(body: ExportIn, request: Request):
                 subtasks.setdefault(c["task_id"], []).append(c)
         for lst in subtasks.values():
             lst.sort(key=lambda c: (c["sort_order"] if c["sort_order"] is not None else c["id"], c["id"]))
-        cur = await db.execute(f"""SELECT * FROM task_time WHERE task_id IN ({marks}) AND minutes IS NOT NULL
-                                   ORDER BY COALESCE(work_date, created_at), id""", found)
+        cur = await db.execute(f"SELECT * FROM task_time WHERE task_id IN ({marks}) AND minutes IS NOT NULL", found)
         times = {}
         for e in await cur.fetchall():
             times.setdefault(e["task_id"], []).append(e)
-        cur = await db.execute(f"SELECT task_id, comment_id, name, stored FROM task_images WHERE task_id IN ({marks}) AND pending = 0 ORDER BY id", found)
-        files = {}
-        for f in await cur.fetchall():
-            files.setdefault(f["task_id"], []).append({"comment_id": f["comment_id"], "name": f["name"] or f["stored"]})
         cur = await db.execute("SELECT id, username, display_name FROM users")
         names = {u["id"]: u["display_name"] or u["username"] for u in await cur.fetchall()}
     finally:
         await db.close()
-    for c in cards:
-        c["assignees"] = [p["name"] for p in c.get("assignees") or []]
-        c["mentions"] = [p["name"] for p in c.get("mentions") or []]
-        c["op_work_package"] = (c.get("op") or {}).get("work_package")
-    builder = xlsx_export.build if body.layout == "sheets" else xlsx_export.build_tree
-    data = await asyncio.get_running_loop().run_in_executor(None, builder, cards, subtasks, comments, times, files, names)
     from datetime import datetime
+    author = user.get("display_name") or user.get("username") or ""
+    data = await asyncio.get_running_loop().run_in_executor(
+        None, lambda: xlsx_export.build_report(cards, subtasks, comments, times, names, author))
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
     safe = re.sub(r'[\\/:*?"<>|\s]+', "_", cards[0]["title"])[:60]
-    name = f"看板卡片-{stamp}.xlsx" if len(cards) > 1 else f"{safe}-{stamp}.xlsx"
+    name = f"工作進度報告-{stamp}.xlsx" if len(cards) > 1 else f"{safe}-{stamp}.xlsx"
     return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={
-        "Content-Disposition": f"attachment; filename=\"cards-{stamp}.xlsx\"; filename*=UTF-8''{quote(name)}",
+        "Content-Disposition": f"attachment; filename=\"report-{stamp}.xlsx\"; filename*=UTF-8''{quote(name)}",
         "Cache-Control": "no-store",
     })
+
+
+# ------------------------------------------------------------------ Excel import (same report format)
+IMPORT_MAX = 5 * 1024 * 1024
+ZH = {"recurring": "週期工作", "overdue": "過期未結案", "new": "新建", "ongoing": "進行中", "pending": "待確認",
+      "onhold": "暫緩", "complete": "完成", "canceled": "取消"}
+PRIO_ZH = {"low": "低", "normal": "一般", "high": "高"}
+
+
+class _People:
+    def __init__(self, rows):
+        self.by_id = {r["id"]: r for r in rows}
+        self.rows = rows
+
+    def name(self, uid):
+        u = self.by_id.get(uid)
+        return (u["display_name"] or u["username"]) if u else None
+
+    def resolve(self, text: str):
+        """'王小明' / 'usera' / '王小明 (usera)' → user row; raises ValueError."""
+        t = (text or "").strip()
+        m = re.search(r"[（(]\s*([^()（）]+?)\s*[)）]\s*$", t)
+        if m:
+            t = m.group(1)
+        hits = [u for u in self.rows if (u["username"] or "").lower() == t.lower()]
+        if not hits:
+            hits = [u for u in self.rows if (u["display_name"] or "") == t]
+        if not hits:
+            hits = [u for u in self.rows if t and t in (u["display_name"] or "")]
+        if len(hits) == 1:
+            return hits[0]
+        raise ValueError(f"找不到人員「{text}」" if not hits else f"「{text}」對應到多個帳號，請改寫帳號（例如 王小明 (usera)）")
+
+
+def _diff(label, old, new, fmt=lambda v: v or "—"):
+    return f"{label}：{fmt(old)} → {fmt(new)}"
+
+
+async def _import_plan(items: List[dict], user: dict) -> List[dict]:
+    """Decide what each row would do. Returns rows for the preview, each with a private '_op' for apply."""
+    db = await get_db()
+    try:
+        cur = await db.execute("SELECT id, username, display_name FROM users WHERE COALESCE(active, 1) = 1")
+        people = _People([dict(r) for r in await cur.fetchall()])
+        acc = board_access(user)
+        can_assign = user.get("id") is None or acc["edit"] in ("all", "dept") or acc["team_edit"]
+        me = user.get("id")
+        plan, ctx = [], None
+        # which cards get subtasks in this file (their status is computed, not imported)
+        has_sub_rows = set()
+        owner = None
+        for it in items:
+            if it["kind"] == "card":
+                owner = it["row"]
+            elif it["kind"] == "sub" and owner:
+                has_sub_rows.add(owner)
+        for it in items:
+            out = {"row": it["row"], "kind": it["kind"], "title": it.get("title") or "", "action": "unchanged",
+                   "changes": [], "warnings": [], "errors": list(it["errors"]), "_op": None}
+            plan.append(out)
+            person = None
+            if it.get("person"):
+                try:
+                    person = people.resolve(it["person"])
+                except ValueError as e:
+                    (out["errors"] if it["kind"] != "card" else out["warnings"]).append(str(e))
+            if it["kind"] == "card":
+                ctx = {"row": it["row"], "id": None, "error": False, "subs": {}, "members": {}, "edit": True, "summary": False}
+                if it["id"]:
+                    try:
+                        t = await _get_visible(db, it["id"], user)
+                    except HTTPException:
+                        out["errors"].append(f"找不到卡片 T{it['id']}，或你沒有權限看")
+                        t = None
+                    if t:
+                        ctx.update(id=t["id"], edit=await _can_edit(db, t["id"], user))
+                        cur = await db.execute("""SELECT id, title, status, priority, start_at, due_at, assignee_id, estimate_minutes
+                                                  FROM task_comments WHERE task_id = ? AND is_task = 1 AND parent_id IS NULL""", (t["id"],))
+                        ctx["subs"] = {r["id"]: dict(r) for r in await cur.fetchall()}
+                        cur = await db.execute("SELECT user_id, role, done_at FROM task_members WHERE task_id = ? AND role IN ('assignee', 'mention')", (t["id"],))
+                        for r in await cur.fetchall():
+                            ctx["members"].setdefault(r["user_id"], {"roles": set(), "done": bool(r["done_at"])})["roles"].add(r["role"])
+                        ctx["summary"] = any((s["status"] or "new") != "canceled" for s in ctx["subs"].values()) or it["row"] in has_sub_rows
+                        out["title"] = it["title"] or t["title"]
+                        changes = {}
+                        if it["title"] and it["title"] != t["title"]:
+                            changes["title"] = it["title"]; out["changes"].append(_diff("名稱", t["title"], it["title"]))
+                        if it.get("priority") and it["priority"] != t["priority"]:
+                            changes["priority"] = it["priority"]; out["changes"].append(_diff("優先", PRIO_ZH.get(t["priority"]), PRIO_ZH[it["priority"]]))
+                        for k, label in (("start_at", "開始"), ("due_at", "到期")):
+                            if it.get(k) and it[k] != (t[k] or ""):
+                                changes[k] = it[k]; out["changes"].append(_diff(label, t[k], it[k]))
+                        if it.get("status") and it["status"] != t["status"]:
+                            if ctx["summary"] and it["status"] != "canceled" and t["status"] != "canceled":
+                                out["warnings"].append("有子任務的卡片狀態依子任務自動計算，狀態欄已略過")
+                            else:
+                                changes["status"] = it["status"]; out["changes"].append(_diff("狀態", ZH.get(t["status"]), ZH.get(it["status"])))
+                        if person and person["id"] not in ctx["members"] and person["id"] != t["owner_id"]:
+                            out["warnings"].append("主責人變更請在系統內調整，負責人欄已略過")
+                        if changes and not ctx["edit"]:
+                            out["errors"].append("你沒有權限修改這張卡片")
+                        elif changes:
+                            out["action"], out["_op"] = "update", ("card_update", t["id"], changes)
+                else:
+                    fields = {"title": it["title"]}
+                    for k in ("priority", "start_at", "due_at"):
+                        if it.get(k):
+                            fields[k] = it[k]
+                    if it.get("status"):
+                        if it["row"] in has_sub_rows and it["status"] != "canceled":
+                            out["warnings"].append("有子任務的卡片狀態依子任務自動計算")
+                        else:
+                            fields["status"] = it["status"]
+                    if person:
+                        if can_assign:
+                            fields["assignees"] = [person["username"]]
+                            out["changes"].append(f"負責人：{people.name(person['id'])}")
+                        elif person["id"] != me:
+                            out["warnings"].append("你沒有指派權限，卡片會指派給你自己")
+                    out["action"], out["_op"] = "create", ("card_create", fields)
+                    out["changes"][:0] = [f"{ZH.get(fields.get('status', 'new'))}" + (f"，到期 {fields['due_at']}" if fields.get("due_at") else "")]
+                if out["errors"]:
+                    ctx["error"] = True
+                continue
+            # ---- children
+            if ctx is None:
+                out["errors"].append("這一列前面沒有主任務")
+                continue
+            if ctx["error"]:
+                out["action"] = "skip"
+                out["warnings"].append(f"所屬主任務（第 {ctx['row']} 列）有錯誤，略過")
+                continue
+            if it["kind"] == "sub":
+                fields = {}
+                if it["id"]:
+                    s = ctx["subs"].get(it["id"])
+                    if not s:
+                        out["errors"].append(f"S{it['id']} 不是這張卡片的子任務")
+                        continue
+                    out["title"] = it["title"] or s["title"]
+                    if it["title"] and it["title"] != s["title"]:
+                        fields["title"] = it["title"]; out["changes"].append(_diff("名稱", s["title"], it["title"]))
+                    if it.get("status") and it["status"] != (s["status"] or "new"):
+                        fields["status"] = it["status"]; out["changes"].append(_diff("狀態", ZH.get(s["status"] or "new"), ZH.get(it["status"])))
+                    if it.get("priority") and it["priority"] != (s["priority"] or "normal"):
+                        fields["priority"] = it["priority"]; out["changes"].append(_diff("優先", PRIO_ZH.get(s["priority"] or "normal"), PRIO_ZH[it["priority"]]))
+                    for k, label in (("start_at", "開始"), ("due_at", "到期")):
+                        if it.get(k) and it[k] != (s[k] or ""):
+                            fields[k] = it[k]; out["changes"].append(_diff(label, s[k], it[k]))
+                    if "estimate_minutes" in it and (it["estimate_minutes"] or None) != (s["estimate_minutes"] or None):
+                        fields["estimate_minutes"] = it["estimate_minutes"]
+                        out["changes"].append(_diff("預估", s["estimate_minutes"] and f"{s['estimate_minutes'] / 60:g}h", it["estimate_minutes"] and f"{it['estimate_minutes'] / 60:g}h"))
+                    if person and person["id"] != s["assignee_id"]:
+                        fields["assignee"] = person["username"]; out["changes"].append(_diff("負責人", people.name(s["assignee_id"]), people.name(person["id"])))
+                    if fields and not (ctx["edit"] or s["assignee_id"] == me) or ("assignee" in fields and not ctx["edit"]):
+                        out["errors"].append("你沒有權限修改這個子任務")
+                    elif fields:
+                        out["action"], out["_op"] = "update", ("sub_update", it["id"], fields)
+                else:
+                    if ctx["id"] and not ctx["edit"]:
+                        out["errors"].append("你沒有權限在這張卡片加子任務")
+                        continue
+                    fields = {k: it[k] for k in ("status", "priority", "start_at", "due_at", "estimate_minutes") if it.get(k)}
+                    if person:
+                        fields["assignee"] = person["username"]
+                    out["action"], out["_op"] = "create", ("sub_create", it["title"], fields)
+                    out["changes"].append("、".join(x for x in [ZH.get(fields.get("status", "new")), person and f"負責人 {people.name(person['id'])}",
+                                                                 fields.get("due_at") and f"到期 {fields['due_at']}"] if x))
+                continue
+            # collaborator
+            uid = it["id"] or (person and person["id"])
+            if not uid:
+                out["errors"].append("協作列需要負責人（人員）或系統ID")
+                continue
+            out["title"] = f"協作：{people.name(uid) or uid}"
+            m = ctx["members"].get(uid)
+            if m:
+                if it.get("done") is not None and it["done"] != m["done"]:
+                    out["changes"].append("標記為完成" if it["done"] else "改回未完成")
+                    if not (ctx["edit"] or uid == me):
+                        out["errors"].append("只有協作人自己或能編輯卡片的人可以改")
+                    else:
+                        out["action"], out["_op"] = "update", ("collab_done", uid, it["done"])
+            elif it["id"] and ctx["id"]:
+                out["errors"].append(f"C{it['id']} 不是這張卡片的協作人")
+            else:
+                if not can_assign:
+                    out["errors"].append("你沒有指派權限，無法加入協作人（可在卡片說明用 @帳號）")
+                    continue
+                out["action"], out["_op"] = "create", ("collab_add", people.by_id[uid]["username"], uid, bool(it.get("done")))
+                out["changes"].append("加入為共同負責" + ("，標記完成" if it.get("done") else ""))
+        for o in plan:
+            if o["errors"]:
+                o["action"], o["_op"] = "error", None
+        return plan
+    finally:
+        await db.close()
+
+
+async def _import_apply(plan: List[dict], request: Request):
+    card_id = None
+    for o in plan:
+        op = o["_op"]
+        if o["kind"] == "card":
+            card_id = None
+        try:
+            if o["kind"] == "card":
+                if op and op[0] == "card_create":
+                    card_id = (await create_task(TaskIn(**op[1]), request))["id"]
+                    o["id"] = f"T{card_id}"
+                else:
+                    if op:
+                        await update_task(op[1], TaskUpdate(**op[2]), request)
+                    card_id = int(o.get("_card") or 0) or (op[1] if op else None)
+                if op:
+                    o["done"] = True
+                continue
+            if not op:
+                continue
+            if card_id is None:
+                raise HTTPException(status_code=400, detail="所屬主任務沒有建立")
+            if op[0] == "sub_create":
+                cid = (await add_comment(card_id, CommentIn(body=op[1]), request))["id"]
+                await update_subtask(card_id, cid, SubtaskIn(is_task=True, title=op[1], **op[2]), request)
+                o["id"] = f"S{cid}"
+            elif op[0] == "sub_update":
+                await update_subtask(card_id, op[1], SubtaskIn(**op[2]), request)
+            elif op[0] == "collab_done":
+                await collab_done(card_id, op[1], CollabDoneIn(done=op[2]), request)
+            elif op[0] == "collab_add":
+                db = await get_db()
+                try:
+                    cur = await db.execute("""SELECT u.username FROM task_members m JOIN users u ON u.id = m.user_id
+                                              WHERE m.task_id = ? AND m.role = 'assignee' ORDER BY m.created_at""", (card_id,))
+                    current = [r[0] for r in await cur.fetchall()]
+                finally:
+                    await db.close()
+                await update_task(card_id, TaskUpdate(assignees=current + [op[1]]), request)
+                if op[3]:
+                    await collab_done(card_id, op[2], CollabDoneIn(done=True), request)
+            o["done"] = True
+        except HTTPException as e:
+            o["action"] = "error"
+            o["errors"].append(str(e.detail))
+            o["done"] = False
+
+
+@router.post("/import.xlsx")
+async def import_xlsx(request: Request, file: UploadFile = File(...), apply: bool = Form(False)):
+    """Read a report made by export.xlsx (possibly edited): apply=false → preview what would change;
+    apply=true → do it. Rows with 系統ID update those items, rows without one are created."""
+    from .. import xlsx_export
+    current_user(request)
+    data = await file.read(IMPORT_MAX + 1)
+    if len(data) > IMPORT_MAX:
+        raise HTTPException(status_code=400, detail="檔案太大（上限 5 MB）")
+    try:
+        items = await asyncio.get_running_loop().run_in_executor(None, xlsx_export.parse, data)
+    except xlsx_export.ImportError_ as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not items:
+        raise HTTPException(status_code=400, detail="檔案裡沒有任何項目")
+    user = current_user(request)
+    plan = await _import_plan(items, user)
+    # remember which existing card each child belongs to (apply walks the rows in order)
+    for o, it in zip(plan, items):
+        if it["kind"] == "card" and it.get("id"):
+            o["_card"] = it["id"]
+    if apply:
+        await _import_apply(plan, request)
+    counts = {}
+    for o in plan:
+        counts[o["action"]] = counts.get(o["action"], 0) + 1
+    return {"applied": apply, "counts": counts,
+            "rows": [{k: v for k, v in o.items() if not k.startswith("_")} for o in plan]}
 
 
 @router.get("/search")

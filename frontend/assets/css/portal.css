@@ -1217,3 +1217,32 @@ body.kb-selecting .view { padding-bottom: 90px; }
 .kb-collab-done input { width: 15px; height: 15px; accent-color: var(--success); margin: 0; }
 .kb-collab-done.on { color: var(--success); }
 .kb-tree-node.collab.done .kb-tree-sub { border-color: color-mix(in srgb, var(--success) 50%, transparent); }
+
+/* ---- Excel report import */
+.modal-card.kb-imp { width: min(980px, 100%); }
+.kb-imp .modal-body { min-height: 0; }
+.kb-imp .modal-head h3 { display: flex; align-items: center; gap: 8px; }
+.kb-imp .modal-head h3 svg { width: 18px; height: 18px; color: var(--accent-text); flex: none; }
+.kb-imp-pick { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.kb-imp-pick .hint { flex: 1; min-width: 220px; }
+.kb-imp-sum { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 14px 0 8px; }
+.kb-imp-counts { display: flex; gap: 6px; flex-wrap: wrap; }
+.kb-imp-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap;
+  background: var(--surface-2); color: var(--text-2); }
+.kb-imp-badge.is-create { background: #d1fae5; color: #047857; }
+.kb-imp-badge.is-update { background: #dbeafe; color: #1d4ed8; }
+.kb-imp-badge.is-error { background: #fee2e2; color: #b91c1c; }
+.kb-imp-badge.is-skip { background: #fef3c7; color: #92400e; }
+.kb-imp-table { border: 1px solid var(--border); border-radius: 12px; overflow: auto; }
+.kb-imp-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.kb-imp-table th { position: sticky; top: 0; background: var(--surface-2); text-align: left; padding: 7px 10px; font-weight: 700; white-space: nowrap; }
+.kb-imp-table td { padding: 6px 10px; border-top: 1px solid var(--border); vertical-align: top; }
+.kb-imp-table td.num { color: var(--text-3); width: 1%; white-space: nowrap; }
+.kb-imp-table td:nth-child(2), .kb-imp-table td:nth-child(4) { width: 1%; white-space: nowrap; }
+.kb-imp-table td.title { min-width: 180px; overflow-wrap: anywhere; }
+.kb-imp-table tr.k-card td { background: color-mix(in srgb, var(--accent-soft) 45%, transparent); }
+.kb-imp-table tr.k-card td.title { font-weight: 700; }
+.kb-imp-table td.notes { color: var(--text-2); min-width: 220px; overflow-wrap: anywhere; }
+.kb-imp-table td.notes .warn { color: #b45309; }
+.kb-imp-table td.notes .err { color: var(--danger); font-weight: 600; }
+.kb-imp-error { color: var(--danger); font-weight: 600; }

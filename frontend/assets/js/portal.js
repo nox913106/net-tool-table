@@ -645,7 +645,7 @@
       el('input', { type: 'checkbox', checked: hideClosed }), el('span', { class: 'track' }), el('span', { text: '隱藏完成／取消' }));
     const add = el('button', { class: 'btn btn-primary', type: 'button', html: svg('plus') + '新增卡片' });
     add.addEventListener('click', () => TTBoard.openEditor(null));
-    const pick = el('button', { class: 'btn', type: 'button', title: '多選卡片後匯出 Excel（也可以 Ctrl／⌘＋點卡片）', html: svg('check') + '選取／匯出' });
+    const pick = el('button', { class: 'btn', type: 'button', title: '多選卡片後匯出 Excel 工作進度報告，或匯入報告（也可以 Ctrl／⌘＋點卡片）', html: svg('check') + '選取／匯出' });
     // meeting view: one row per person (me, then everyone below me), columns by status
     let lanes = !!store.get('board-lanes', false);
     const layout = el('div', { class: 'segmented board-layout', role: 'group', title: '看板版面' },

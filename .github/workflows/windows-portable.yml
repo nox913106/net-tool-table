@@ -90,6 +90,10 @@ jobs:
             $sig = [IO.File]::ReadAllBytes($xlsx)[0..1]
             Write-Host "excel export → $((Get-Item $xlsx).Length) bytes"
             if ($sig[0] -ne 0x50 -or $sig[1] -ne 0x4B) { throw 'excel export is not an xlsx file' }
+            # the same report reads back (preview only: nothing changes)
+            $imp = Invoke-RestMethod "$B/api/tasks/import.xlsx" -Method Post -Headers $H -Form @{ file = Get-Item $xlsx; apply = 'false' }
+            Write-Host "excel import preview → $($imp.rows.Count) rows, unchanged=$($imp.counts.unchanged)"
+            if ($imp.rows.Count -lt 1 -or $imp.rows[0].action -ne 'unchanged') { throw 'excel import preview failed' }
             Invoke-RestMethod "$B/api/tasks/$($card.id)" -Method Delete -Headers $H | Out-Null
 
             $w = Invoke-RestMethod "$B/api/whoami"
