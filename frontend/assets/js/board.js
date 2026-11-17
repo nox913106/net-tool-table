@@ -79,19 +79,22 @@ const TTBoard = (() => {
       const count = el('strong', { class: 'kb-selbar-count' });
       const all = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', html: svg('check') + '全選目前顯示的' });
       const none = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '清除選取' });
-      const xls = el('button', { class: 'btn btn-sm btn-primary', type: 'button', html: svg('download') + '匯出 Excel' });
+      const xls = el('button', { class: 'btn btn-sm btn-primary', type: 'button', title: '一個分頁、卡片 > 子任務 > 回覆／工時的階層（可在 Excel 左側 +／− 折疊）', html: svg('download') + '匯出 Excel' });
+      const xlsSheets = el('button', { class: 'btn btn-sm btn-ghost kb-selbar-alt', type: 'button', title: '舊格式：卡片／子任務／留言／工時 各一個工作表', text: '分開工作表' });
       const done = el('button', { class: 'icon-btn', type: 'button', title: '結束選取（Esc）', 'aria-label': '結束選取', html: svg('x') });
       all.addEventListener('click', () => shownIds().forEach(i => toggleSelect(i, true)));
       none.addEventListener('click', () => [...selection].forEach(i => toggleSelect(i, false)));
-      xls.addEventListener('click', async () => {
+      const run = layout => async () => {
         if (!selection.size) { toast('先勾選要匯出的卡片', true); return; }
-        xls.disabled = true;
-        try { await exportXlsx([...selection]); } finally { xls.disabled = false; }
-      });
+        xls.disabled = xlsSheets.disabled = true;
+        try { await exportXlsx([...selection], layout); } finally { xls.disabled = xlsSheets.disabled = false; }
+      };
+      xls.addEventListener('click', run('tree'));
+      xlsSheets.addEventListener('click', run('sheets'));
       done.addEventListener('click', () => setSelecting(false));
       selBar = el('div', { class: 'kb-selbar', role: 'toolbar', 'aria-label': '已選取的卡片' },
         el('span', { class: 'kb-selbar-text' }, count, el('span', { class: 'hint', text: '點卡片或欄位標題的方框勾選' })),
-        all, none, el('span', { class: 'spacer' }), xls, done);
+        all, none, el('span', { class: 'spacer' }), xlsSheets, xls, done);
       selBar.count = count;
       document.body.append(selBar);
     }
@@ -99,10 +102,11 @@ const TTBoard = (() => {
   }
   document.addEventListener('keydown', e => { if (selecting && e.key === 'Escape' && !document.querySelector('.modal:not([hidden])')) setSelecting(false); });
 
-  /** Download the cards as an .xlsx (卡片 / 子任務 / 留言 / 工時). */
-  async function exportXlsx(ids) {
+  /** Download the cards as an .xlsx: one sheet as a card > subtask > reply / time tree (default),
+   *  or layout 'sheets' = 卡片 / 子任務 / 留言 / 工時 sheets. */
+  async function exportXlsx(ids, layout = 'tree') {
     try {
-      const res = await fetch('/api/tasks/export.xlsx', { method: 'POST', headers: { 'X-Tool-Table': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
+      const res = await fetch('/api/tasks/export.xlsx', { method: 'POST', headers: { 'X-Tool-Table': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, layout }) });
       if (!res.ok) {
         let msg = `HTTP ${res.status}`;
         try { msg = (await res.json()).detail || msg; } catch { /* not json */ }

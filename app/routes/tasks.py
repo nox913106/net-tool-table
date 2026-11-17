@@ -645,6 +645,7 @@ def _snippet(text: str, kw: str, width: int = 60) -> str:
 
 class ExportIn(BaseModel):
     ids: List[int] = []                    # empty = every card I can see
+    layout: str = "tree"                   # tree = one sheet, card > subtask > replies / time; sheets = 卡片 / 子任務 / 留言 / 工時
 
 
 @router.post("/export.xlsx")
@@ -693,7 +694,8 @@ async def export_xlsx(body: ExportIn, request: Request):
         c["assignees"] = [p["name"] for p in c.get("assignees") or []]
         c["mentions"] = [p["name"] for p in c.get("mentions") or []]
         c["op_work_package"] = (c.get("op") or {}).get("work_package")
-    data = await asyncio.get_running_loop().run_in_executor(None, xlsx_export.build, cards, subtasks, comments, times, files, names)
+    builder = xlsx_export.build if body.layout == "sheets" else xlsx_export.build_tree
+    data = await asyncio.get_running_loop().run_in_executor(None, builder, cards, subtasks, comments, times, files, names)
     from datetime import datetime
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
     safe = re.sub(r'[\\/:*?"<>|\s]+', "_", cards[0]["title"])[:60]

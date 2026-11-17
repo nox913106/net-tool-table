@@ -1119,3 +1119,4 @@ body.link-dragging .drop-overlay { display: grid; }
 .kb-selbar .btn svg { width: 14px; height: 14px; }
 body.kb-selecting .view { padding-bottom: 90px; }
 @media (max-width: 640px) { .kb-selbar .hint, .kb-selbar .btn-ghost:first-of-type { display: none; } }
+@media (max-width: 760px) { .kb-selbar-alt { display: none; } }
