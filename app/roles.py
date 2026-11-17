@@ -28,7 +28,7 @@ DEPT_ROLES = ("dept_admin", "dept_viewer")
 
 def is_sysadmin(user: dict) -> bool:
     """May use the admin panel (portal content, settings, accounts, system)."""
-    return user.get("role") in ("superadmin", "sysadmin") or user.get("id") is None
+    return user.get("role") in ("superadmin", "sysadmin") or user.get("id") is None or bool(user.get("local_admin"))
 
 
 def scope_departments(user: dict) -> List[str]:

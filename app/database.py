@@ -315,6 +315,10 @@ async def init_db():
             if cursor.rowcount == 0:
                 break
 
+        # Sync between standalone copies and the server (app/sync.py): uids, clocks, capture triggers
+        from . import sync
+        await sync.install(db)
+
         await db.commit()
         print(f"Database initialized at {DB_PATH}")
 

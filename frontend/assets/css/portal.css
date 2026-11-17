@@ -1306,3 +1306,51 @@ body.kb-selecting .view { padding-bottom: 90px; }
 .kb-meet-tag.is-blocked { background: #dc2626; color: #fff; }
 .kb-meet-tag.is-late { background: #ffe4e6; color: #be123c; }
 @media (max-width: 480px) { .brand .brand-text, .user-btn-name { display: none; } }
+
+/* ---------------------------------------------------------------- server sync (standalone copy) */
+.sync-pill {
+  display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-2);
+  font-size: 12.5px; font-weight: 600; white-space: nowrap; cursor: pointer; flex: none;
+}
+.sync-pill:hover { border-color: var(--accent); color: var(--text); }
+.sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex: none; }
+.sync-pill.is-ok .sync-dot { background: var(--success); }
+.sync-pill.is-busy .sync-dot { background: var(--accent); animation: sync-pulse 1s ease-in-out infinite; }
+.sync-pill.is-off .sync-dot { background: var(--warning); }
+.sync-pill.is-off { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); }
+.sync-pill.is-err .sync-dot { background: var(--danger); }
+.sync-pill.is-err { color: var(--danger); }
+.sync-conf { padding: 1px 7px; border-radius: 999px; background: var(--danger); color: #fff; font-size: 11px; }
+.sync-inline { cursor: default; height: 26px; }
+@keyframes sync-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .sync-pill.is-busy .sync-dot { animation: none; } }
+@media (max-width: 720px) { .topbar-right > .sync-pill .sync-text { display: none; } .topbar-right > .sync-pill { padding: 0 10px; } }
+
+.modal-card.sync-card { width: min(640px, 100%); }
+.sync-form { display: flex; flex-direction: column; gap: 12px; }
+.sync-check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
+.sync-err, .sync-err-text { color: var(--danger); font-size: 13px; }
+.sync-status { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.sync-kv { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px; align-items: center; font-size: 13px; }
+.sync-kv > span:first-child { color: var(--text-3); }
+.sync-kv > span:last-child { overflow-wrap: anywhere; }
+.sync-log { display: flex; flex-direction: column; gap: 10px; }
+.sync-log h4 { font-size: 14px; font-weight: 700; }
+.sync-conflict { border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--border)); border-radius: 12px; padding: 10px 12px; display: grid; gap: 8px; }
+.sync-c-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
+.sync-c-head .link-btn, .sync-c-head strong { font-weight: 700; overflow-wrap: anywhere; text-align: left; }
+.link-btn { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
+.link-btn:hover { text-decoration: underline; }
+.sync-vers { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sync-ver { border-radius: 9px; padding: 7px 10px; background: var(--surface-2, var(--surface)); border: 1px solid var(--border); min-width: 0; display: grid; gap: 3px; }
+.sync-ver.is-now { border-color: var(--accent); }
+.sync-ver-k { font-size: 11.5px; color: var(--text-3); font-weight: 600; }
+.sync-ver-v { font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow: auto; }
+.sync-c-act { display: flex; gap: 8px; justify-content: flex-end; }
+.sync-past summary { cursor: pointer; font-size: 13px; color: var(--text-2); }
+.sync-past-row { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 8px; font-size: 12.5px; padding: 4px 0; border-bottom: 1px dashed var(--border); overflow-wrap: anywhere; }
+@media (max-width: 520px) { .sync-vers { grid-template-columns: 1fr; } }
+.sync-card .modal-head h3 { display: flex; align-items: center; gap: 8px; }
+.sync-card .modal-head h3 svg { width: 18px; height: 18px; flex: none; }
+.sync-kv > .sync-inline { justify-self: start; }

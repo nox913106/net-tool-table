@@ -110,44 +110,48 @@ async def sync_manager(db, user: dict, info: dict):
         await db.commit()
 
 
+async def authenticate(db, username: str, password: str, ip: str) -> dict:
+    """Check an account's password (local or Active Directory) → the users row. Raises HTTPException."""
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="請輸入帳號與密碼")
+    if too_many(ip, username):
+        raise HTTPException(status_code=429, detail="嘗試次數過多，請 15 分鐘後再試")
+    cur = await db.execute("SELECT * FROM users WHERE username = ?", (username,))
+    row = await cur.fetchone()
+    user = None
+    if row is not None and row["source"] == "local":
+        if verify_password(password, row["password_hash"]):
+            user = dict(row)
+            await db.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?", (row["id"],))
+    elif ldapauth.enabled():
+        try:
+            info = await asyncio.get_running_loop().run_in_executor(None, ldapauth.authenticate, username, password)
+        except ConnectionError as e:
+            raise HTTPException(status_code=503, detail=str(e))
+        if info:
+            user = await upsert_ldap_user(db, info, login=True)
+            await sync_manager(db, user, info)
+    elif row is None:
+        record_failure(ip, username)
+        raise HTTPException(status_code=401, detail="尚未設定 AD 連線，目前只能用本機管理員帳號登入")
+
+    if user is None:
+        record_failure(ip, username)
+        raise HTTPException(status_code=401, detail="帳號或密碼錯誤")
+    if not user["active"]:
+        raise HTTPException(status_code=403, detail="這個帳號已被停用，請洽管理員")
+    clear_failures(username)
+    return user
+
+
 @router.post("/api/auth/login")
 async def login(body: LoginIn, request: Request):
     if not C.AUTH:
         return {"user": ANON}
     username = ldapauth.normalize(body.username)
-    ip = client_ip(request)
-    if not username or not body.password:
-        raise HTTPException(status_code=400, detail="請輸入帳號與密碼")
-    if too_many(ip, username):
-        raise HTTPException(status_code=429, detail="嘗試次數過多，請 15 分鐘後再試")
-
     db = await get_db()
     try:
-        cur = await db.execute("SELECT * FROM users WHERE username = ?", (username,))
-        row = await cur.fetchone()
-        user = None
-        if row is not None and row["source"] == "local":
-            if verify_password(body.password, row["password_hash"]):
-                user = dict(row)
-                await db.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?", (row["id"],))
-        elif ldapauth.enabled():
-            try:
-                info = await asyncio.get_running_loop().run_in_executor(None, ldapauth.authenticate, username, body.password)
-            except ConnectionError as e:
-                raise HTTPException(status_code=503, detail=str(e))
-            if info:
-                user = await upsert_ldap_user(db, info, login=True)
-                await sync_manager(db, user, info)
-        elif row is None:
-            record_failure(ip, username)
-            raise HTTPException(status_code=401, detail="尚未設定 AD 連線，目前只能用本機管理員帳號登入")
-
-        if user is None:
-            record_failure(ip, username)
-            raise HTTPException(status_code=401, detail="帳號或密碼錯誤")
-        if not user["active"]:
-            raise HTTPException(status_code=403, detail="這個帳號已被停用，請洽管理員")
-        clear_failures(username)
+        user = await authenticate(db, username, body.password, client_ip(request))
         token = await create_session(db, user["id"], request)
         await db.commit()
         resp = JSONResponse({"user": public_user(user)})

@@ -1152,23 +1152,29 @@ async def update_task(task_id: int, t: TaskUpdate, request: Request):
         await db.close()
 
 
+async def can_delete(db, t: dict, user: dict) -> bool:
+    """Board admins, the creator, department managers of the card's departments, supervisors (rw) of its people."""
+    acc = board_access(user)
+    task_id = t["id"]
+    allowed = acc["edit"] == "all" or (user.get("id") is not None and t.get("owner_id") == user.get("id"))
+    if not allowed and acc["edit"] == "dept" and acc["depts"]:
+        d, dargs = _dept_sql("t", acc["depts"])
+        cur = await db.execute(f"SELECT 1 FROM tasks t WHERE t.id = ? AND {d}", (task_id, *dargs))
+        allowed = bool(await cur.fetchone())
+    if not allowed and acc["team_edit"]:
+        d, dargs = _team_sql("t", acc["team"])
+        cur = await db.execute(f"SELECT 1 FROM tasks t WHERE t.id = ? AND {d}", (task_id, *dargs))
+        allowed = bool(await cur.fetchone())
+    return allowed
+
+
 @router.delete("/{task_id}")
 async def delete_task(task_id: int, request: Request):
     user = current_user(request)
     db = await get_db()
     try:
         t = await _get_visible(db, task_id, user)
-        acc = board_access(user)
-        allowed = acc["edit"] == "all" or (user.get("id") is not None and t.get("owner_id") == user.get("id"))
-        if not allowed and acc["edit"] == "dept" and acc["depts"]:
-            d, dargs = _dept_sql("t", acc["depts"])
-            cur = await db.execute(f"SELECT 1 FROM tasks t WHERE t.id = ? AND {d}", (task_id, *dargs))
-            allowed = bool(await cur.fetchone())
-        if not allowed and acc["team_edit"]:
-            d, dargs = _team_sql("t", acc["team"])
-            cur = await db.execute(f"SELECT 1 FROM tasks t WHERE t.id = ? AND {d}", (task_id, *dargs))
-            allowed = bool(await cur.fetchone())
-        if not allowed:
+        if not await can_delete(db, t, user):
             raise HTTPException(status_code=403, detail="只能刪除自己建立的卡片（其他卡片可以改成 Canceled）")
         cur = await db.execute("SELECT stored FROM task_images WHERE task_id = ?", (task_id,))
         files = [r["stored"] for r in await cur.fetchall()]
@@ -2116,7 +2122,12 @@ def cleanup_images(db_path) -> int:
         con.execute("DELETE FROM task_images WHERE pending = 1 AND created_at < datetime('now', ?)", (cutoff,))
         con.commit()
         img.remove(stale)
-        known = {r[0] for r in con.execute("SELECT stored FROM task_images")}
+        # files uploaded by a standalone copy whose row never arrived (a day is plenty)
+        gone = [r[0] for r in con.execute("SELECT stored FROM sync_blobs WHERE created < datetime('now', '-1 day')")]
+        con.execute("DELETE FROM sync_blobs WHERE created < datetime('now', '-1 day')")
+        con.commit()
+        img.remove(gone)
+        known = {r[0] for r in con.execute("SELECT stored FROM task_images")} | {r[0] for r in con.execute("SELECT stored FROM sync_blobs")}
     finally:
         con.close()
     return len(stale) + img.sweep_orphans(known)

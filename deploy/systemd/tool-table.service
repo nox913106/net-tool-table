@@ -19,6 +19,7 @@ ExecStart=/opt/tool-table/.venv/bin/uvicorn app.main:app \
     --workers 1 \
     --proxy-headers --forwarded-allow-ips 127.0.0.1 \
     --no-server-header \
+    --timeout-graceful-shutdown 5 \
     --log-level warning
 Restart=on-failure
 RestartSec=5s

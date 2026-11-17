@@ -2404,5 +2404,13 @@ const TTBoard = (() => {
         el('div', { class: 'palette-item-sub', text: sub })));
   }
 
-  return { init, load, mount, mountBell, openEditor, openTask, exportXlsx, importXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; } };
+  /** Someone changed something (live update): reload quietly unless the person is mid-drag. */
+  function refresh() {
+    if (!started) return;
+    if (document.querySelector('.kb-card.dragging, .kb-dragging')) { setTimeout(refresh, 1500); return; }
+    load(true).catch(() => {});
+    loadNotes();
+  }
+
+  return { init, load, refresh, mount, mountBell, openEditor, openTask, exportXlsx, importXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; } };
 })();

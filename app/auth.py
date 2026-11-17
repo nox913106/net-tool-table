@@ -38,7 +38,7 @@ ANON = {"id": None, "username": "local", "display_name": "本機", "role": "supe
 # ------------------------------------------------------------------ paths
 PUBLIC_EXACT = {
     "/login", "/dashboard", "/manifest.webmanifest", "/sw.js", "/favicon.ico",
-    "/api/health", "/api/auth/login", "/api/auth/status", "/api/public/dashboard", "/api/public/branding",
+    "/api/health", "/api/auth/login", "/api/sync/link", "/api/auth/status", "/api/public/dashboard", "/api/public/branding",
 }
 PUBLIC_PREFIX = ("/assets/", "/resource/icon/")
 ADMIN_PAGES = ("/admin", "/admin.html")
@@ -118,14 +118,48 @@ async def session_user(token: Optional[str]) -> Optional[dict]:
         if now - row["last_seen"] > 300:                  # sliding expiry, written at most every 5 min
             await db.execute("UPDATE sessions SET last_seen = ? WHERE token_hash = ?", (now, _token_hash(token)))
             await db.commit()
-        user = public_user(row)
-        # reporting line: who is below this person, and what a supervisor may do with their cards
-        from .team import team_ids
-        user["team"] = await team_ids(db, row["id"])
-        cur = await db.execute("SELECT value FROM settings WHERE key = 'board_supervisor'")
-        s = await cur.fetchone()
-        mode = (s[0] or '"rw"').strip('"') if s else "rw"
-        user["supervisor"] = mode if mode in ("rw", "ro", "off") else "rw"
+        return await full_user(db, row)
+    finally:
+        await db.close()
+
+
+async def full_user(db, row) -> dict:
+    user = public_user(row)
+    # reporting line: who is below this person, and what a supervisor may do with their cards
+    from .team import team_ids
+    user["team"] = await team_ids(db, row["id"])
+    cur = await db.execute("SELECT value FROM settings WHERE key = 'board_supervisor'")
+    s = await cur.fetchone()
+    mode = (s[0] or '"rw"').strip('"') if s else "rw"
+    user["supervisor"] = mode if mode in ("rw", "ro", "off") else "rw"
+    return user
+
+
+DEVICE_IDLE_DAYS = 90          # a standalone copy that has not synced for this long must sign in again
+
+
+async def device_user(token: Optional[str]) -> Optional[dict]:
+    """The account behind a standalone copy's sync token (Authorization: Bearer, /api/sync/* only)."""
+    if not token or len(token) > 100:
+        return None
+    db = await get_db()
+    try:
+        cur = await db.execute("""SELECT u.*, d.id AS device_id, d.last_seen AS d_seen FROM sync_devices d
+                                  JOIN users u ON u.id = d.user_id WHERE d.token_hash = ?""", (_token_hash(token),))
+        row = await cur.fetchone()
+        if not row or not row["active"]:
+            return None
+        cur = await db.execute("SELECT julianday('now') - julianday(COALESCE(?, created)) FROM sync_devices WHERE id = ?",
+                               (row["d_seen"], row["device_id"]))
+        if (await cur.fetchone())[0] > DEVICE_IDLE_DAYS:
+            await db.execute("DELETE FROM sync_devices WHERE id = ?", (row["device_id"],))
+            await db.commit()
+            return None
+        await db.execute("UPDATE sync_devices SET last_seen = CURRENT_TIMESTAMP WHERE id = ? "
+                         "AND (last_seen IS NULL OR last_seen < datetime('now', '-5 minutes'))", (row["device_id"],))
+        await db.commit()
+        user = await full_user(db, row)
+        user["device_id"] = row["device_id"]
         return user
     finally:
         await db.close()
@@ -217,10 +251,15 @@ async def gate(request: Request, call_next):
     if path.startswith("/api/") and method not in SAFE_METHODS and request.headers.get("x-tool-table") != "1":
         return JSONResponse({"detail": "缺少 X-Tool-Table 標頭"}, status_code=403)
     if not C.AUTH:
-        request.state.user = ANON
+        from . import syncclient                     # standalone copy linked to a server: work as that account
+        request.state.user = syncclient.LOCAL_USER or ANON
         return await call_next(request)
 
-    user = await session_user(request.cookies.get(COOKIE))
+    bearer = request.headers.get("authorization") or ""
+    if path.startswith("/api/sync/") and bearer[:7].lower() == "bearer ":
+        user = await device_user(bearer[7:].strip())
+    else:
+        user = await session_user(request.cookies.get(COOKIE))
     request.state.user = user
     public = path in PUBLIC_EXACT or path.startswith(PUBLIC_PREFIX)
     if user is None and not public:

@@ -15,6 +15,7 @@ from .config import ENABLE_DOCS, ICON_DIR, PROJECT_ROOT
 from .database import init_db
 from . import auth as auth_mod
 from .routes import auth as auth_routes, auth_links, dashboard, local, nodes, openproject as op_routes, search, settings, system, tasks
+from .routes import sync as sync_routes
 
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 VERSION = "3.0.0"
@@ -66,9 +67,16 @@ async def lifespan(app: FastAPI):
         pass
     task = asyncio.create_task(_scheduler())
     sync = asyncio.create_task(_op_worker())
+    extra = []
+    from . import config as C
+    if not C.AUTH:                          # standalone copy: sync with a server once linked
+        from . import syncclient
+        extra = await syncclient.startup()
     yield
     task.cancel()
     sync.cancel()
+    for t in extra:
+        t.cancel()
 
 
 app = FastAPI(
@@ -91,6 +99,7 @@ app.include_router(auth_routes.router)
 app.include_router(dashboard.router)
 app.include_router(system.router)
 app.include_router(op_routes.router)
+app.include_router(sync_routes.router)
 
 
 @app.middleware("http")
@@ -100,6 +109,9 @@ async def harden_icons(request: Request, call_next):
     an old cached page with new scripts (a 304 makes this cheap)."""
     response = await call_next(request)
     path = request.url.path
+    if path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
+        from . import sync
+        sync.poke()                         # wake live viewers (/api/sync/wait) and the sync client
     if path in ("/", "/admin", "/login", "/dashboard") or path.startswith("/assets/"):
         response.headers.setdefault("Cache-Control", "no-cache")
     if path.startswith("/resource/icon/"):
