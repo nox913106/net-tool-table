@@ -84,6 +84,8 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "board_overdue_remind_time": "09:30",  # daily reminder for one-off cards past due (viewer's local time)
     "public_dashboard": True,           # /dashboard: per department / account status counts, no login
     "board_supervisor": "rw",           # 上級 on cards of everyone below them: rw = full rights, ro = view + comment, off = none
+    "board_wip_high": 6,                # a column with this many open cards shows 高負荷 (default: ≤5 normal, 6–8 high)
+    "board_wip_over": 9,                # … and from this many 超量
 }
 
 ENUMS = {
@@ -110,6 +112,14 @@ def validate_setting(key: str, value: Any) -> Any:
         raise HTTPException(status_code=400, detail=f"{key} 的值無效：{value}")
     if key == "board_overdue_remind_time" and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(value)):
         raise HTTPException(status_code=400, detail="每日提醒時間格式為 HH:MM，例如 09:30")
+    if key in ("board_wip_high", "board_wip_over"):
+        try:
+            n = int(value)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="工作量門檻必須是數字")
+        if not 1 <= n <= 999:
+            raise HTTPException(status_code=400, detail="工作量門檻要在 1～999 之間")
+        return n
     if key == "accent_color" and not re.fullmatch(r"#[0-9a-fA-F]{6}", str(value)):
         raise HTTPException(status_code=400, detail="主題色必須是 #RRGGBB")
     if isinstance(default, bool):

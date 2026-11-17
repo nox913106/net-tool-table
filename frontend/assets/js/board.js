@@ -69,6 +69,19 @@ const TTBoard = (() => {
   /** A card with (non-canceled) subtasks is a summary task: its status is computed from them. */
   const isSummary = t => (t.subtasks?.items || []).some(s => s.status !== 'canceled');
   const SUMMARY_HINT = '這張卡片有子任務，狀態依子任務與協作人自動計算；要放棄整個任務可以改成 Canceled';
+  /** 卡住: how long a card has been stuck ("今天" / "3 天"). since is a UTC SQLite timestamp. */
+  const isBlocked = t => !!t.blocked && !CLOSED.has(t.status);
+  function blockedDays(since) {
+    const at = Date.parse(String(since || '').replace(' ', 'T') + (/[zZ+]/.test(since || '') ? '' : 'Z'));
+    const d = Number.isFinite(at) ? Math.floor((Date.now() - at) / 864e5) : 0;
+    return d > 0 ? `${d} 天` : '今天';
+  }
+  /** Column load: 高負荷 from board_wip_high cards, 超量 from board_wip_over (admin setting; default ≤5 normal). */
+  function wipLevel(n) {
+    const high = Number(settings.board_wip_high) || 6, over = Math.max(Number(settings.board_wip_over) || 9, high + 1);
+    return n >= over ? { cls: 'over', text: '超量', tip: `${n} 張：超量（≥ ${over}）` }
+      : n >= high ? { cls: 'high', text: '高負荷', tip: `${n} 張：高負荷（${high}～${over - 1}）` } : null;
+  }
   const expanded = new Set();             // cards whose task tree is open
   /** Main card %: finished subtasks + collaborators who marked their part done, over all of them
    *  (canceled subtasks and a creator who only handed the card out do not count). */
@@ -739,7 +752,8 @@ const TTBoard = (() => {
     let drag = null;                                           // { id, from }
     let lanes = !!opts.lanes;                                  // meeting view: one row per person
     let focusId = null;                                        // focus mode: one person's work + what they are part of
-    const peopleBar = opts.full && meInfo.auth ? el('div', { class: 'kb-people-bar' }) : null;
+    // created on first paint: on a direct page load the board can render before /me has answered
+    let peopleBar = null, meetBar = null;
     const placeholder = el('div', { class: 'kb-placeholder' });
 
     const render = () => {
@@ -771,7 +785,9 @@ const TTBoard = (() => {
       const col = el('section', { class: 'kb-col', dataset: { status: s.key }, style: { '--st': s.color } },
         el('header', { class: 'kb-col-head' },
           el('span', { class: 'kb-dot' }),
-          el('span', { class: 'kb-name' }, el('strong', { text: s.label }), el('span', { class: 'kb-zh', text: s.zh })),
+          el('span', { class: 'kb-name' }, el('strong', { text: s.label }), el('span', { class: 'kb-zh' }, s.zh,
+            ...(() => { const w = !CLOSED.has(s.key) && s.key !== 'recurring' ? wipLevel(items.length) : null;
+              return w ? [el('span', { class: `kb-wip is-${w.cls}`, title: w.tip, text: w.text })] : []; })())),
           selecting && items.length ? (() => {
             const lab = el('label', { class: 'kb-col-select', title: '全選這一欄' }, el('input', { type: 'checkbox' }));
             lab.querySelector('input').addEventListener('change', e => { items.forEach(t => toggleSelect(t.id, e.target.checked)); });
@@ -808,14 +824,21 @@ const TTBoard = (() => {
 
     // ------------------------------------------------ people bar (focus mode)
     function paintPeople() {
+      if (!peopleBar && opts.full && meInfo.auth) {
+        peopleBar = el('div', { class: 'kb-people-bar' });
+        meetBar = el('div', { class: 'kb-meet' });
+      }
       if (!peopleBar) return;
       if (!peopleBar.isConnected && root.isConnected) root.before(peopleBar);
+      if (meetBar && !meetBar.isConnected && peopleBar.isConnected) peopleBar.before(meetBar);
       peopleBar.hidden = lanes;
+      paintMeet();
       if (lanes) return;
       const counts = new Map();                                // person id → { p, byStatus }
       tasks.filter(pass).filter(t => !(hideClosed && CLOSED.has(t.status))).forEach(t => involvement(t).forEach(x => {
         if (x.p.id == null) return;
         const e = counts.get(x.p.id) || { p: x.p, n: {} };
+        if (x.kind === 'main' && isBlocked(t)) e.blocked = (e.blocked || 0) + 1;
         if (x.kind === 'main' && isSummary(t)) { counts.set(x.p.id, e); return; }   // a summary card is not a task of its own
         const st = x.kind === 'collab' && x.done ? 'complete' : x.status;
         e.n[st] = (e.n[st] || 0) + 1;
@@ -826,11 +849,12 @@ const TTBoard = (() => {
       const rank = id => id === me ? 0 : team.has(id) ? 1 : 2;
       const people = [...counts.values()].sort((a, b) => rank(a.p.id) - rank(b.p.id) || TT.nameOf(a.p).localeCompare(TT.nameOf(b.p), 'zh-Hant'));
       if (focusId != null && !counts.has(focusId)) focusId = null;
-      const pills = people.map(({ p, n }) => {
+      const pills = people.map(({ p, n, blocked }) => {
         const b = el('button', { class: 'kb-person-pill' + (focusId === p.id ? ' on' : focusId != null ? ' off' : ''), type: 'button',
           title: `${TT.nameOf(p)}：` + STATUSES.filter(s => n[s.key]).map(s => `${s.zh} ${n[s.key]}`).join('、') + '（主責、子任務、協作都算）' },
           TT.avatar(p, 26), el('span', { class: 'kb-pp-name', text: TT.nameOf(p) + (p.id === me ? '（我）' : '') }),
-          el('span', { class: 'kb-pp-counts' }, ...STATUSES.filter(s => n[s.key]).map(s => el('span', { class: 'kb-pp-sq', style: { '--c': s.color }, text: n[s.key] }))));
+          el('span', { class: 'kb-pp-counts' }, ...STATUSES.filter(s => n[s.key]).map(s => el('span', { class: 'kb-pp-sq', style: { '--c': s.color }, text: n[s.key] })),
+            ...(blocked ? [el('span', { class: 'kb-pp-blocked', title: `${blocked} 張主責卡片卡住`, text: `⛔${blocked}` })] : [])));
         b.addEventListener('click', () => setFocus(focusId === p.id ? null : p.id));
         return b;
       });
@@ -839,12 +863,96 @@ const TTBoard = (() => {
       peopleBar.replaceChildren(...[el('span', { class: 'kb-pp-label', text: focusId != null ? '專注：' : '點人員專注：' }), ...pills,
         el('span', { class: 'spacer' }), clear || el('span', { class: 'kb-pp-legend' }, ...STATUSES.filter(s => !(hideClosed && CLOSED.has(s.key))).map(s => el('span', {}, el('i', { style: { '--c': s.color } }), s.zh)))].filter(Boolean));
     }
+    // ------------------------------------------------ meeting: 卡住與逾期 first, then flow, people, decisions
+    const MEET_STEPS = [
+      ['卡住與逾期', '先排除阻礙：卡住的當場找人協助；逾期的決定延期、拆小還是取消'],
+      ['工作流量', '看各欄的「高負荷／超量」：同時進行太多、或工作堆在某一欄，先收斂再開新工作'],
+      ['逐人專注', '點上方人員逐一確認（有 ⛔ 的人先看），每人只談變化與需要的協助'],
+      ['決議與指派', '把會議決議開成卡片或子任務，指派負責人與到期日'],
+    ];
+    function meetState() { try { return JSON.parse(sessionStorage.getItem('kb-meet') || 'null'); } catch { return null; } }
+    function setMeet(v) { try { v ? sessionStorage.setItem('kb-meet', JSON.stringify(v)) : sessionStorage.removeItem('kb-meet'); } catch { /* private mode */ } }
+    let meetTimer = null;
+    function paintMeet() {
+      if (!meetBar) return;
+      meetBar.hidden = lanes;
+      if (lanes) return;
+      const m = meetState();
+      const open = tasks.filter(pass).filter(t => !CLOSED.has(t.status));
+      const blocked = open.filter(isBlocked).sort((a, b) => String(a.blocked.since).localeCompare(String(b.blocked.since)));
+      const late = open.filter(t => !isBlocked(t) && (t.status === 'overdue' || timing(t).due === 'overdue'))
+        .sort((a, b) => String(a.due_at || '').localeCompare(String(b.due_at || '')));
+      const step = m ? m.step : -1;
+      const showList = m ? step === 0 : !!store.get('kb-triage-open', false);
+      clearInterval(meetTimer);
+      const parts = [];
+      if (m) {
+        const clock = el('span', { class: 'kb-meet-clock' });
+        const tick = () => { const sec = Math.max(0, Math.floor((Date.now() - m.start) / 1000)); clock.textContent = `⏱ ${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`; };
+        tick(); meetTimer = setInterval(() => { if (!meetBar.isConnected) clearInterval(meetTimer); else tick(); }, 1000);
+        const steps = MEET_STEPS.map(([name, tip], i) => {
+          const b = el('button', { class: 'kb-meet-step' + (i === step ? ' on' : i < step ? ' done' : ''), type: 'button', title: tip },
+            el('b', { text: i < step ? '✓' : String(i + 1) }), el('span', { text: i === 0 ? `${name}（${blocked.length + late.length}）` : name }));
+          b.addEventListener('click', () => goStep(i));
+          return b;
+        });
+        const end = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', html: svg('x') + '結束會議' });
+        end.addEventListener('click', () => { setMeet(null); root.classList.remove('kb-wip-spot'); paintMeet(); });
+        const next = step < MEET_STEPS.length - 1 ? el('button', { class: 'btn btn-sm', type: 'button', text: '下一步 →' }) : null;
+        next?.addEventListener('click', () => goStep(step + 1));
+        parts.push(el('div', { class: 'kb-meet-head' }, el('strong', { class: 'kb-meet-title', text: '部門會議' }), ...steps,
+          el('span', { class: 'spacer' }), clock, next, end),
+          el('p', { class: 'kb-meet-tip', text: MEET_STEPS[step][1] + (step === 1 && !root.querySelector('.kb-wip')
+            ? `。目前每一欄都在正常範圍（≤ ${(Number(settings.board_wip_high) || 6) - 1} 張）` : '') }));
+        if (step === 3) {
+          const add = el('button', { class: 'btn btn-sm btn-primary', type: 'button', html: svg('plus') + '新增決議卡片' });
+          add.addEventListener('click', () => openEditor(null, { status: 'new' }));
+          parts[parts.length - 1].append(' ', add);
+        }
+      } else {
+        const toggle = el('button', { class: 'kb-meet-toggle', type: 'button', 'aria-expanded': String(showList) },
+          el('span', { class: 'kb-meet-n is-blocked', text: `⛔ 卡住 ${blocked.length}` }), el('span', { class: 'kb-meet-n is-late', text: `⏰ 逾期 ${late.length}` }),
+          el('span', { class: 'kb-tree-caret', text: showList ? '▾' : '▸' }));
+        toggle.addEventListener('click', () => { store.set('kb-triage-open', !showList); paintMeet(); });
+        const start = el('button', { class: 'btn btn-sm', type: 'button', html: svg('users') + '開始會議', title: '依「卡住與逾期 → 工作流量 → 逐人專注 → 決議」的順序開會，附計時' });
+        start.addEventListener('click', () => { setMeet({ start: Date.now(), step: 0 }); setFocus(null); });
+        parts.push(el('div', { class: 'kb-meet-head' }, el('strong', { class: 'kb-meet-title', text: '會議開場' }), toggle, el('span', { class: 'spacer' }), start));
+      }
+      if (showList) {
+        const row = (t, tag, cls, why) => {
+          const lead = leadOf(t);
+          const r = el('button', { class: 'kb-meet-row', type: 'button', title: '開啟卡片' },
+            el('span', { class: `kb-meet-tag ${cls}`, text: tag }), el('strong', { class: 'kb-meet-row-title', text: t.title }),
+            lead ? TT.avatar(lead, 22) : el('span'), el('span', { class: 'kb-meet-why', text: why || '' }));
+          r.addEventListener('click', () => openEditor(t));
+          return r;
+        };
+        const lateDays = t => { const d = t.due_at ? Math.floor((now() - parse(t.due_at).date) / 864e5) : 0; return d > 0 ? `逾期 ${d} 天` : '逾期'; };
+        parts.push(el('div', { class: 'kb-meet-lists' },
+          el('div', { class: 'kb-meet-box' }, el('h4', {}, '⛔ 卡住', el('span', { class: 'hint', text: '先排除阻礙，誰能幫忙當場指派' })),
+            ...(blocked.length ? blocked.map(t => row(t, `卡住 ${blockedDays(t.blocked.since)}`, 'is-blocked', `${t.blocked.reason}${t.blocked.by ? `（${t.blocked.by}）` : ''}`))
+              : [el('p', { class: 'hint', text: '沒有卡住的卡片' })])),
+          el('div', { class: 'kb-meet-box' }, el('h4', {}, '⏰ 逾期', el('span', { class: 'hint', text: '決定：延期、拆小、還是取消' })),
+            ...(late.length ? late.map(t => row(t, lateDays(t), 'is-late', t.due_at ? `到期 ${fmt(t.due_at)}` : ''))
+              : [el('p', { class: 'hint', text: '沒有逾期的卡片' })]))));
+      }
+      meetBar.replaceChildren(...parts);
+      meetBar.classList.toggle('is-running', !!m);
+    }
+    function goStep(i) {
+      const m = meetState() || { start: Date.now() };
+      m.step = i;
+      setMeet(m);
+      root.classList.toggle('kb-wip-spot', i === 1);
+      if (i !== 2) setFocus(null); else paintMeet();
+    }
+
     function setFocus(id) {
       focusId = id;
       if (id != null) expanded.clear();
       render();
     }
-    if (peopleBar) document.addEventListener('keydown', e => {
+    if (opts.full) document.addEventListener('keydown', e => {
       if (e.key === 'Escape' && focusId != null && root.isConnected && !document.querySelector('.modal:not([hidden])')) setFocus(null);
     });
 
@@ -941,7 +1049,7 @@ const TTBoard = (() => {
       if (t.images?.length) chips.push(el('span', { class: 'kb-chip', title: `${t.images.length} 張圖片`, html: svg('image') + `<span>${t.images.length}</span>` }));
       if (t.files?.length) chips.push(el('span', { class: 'kb-chip', title: '附件：' + t.files.map(f => f.name).join('、'), html: svg('paperclip') + `<span>${t.files.length}</span>` }));
       const c = el('article', {
-        class: `kb-card prio-${t.priority}` + (tm.due ? ` is-${tm.due}` : '') + (tm.start === 'due' ? ' is-start' : '') + (CLOSED.has(t.status) ? ' is-closed' : ''),
+        class: `kb-card prio-${t.priority}` + (tm.due ? ` is-${tm.due}` : '') + (tm.start === 'due' ? ' is-start' : '') + (CLOSED.has(t.status) ? ' is-closed' : '') + (isBlocked(t) ? ' is-blocked' : ''),
         draggable: t.can_edit === false || selecting ? 'false' : 'true', tabindex: '0', dataset: { id: t.id },
         title: t.can_edit === false ? '唯讀：你可以檢視與留言' : null,
       },
@@ -951,6 +1059,8 @@ const TTBoard = (() => {
           t.priority === 'high' ? el('span', { class: 'kb-flag', title: '高優先', html: svg('flag') }) : null,
           el('span', { text: t.title }),
           t.team ? el('span', { class: 'kb-team-tag', title: '下級的卡片（你是上級，可以' + (meInfo.board?.team_edit ? '檢視、留言與增刪修）' : '檢視與留言）'), text: '下級' }) : null),
+        isBlocked(t) ? el('div', { class: 'kb-blocked-bar', title: `卡住（${t.blocked.by || ''} 標記）：${t.blocked.reason}`,
+          text: `⛔ 卡住 ${blockedDays(t.blocked.since)}：${t.blocked.reason}` }) : null,
         t.description ? el('p', { class: 'kb-card-desc', text: t.description }) : null,
         chips.length ? el('div', { class: 'kb-chips' }, chips) : null,
         (() => {
@@ -1378,6 +1488,7 @@ const TTBoard = (() => {
 
   // ----------------------------------------------------------------- editor
   function openEditor(task, defaults = {}) {
+    let refreshComments = () => {};           // set once the comment list exists (卡住 adds a comment)
     const t = task || { title: defaults.title || '', description: '', status: defaults.status || 'new', priority: 'normal', start_at: null, due_at: null, remind: 1440, repeat: defaults.repeat || null, repeat_every: 1, assignees: defaults.assignees || [] };
     const split = v => { const [d, tm] = (v || '').split('T'); return [d || '', tm || '']; };
     const [sd, st] = split(t.start_at);
@@ -1990,6 +2101,7 @@ const TTBoard = (() => {
       stopTicker = () => clearInterval(ticker);
 
       const loadComments = async () => {
+        refreshComments = loadComments;
         try {
           threads = await api(`/api/tasks/${task.id}/comments`);
           fetchedAt = Date.now();
@@ -2020,6 +2132,51 @@ const TTBoard = (() => {
       loadComments();
     }
 
+    // 卡住: the card's people and their supervisors flag what it is waiting for (applies at once, not on 儲存)
+    const blockBox = task && !CLOSED.has(task.status) ? el('div', { class: 'kb-block-field' }) : null;
+    function paintBlock(editing = false) {
+      if (!blockBox) return;
+      const b = task.blocked;
+      const canFlag = task.can_edit !== false;
+      if (editing) {
+        const reason = el('input', { class: 'input', maxlength: 300, placeholder: '卡在哪裡、在等誰？例如：等總務回覆配電容量', value: b?.reason || '' });
+        const ok = el('button', { class: 'btn btn-sm btn-danger', type: 'button', text: b ? '更新原因' : '標記卡住' });
+        const no = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '取消' });
+        const go = async () => {
+          if (!reason.value.trim()) { toast('請寫一下卡在哪裡', true); reason.focus(); return; }
+          ok.disabled = true;
+          try { await setBlocked(true, reason.value.trim()); } catch (e) { toast(e.message, true); ok.disabled = false; }
+        };
+        ok.addEventListener('click', go);
+        reason.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); go(); } if (e.key === 'Escape') { e.stopPropagation(); paintBlock(); } });
+        no.addEventListener('click', () => paintBlock());
+        blockBox.replaceChildren(el('div', { class: 'kb-block-edit' }, reason, ok, no));
+        setTimeout(() => reason.focus(), 20);
+        return;
+      }
+      if (b) {
+        const edit = canFlag ? el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '修改原因' }) : null;
+        const clear = canFlag ? el('button', { class: 'btn btn-sm', type: 'button', text: '✅ 解除卡住' }) : null;
+        edit?.addEventListener('click', () => paintBlock(true));
+        clear?.addEventListener('click', async () => { clear.disabled = true; try { await setBlocked(false, ''); } catch (e) { toast(e.message, true); clear.disabled = false; } });
+        blockBox.replaceChildren(el('div', { class: 'kb-blocked-bar is-big' },
+          el('span', { text: `⛔ 卡住 ${blockedDays(b.since)}：${b.reason}` + (b.by ? `（${b.by} 標記）` : '') }), el('span', { class: 'spacer' }), edit, clear));
+      } else if (canFlag) {
+        const flag = el('button', { class: 'btn btn-sm btn-ghost kb-block-btn', type: 'button', text: '⛔ 標記卡住…', title: '工作卡住、在等別人時標記，會議開場會先處理，並通知負責人與上級' });
+        flag.addEventListener('click', () => paintBlock(true));
+        blockBox.replaceChildren(flag);
+      } else blockBox.replaceChildren();
+    }
+    async function setBlocked(on, reason) {
+      await api(`/api/tasks/${task.id}/blocked`, { method: 'POST', body: { blocked: on, reason } });
+      const fresh = (await load(true)).find(x => x.id === task.id);
+      task.blocked = fresh ? fresh.blocked : null;
+      toast(on ? '已標記卡住，已通知負責人與上級' : '已解除卡住');
+      paintBlock();
+      refreshComments();
+    }
+    paintBlock();
+
     const wrap = el('div', { class: 'modal' },
       el('div', { class: 'modal-card kb-editor', role: 'dialog', 'aria-modal': 'true', 'aria-label': task ? '編輯卡片' : '新增卡片' },
         el('div', { class: 'modal-head' }, el('h3', { html: svg('kanban') + (task ? '編輯卡片' : '新增卡片') }), closeBtn),
@@ -2030,6 +2187,7 @@ const TTBoard = (() => {
           meInfo.auth ? el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('users') + '負責人' }), assignBox) : null,
           el('div', { class: 'kb-row' }, el('div', { class: 'field' }, el('span', { class: 'field-label', text: '狀態' }), status,
             summary ? el('span', { class: 'hint', text: '自動：依子任務與協作人計算' }) : null), el('div', { class: 'field' }, el('span', { class: 'field-label', text: '優先順序' }), prio)),
+          blockBox,
           el('div', { class: 'kb-row' },
             el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('play') + '開始日' }), el('div', { class: 'kb-dt' }, startD, startT), startChips),
             el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('clock') + '到期日' }), el('div', { class: 'kb-dt' }, dueD, dueT), dueChips)),

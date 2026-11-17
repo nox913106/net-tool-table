@@ -89,9 +89,14 @@ async def init_db():
         task_cols = {row[1] for row in await cursor.fetchall()}
         for col, decl in (("repeat", "TEXT"), ("repeat_every", "INTEGER DEFAULT 1"), ("next_id", "INTEGER"),
                           ("overdue_from", "TEXT"), ("overdue_ack", "TEXT"),
-                          ("owner_id", "INTEGER REFERENCES users(id) ON DELETE SET NULL")):
-            if col not in task_cols:                       # recurring cards (added later)
+                          ("owner_id", "INTEGER REFERENCES users(id) ON DELETE SET NULL"),
+                          ("blocked_at", "TIMESTAMP"), ("blocked_reason", "TEXT"), ("blocked_by", "INTEGER")):
+            if col not in task_cols:                       # recurring cards, 卡住 flag (added later)
                 await db.execute(f"ALTER TABLE tasks ADD COLUMN {col} {decl}")
+        # a card that is finished or dropped is no longer stuck
+        await db.execute("""CREATE TRIGGER IF NOT EXISTS tasks_unblock_closed AFTER UPDATE OF status ON tasks
+                            WHEN NEW.status IN ('complete', 'canceled') AND NEW.blocked_at IS NOT NULL
+                            BEGIN UPDATE tasks SET blocked_at = NULL, blocked_reason = NULL, blocked_by = NULL WHERE id = NEW.id; END""")
 
         # Accounts (server edition: local break-glass admin + Active Directory users)
         await db.execute("""

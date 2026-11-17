@@ -1160,6 +1160,8 @@
       { key: 'board_notify', label: '桌面通知', type: 'switch', hint: '到期、提醒時間或開始日到了會跳出系統通知；每位使用者第一次要在瀏覽器按「允許」' },
       { key: 'board_due_soon_days', label: '幾天內到期算「即將到期」', type: 'number' },
       { key: 'board_supervisor', label: '上級對下級卡片的權限', type: 'seg', options: [['rw', '可編輯'], ['ro', '檢視＋留言'], ['off', '不分享']], hint: '上級＝帳號的上級（AD 的 manager 或在「帳號與權限」設定），可以多層。可編輯：瀏覽、留言、增刪修、指派給下級；檢視＋留言：只能看與留言' },
+      { key: 'board_wip_high', label: '工作量：每欄幾張起算「高負荷」', type: 'number', hint: '預設 6：每欄 ≤5 張為正常、6～8 張顯示「高負荷」' },
+      { key: 'board_wip_over', label: '工作量：每欄幾張起算「超量」', type: 'number', hint: '預設 9：≥9 張顯示「超量」。看板欄位標題會顯示，開會時「工作流量」步驟會特別標出來' },
       { key: 'public_dashboard', label: '公開進度看板 /dashboard（不需登入、只顯示數量）', type: 'switch', hint: '依部門 → 帳號 → 狀態顯示卡片數，不含任何卡片內容與週期工作；關閉後該頁顯示「已關閉」' },
       { key: 'board_overdue_remind_time', label: '過期未結案：每天提醒時間', type: 'text', hint: '格式 HH:MM（預設 09:30）。單次卡片過了到期日還沒結案，會移到「過期未結案」，每天這個時間跳出提醒直到結案' },
     ] },

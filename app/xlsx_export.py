@@ -123,6 +123,13 @@ def _latest(comments: list, names: Dict[int, str], under: Optional[int]):
     return f"{_md(pick['created_at'])} {who or '本機'}：{_one_line(pick['body'])}"
 
 
+def _blocked_text(card):
+    b = card.get("blocked")
+    if not b or card["status"] in ("complete", "canceled"):
+        return None
+    return f"⛔ 卡住（{_md(b['since'])} 起）：{_one_line(b['reason'])}"
+
+
 def _is_late(due, status, today: date) -> bool:
     if not due or status in ("complete", "canceled"):
         return False
@@ -140,7 +147,7 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
     ws = wb.active
     ws.title = SHEET
     rows = []                                            # (level, values, status, late)
-    tally, done_all, total_all, late_n = {}, 0, 0, 0
+    tally, done_all, total_all, late_n, blocked_n = {}, 0, 0, 0, 0
 
     for n, t in enumerate(cards, start=1):
         subs = subtasks.get(t["id"], [])
@@ -160,11 +167,12 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
         due = _dt(t["due_at"])
         late = _is_late(due, t["status"], today) or t["status"] == "overdue"
         late_n += late
+        blocked_n += bool(_blocked_text(t))
         cmts = comments.get(t["id"], [])
         rows.append((0, [
             str(n), KIND["card"], _txt(t["title"]), _txt(lead["name"]) if lead else None, STATUS_ZH.get(t["status"], t["status"]),
             PRIORITY.get(t["priority"], t["priority"]), _dt(t["start_at"]), due, pct, _hours(est), _hours(spent),
-            _txt(_latest(cmts, names, None) or (_one_line(t["description"]) or None)), None, f"T{t['id']}"], t["status"], late))
+            _txt(_blocked_text(t) or _latest(cmts, names, None) or (_one_line(t["description"]) or None)), None, f"T{t['id']}"], t["status"], late))
         m = 0
         for s in subs:
             m += 1
@@ -193,7 +201,8 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
     order = ["overdue", "ongoing", "pending", "onhold", "new", "recurring", "complete", "canceled"]
     parts = [f"{STATUS_ZH[k]} {tally[k]}" for k in order if tally.get(k)]
     overall = f"整體完成率 {round(done_all / total_all * 100)}%" if total_all else ""
-    ws["A3"] = _txt("　".join(x for x in ["／".join(parts), overall, f"逾期 {late_n} 項" if late_n else ""] if x))
+    ws["A3"] = _txt("　".join(x for x in ["／".join(parts), overall, f"逾期 {late_n} 項" if late_n else "",
+                                         f"卡住 {blocked_n} 項" if blocked_n else ""] if x))
     ws["A3"].font = Font(bold=True)
     for r in (1, 2, 3):
         ws.merge_cells(f"A{r}:{last_col}{r}")

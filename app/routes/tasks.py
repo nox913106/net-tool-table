@@ -45,7 +45,8 @@ REMINDS = (0, 15, 60, 1440, 2880, 10080)       # minutes before due; None = no r
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$")
 REPEAT_RE = re.compile(r"^(daily|weekdays|weekly(:[1-7](,[1-7]){0,6})?|monthly(:\d{1,2})?|yearly)$")
 COLUMNS = ("id, title, description, status, priority, start_at, due_at, remind, repeat, repeat_every, next_id, "
-           "overdue_from, overdue_ack, owner_id, sort_order, created_at, updated_at, completed_at, op_project")
+           "overdue_from, overdue_ack, owner_id, sort_order, created_at, updated_at, completed_at, op_project, "
+           "blocked_at, blocked_reason, blocked_by")
 
 
 def _repeat(v):
@@ -504,9 +505,16 @@ async def _enrich(db, rows: List[dict], user: dict) -> List[dict]:
                                WHERE task_id IN ({marks}) AND comment_id IS NULL AND pending = 0 ORDER BY id""", ids)
     for im in await cur.fetchall():
         pics.setdefault((im["task_id"], im["kind"]), []).append(image_dict(im))
+    blockers = {}
+    bids = list({r["blocked_by"] for r in rows if r.get("blocked_by")})
+    if bids:
+        cur = await db.execute(f"SELECT id, username, display_name FROM users WHERE id IN ({','.join('?' * len(bids))})", bids)
+        blockers = {u["id"]: u["display_name"] or u["username"] for u in await cur.fetchall()}
     me = user.get("id")
     acc = board_access(user)
     for r in rows:
+        r["blocked"] = {"since": r["blocked_at"], "reason": r.get("blocked_reason") or "",
+                        "by": blockers.get(r.get("blocked_by"))} if r.get("blocked_at") else None
         p = people.get(r["id"], {"assignee": [], "mention": [], "subtask": []})
         r["owner"] = owners.get(r.get("owner_id"))
         r["assignees"] = p["assignee"]
@@ -1716,6 +1724,53 @@ async def collab_done(task_id: int, user_id: int, body: CollabDoneIn, request: R
             await notify(db, {t.get("owner_id")}, task_id, user, "subtask", f"{_who(user)} 完成了「{t['title']}」裡的協作部分")
         await db.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))
         await rollup_status(db, task_id)
+        await db.commit()
+        return {"success": True}
+    finally:
+        await db.close()
+
+
+class BlockedIn(BaseModel):
+    blocked: bool
+    reason: str = ""
+
+    @field_validator("reason")
+    @classmethod
+    def v_reason(cls, v):
+        return " ".join((v or "").split())[:300]
+
+
+@router.post("/{task_id}/blocked")
+async def set_blocked(task_id: int, body: BlockedIn, request: Request):
+    """Mark a card 卡住 (with what it is waiting for) or clear it. The card's people and anyone who can
+    edit it (their supervisors included) may do this; the card's people and the lead's 上級 are told."""
+    user = current_user(request)
+    db = await get_db()
+    try:
+        t = await _get_visible(db, task_id, user)
+        if not await _can_edit(db, task_id, user):
+            raise HTTPException(status_code=403, detail="只有負責人、協作人或上級可以標記卡住")
+        if body.blocked:
+            if t["status"] in ("complete", "canceled"):
+                raise HTTPException(status_code=400, detail="已結案的卡片不能標記卡住")
+            if not body.reason:
+                raise HTTPException(status_code=400, detail="請寫一下卡在哪裡、在等誰")
+            await db.execute("""UPDATE tasks SET blocked_at = COALESCE(blocked_at, CURRENT_TIMESTAMP), blocked_reason = ?, blocked_by = ?,
+                                updated_at = CURRENT_TIMESTAMP WHERE id = ?""", (body.reason, user.get("id"), task_id))
+            text = f"⛔ 卡住：{body.reason}"
+        else:
+            if not t["blocked_at"]:
+                return {"success": True}
+            await db.execute("""UPDATE tasks SET blocked_at = NULL, blocked_reason = NULL, blocked_by = NULL,
+                                updated_at = CURRENT_TIMESTAMP WHERE id = ?""", (task_id,))
+            text = "✅ 解除卡住" + (f"：{body.reason}" if body.reason else "")
+        await db.execute("INSERT INTO task_comments (task_id, user_id, body) VALUES (?, ?, ?)", (task_id, user.get("id"), text))
+        people = {t.get("owner_id")} | await _members(db, task_id, "assignee") | await _members(db, task_id, "mention")
+        if people - {None}:
+            marks = ",".join("?" * len(people - {None}))
+            cur = await db.execute(f"SELECT manager_id FROM users WHERE id IN ({marks}) AND manager_id IS NOT NULL", list(people - {None}))
+            people |= {r[0] for r in await cur.fetchall()}
+        await notify(db, people, task_id, user, "comment", f"{_who(user)} 在「{t['title']}」{text}")
         await db.commit()
         return {"success": True}
     finally:
