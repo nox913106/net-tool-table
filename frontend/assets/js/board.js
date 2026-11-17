@@ -44,6 +44,29 @@ const TTBoard = (() => {
   const pad = n => String(n).padStart(2, '0');
   const now = () => (window.TTClock && TTClock.now ? TTClock.now() : new Date());
 
+  // ------------------------------------------------ people on a card (focus mode)
+  /** 主責: the creator when they are also an assignee, else the first assignee, else the creator. */
+  const leadOf = t => (t.owner && (t.assignees || []).find(a => a.id === t.owner.id)) || t.assignees?.[0] || t.owner || null;
+  /** Everyone involved in a card and in what role, each with the status that counts for them:
+   *  main (主責, the card's status), sub (a subtask assigned to them, the subtask's status),
+   *  collab (@mentioned / other assignee / creator without a subtask of their own, the card's status). */
+  function involvement(t) {
+    const out = [];
+    const lead = leadOf(t);
+    if (lead) out.push({ p: lead, kind: 'main', status: t.status });
+    const subs = t.subtasks?.items || [];
+    subs.forEach(s => { if (s.assignee) out.push({ p: s.assignee, kind: 'sub', status: s.status, sub: s }); });
+    const withSub = new Set(subs.map(s => s.assignee?.id).filter(x => x != null));
+    const seen = new Set([lead?.id]);
+    [...(t.assignees || []).slice(1), ...(t.mentions || []), t.owner].forEach(p => {
+      if (!p || seen.has(p.id) || withSub.has(p.id)) return;
+      seen.add(p.id);
+      out.push({ p, kind: 'collab', status: t.status, why: (t.mentions || []).some(m => m.id === p.id) ? '@協作' : (t.assignees || []).some(a => a.id === p.id) ? '共同負責' : '建立者' });
+    });
+    return out;
+  }
+  const expanded = new Set();             // cards whose task tree is open
+
   // -------------------------------------------------- multi-select + Excel export
   const selection = new Set();            // card ids
   let selecting = false;
@@ -614,9 +637,12 @@ const TTBoard = (() => {
       : filter === 'team' ? [t.owner, ...(t.assignees || [])].some(p => p && teamIds().has(p.id))
       : filter.startsWith('user:') ? [t.owner, ...(t.assignees || [])].some(p => p && String(p.id) === filter.slice(5))
       : filter.startsWith('dept:') ? (t.departments || []).includes(filter.slice(5)) : true;
-    const colItems = key => byStatus(key).filter(pass);
+    const inFocus = t => focusId == null || involvement(t).some(x => x.p.id === focusId);
+    const colItems = key => byStatus(key).filter(t => pass(t) && (lanes || inFocus(t)));
     let drag = null;                                           // { id, from }
     let lanes = !!opts.lanes;                                  // meeting view: one row per person
+    let focusId = null;                                        // focus mode: one person's work + what they are part of
+    const peopleBar = opts.full && meInfo.auth ? el('div', { class: 'kb-people-bar' }) : null;
     const placeholder = el('div', { class: 'kb-placeholder' });
 
     const render = () => {
@@ -625,8 +651,13 @@ const TTBoard = (() => {
       const cols = STATUSES.filter(s => !(hideClosed && CLOSED.has(s.key)) && !(s.key === 'overdue' && !colItems('overdue').length));
       root.style.setProperty('--kb-cols', cols.length);
       root.classList.toggle('kb-lanes', lanes);
+      root.classList.toggle('kb-focus', focusId != null && !lanes);
+      // focus: empty columns shrink to a slim strip so the cards get the width
+      const empty = s => focusId != null && !lanes && !colItems(s.key).length;
+      root.style.gridTemplateColumns = focusId != null && !lanes ? cols.map(s => empty(s) ? '52px' : 'minmax(0, 1fr)').join(' ') : '';
       if (lanes) renderLanes(cols);
-      else root.replaceChildren(...cols.map(column));
+      else root.replaceChildren(...cols.map(s => { const c = column(s); if (empty(s)) { c.classList.add('kb-col-empty'); c.title = `${s.label}（${s.zh}）：沒有卡片`; } return c; }));
+      paintPeople();
       root.classList.toggle('is-selecting', selecting);
       if (selecting) root.querySelectorAll('.kb-col').forEach(paintColCheck);
     };
@@ -678,9 +709,49 @@ const TTBoard = (() => {
       return col;
     }
 
+    // ------------------------------------------------ people bar (focus mode)
+    function paintPeople() {
+      if (!peopleBar) return;
+      if (!peopleBar.isConnected && root.isConnected) root.before(peopleBar);
+      peopleBar.hidden = lanes;
+      if (lanes) return;
+      const counts = new Map();                                // person id → { p, byStatus }
+      tasks.filter(pass).filter(t => !(hideClosed && CLOSED.has(t.status))).forEach(t => involvement(t).forEach(x => {
+        if (x.p.id == null) return;
+        const e = counts.get(x.p.id) || { p: x.p, n: {} };
+        e.n[x.status] = (e.n[x.status] || 0) + 1;
+        counts.set(x.p.id, e);
+      }));
+      const me = meInfo.user?.id;
+      const team = new Set((meInfo.team || []).map(p => p.id));
+      const rank = id => id === me ? 0 : team.has(id) ? 1 : 2;
+      const people = [...counts.values()].sort((a, b) => rank(a.p.id) - rank(b.p.id) || TT.nameOf(a.p).localeCompare(TT.nameOf(b.p), 'zh-Hant'));
+      if (focusId != null && !counts.has(focusId)) focusId = null;
+      const pills = people.map(({ p, n }) => {
+        const b = el('button', { class: 'kb-person-pill' + (focusId === p.id ? ' on' : focusId != null ? ' off' : ''), type: 'button',
+          title: `${TT.nameOf(p)}：` + STATUSES.filter(s => n[s.key]).map(s => `${s.zh} ${n[s.key]}`).join('、') + '（主責、子任務、協作都算）' },
+          TT.avatar(p, 26), el('span', { class: 'kb-pp-name', text: TT.nameOf(p) + (p.id === me ? '（我）' : '') }),
+          el('span', { class: 'kb-pp-counts' }, ...STATUSES.filter(s => n[s.key]).map(s => el('span', { class: 'kb-pp-sq', style: { '--c': s.color }, text: n[s.key] }))));
+        b.addEventListener('click', () => setFocus(focusId === p.id ? null : p.id));
+        return b;
+      });
+      const clear = focusId != null ? el('button', { class: 'btn btn-sm', type: 'button', html: svg('x') + '取消專注（Esc）' }) : null;
+      clear?.addEventListener('click', () => setFocus(null));
+      peopleBar.replaceChildren(...[el('span', { class: 'kb-pp-label', text: focusId != null ? '專注：' : '點人員專注：' }), ...pills,
+        el('span', { class: 'spacer' }), clear || el('span', { class: 'kb-pp-legend' }, ...STATUSES.filter(s => !(hideClosed && CLOSED.has(s.key))).map(s => el('span', {}, el('i', { style: { '--c': s.color } }), s.zh)))].filter(Boolean));
+    }
+    function setFocus(id) {
+      focusId = id;
+      if (id != null) expanded.clear();
+      render();
+    }
+    if (peopleBar) document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && focusId != null && root.isConnected && !document.querySelector('.modal:not([hidden])')) setFocus(null);
+    });
+
     // ------------------------------------------------ meeting view (swimlanes)
     /** Whose row a card goes in: its first assignee, else its creator. */
-    const laneOf = t => (t.assignees?.[0] || t.owner || null);
+    const laneOf = t => leadOf(t);
     function renderLanes(cols) {
       const people = new Map();                                // id → person
       const me = meInfo.user?.id;
@@ -783,7 +854,17 @@ const TTBoard = (() => {
           t.team ? el('span', { class: 'kb-team-tag', title: '下級的卡片（你是上級，可以' + (meInfo.board?.team_edit ? '檢視、留言與增刪修）' : '檢視與留言）'), text: '下級' }) : null),
         t.description ? el('p', { class: 'kb-card-desc', text: t.description }) : null,
         chips.length ? el('div', { class: 'kb-chips' }, chips) : null,
-        meInfo.auth ? cardPeople(t) : null);
+        meInfo.auth ? cardPeople(t) : null,
+        taskTree(t));
+      const lead = leadOf(t);
+      if (focusId != null && !lanes && lead?.id !== focusId) {               // someone else's task I am part of
+        c.classList.add('kb-card-part');
+        const mine = involvement(t).filter(x => x.p.id === focusId);
+        const name = TT.nameOf(mine[0]?.p || {});
+        c.prepend(el('div', { class: 'kb-part-head' }, el('span', { class: 'kb-part-badge', text: '協作' }), el('span', { text: `主責：${TT.nameOf(lead || {})}` })));
+        const what = mine.map(x => x.kind === 'sub' ? `子任務「${x.sub.title}」` : x.why).join('、');
+        c.querySelector('.kb-tree-bar')?.before(el('div', { class: 'kb-part-note', text: `${name} 在這個任務：${what}` }));
+      }
       if (selection.has(t.id)) c.classList.add('is-selected');
       if (t.team) c.classList.add('is-team');
       c.addEventListener('click', e => {
@@ -809,6 +890,47 @@ const TTBoard = (() => {
         if (drag) { drag = null; render(); }
       });
       return c;
+    }
+
+    /** "子任務 2/4 · 協作 1 ▸" — opens the task tree (subtasks and collaborators) inside the card. */
+    function taskTree(t) {
+      const subs = t.subtasks?.items || [];
+      const collab = involvement(t).filter(x => x.kind === 'collab');
+      if (!subs.length && !collab.length) return null;
+      const open = expanded.has(t.id);
+      const done = subs.filter(s => s.status === 'complete').length;
+      const btn = el('button', { class: 'kb-tree-toggle' + (open ? ' open' : ''), type: 'button', title: open ? '收合任務樹' : '展開任務樹：子任務與協作人' },
+        el('span', { text: [subs.length ? `子任務 ${done}/${subs.length}` : null, collab.length ? `協作 ${collab.length}` : null].filter(Boolean).join(' · ') }),
+        el('span', { class: 'kb-tree-caret', text: open ? '▾' : '▸' }));
+      btn.addEventListener('click', e => { e.stopPropagation(); open ? expanded.delete(t.id) : expanded.add(t.id); render(); });
+      btn.addEventListener('mousedown', e => e.stopPropagation());
+      const bar = el('div', { class: 'kb-tree-bar' }, btn);
+      if (!open) return bar;
+      const last = subs.length + collab.length - 1;
+      const nodes = [
+        ...subs.map((s, i) => {
+          const st = STATUS[s.status] || STATUS.new;
+          const tm = timing({ status: s.status, due_at: s.due_at });
+          return el('div', { class: 'kb-tree-node' + (focusId != null && s.assignee?.id === focusId ? ' me' : '') + (tm.due === 'overdue' ? ' late' : '') },
+            el('span', { class: 'kb-tree-branch', text: i === last ? '└' : '├' }),
+            el('div', { class: 'kb-tree-sub' },
+              el('div', { class: 'kb-tree-row' }, el('span', { class: 'kb-tree-st', style: { '--c': st.color }, text: st.label }), el('span', { class: 'kb-tree-kind', text: '子任務' })),
+              el('div', { class: 'kb-tree-title', text: s.title }),
+              el('div', { class: 'kb-tree-row' },
+                s.assignee ? el('span', { class: 'kb-tree-who' }, TT.avatar(s.assignee, 18), el('span', { text: TT.nameOf(s.assignee) })) : el('span', { class: 'hint', text: '未指派' }),
+                s.due_at ? el('span', { class: `kb-chip due-${tm.due || ''}`, html: svg('clock') + `<span>${tm.dueText || fmt(s.due_at)}</span>` }) : null,
+                s.estimate || s.spent ? el('span', { class: 'kb-chip', html: svg('clock') + `<span>${fmtMin(s.spent)}${s.estimate ? ' / ' + fmtMin(s.estimate) : ''}</span>` }) : null)));
+        }),
+        ...collab.map((x, i) => el('div', { class: 'kb-tree-node collab' + (focusId != null && x.p.id === focusId ? ' me' : '') },
+          el('span', { class: 'kb-tree-branch', text: subs.length + i === last ? '└' : '├' }),
+          el('div', { class: 'kb-tree-sub kb-tree-collab' },
+            el('div', { class: 'kb-tree-row' }, el('span', { class: 'kb-part-badge', text: '協作' }), el('span', { class: 'hint', text: x.why })),
+            el('div', { class: 'kb-tree-row' }, el('span', { class: 'kb-tree-who' }, TT.avatar(x.p, 18), el('span', { text: TT.nameOf(x.p) })))))),
+      ];
+      const tree = el('div', { class: 'kb-tree' }, ...nodes);
+      tree.addEventListener('click', e => e.stopPropagation());       // reading the tree does not open the card
+      tree.addEventListener('dblclick', () => openEditor(t));
+      return el('div', {}, bar, tree);
     }
 
     function cardPeople(t) {
@@ -852,6 +974,7 @@ const TTBoard = (() => {
       setHideClosed(v) { hideClosed = v; render(); },
       setFilter(v) { filter = v; render(); },
       setLanes(v) { lanes = v; render(); },
+      setFocus,
       render,
     };
   }

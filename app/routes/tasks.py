@@ -538,13 +538,20 @@ async def _rollup(db, ids: List[int], me) -> dict:
     marks = ",".join("?" * len(ids))
     cur = await db.execute(f"""
         SELECT c.id, c.task_id, c.title, c.status, c.start_at, c.due_at, c.assignee_id, c.estimate_minutes, c.remind, c.priority,
-               (SELECT COALESCE(SUM(minutes), 0) FROM task_time tt WHERE tt.comment_id = c.id) AS spent
-        FROM task_comments c WHERE c.task_id IN ({marks}) AND c.is_task = 1 AND c.parent_id IS NULL
+               (SELECT COALESCE(SUM(minutes), 0) FROM task_time tt WHERE tt.comment_id = c.id) AS spent,
+               u.username AS a_username, u.display_name AS a_name, u.department AS a_department
+        FROM task_comments c LEFT JOIN users u ON u.id = c.assignee_id
+        WHERE c.task_id IN ({marks}) AND c.is_task = 1 AND c.parent_id IS NULL
         ORDER BY COALESCE(c.sort_order, c.id), c.id""", ids)
     out = {}
     for c in await cur.fetchall():
         s = out.setdefault(c["task_id"], {"total": 0, "done": 0, "canceled": 0, "estimate": 0, "spent": 0,
-                                           "start": None, "end": None, "mine": [], "timer": None})
+                                           "start": None, "end": None, "mine": [], "timer": None, "items": []})
+        # every subtask, for the task tree on the card and the people counts
+        s["items"].append({"id": c["id"], "title": c["title"], "status": c["status"] or "new", "due_at": c["due_at"],
+                           "estimate": c["estimate_minutes"], "spent": c["spent"], "priority": c["priority"] or "normal",
+                           "assignee": {"id": c["assignee_id"], "username": c["a_username"], "name": c["a_name"] or c["a_username"],
+                                        "department": c["a_department"]} if c["assignee_id"] else None})
         s["total"] += 1
         s["done"] += c["status"] == "complete"
         s["canceled"] += c["status"] == "canceled"
