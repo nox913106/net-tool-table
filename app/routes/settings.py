@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from .. import config as C
 from ..database import get_db
 from ..localapps import is_file_url, local_allowed
 from ..models import unsafe_url
@@ -231,7 +232,9 @@ LINK_FIELDS = ["region", "name", "url", "sort_order", "is_active"]
 
 async def export_subtree(db, parent_id: Optional[int]) -> List[dict]:
     if parent_id is None:
-        cursor = await db.execute("SELECT * FROM nodes WHERE parent_id IS NULL ORDER BY sort_order, id")
+        # the server's backup / export covers the public area (personal areas belong to each account)
+        public = " AND owner_id IS NULL" if C.AUTH else ""
+        cursor = await db.execute(f"SELECT * FROM nodes WHERE parent_id IS NULL{public} ORDER BY sort_order, id")
     else:
         cursor = await db.execute(
             "SELECT * FROM nodes WHERE parent_id = ? ORDER BY sort_order, id", (parent_id,)
@@ -342,7 +345,7 @@ async def import_all(payload: ImportPayload, request: Request):
     db = await get_db()
     try:
         if payload.replace:
-            await db.execute("DELETE FROM nodes")
+            await db.execute("DELETE FROM nodes" + (" WHERE owner_id IS NULL" if C.AUTH else ""))
             await db.execute("DELETE FROM auth_links")
             await db.execute("DELETE FROM settings")
             if isinstance(data.get("tasks"), list):     # older backups have no tasks: keep the board

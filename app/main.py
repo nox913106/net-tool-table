@@ -89,6 +89,7 @@ app = FastAPI(
 )
 
 app.include_router(nodes.router)
+app.include_router(nodes.my_router)
 app.include_router(auth_links.router)
 app.include_router(search.router)
 app.include_router(settings.router)

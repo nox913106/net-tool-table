@@ -21,9 +21,12 @@
       try {
         const r = await api('/api/sync/wait?since=' + since);
         fails = 0;
-        if (since >= 0 && r.seq > since && window.TTBoard) {
+        if (since >= 0 && r.seq > since) {
           clearTimeout(timer);
-          timer = setTimeout(() => TTBoard.refresh && TTBoard.refresh(), 600);      // a burst of changes → one reload
+          timer = setTimeout(() => {                                                // a burst of changes → one reload
+            if (window.TTBoard && TTBoard.refresh) TTBoard.refresh();
+            if (window.TTPortal) TTPortal.reloadTree('live');
+          }, 600);
           if (panel && panel.isConnected) refreshStatus();
         }
         since = r.seq;

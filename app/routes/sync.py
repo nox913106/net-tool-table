@@ -183,6 +183,20 @@ def _guard(db, user: dict):
             t = dict(local)
             t["id"] = local["_rid"]
             return None if await can_delete(db, t, user) else "只能刪除自己建立的卡片"
+        if table == "nodes":                       # portal links: only one's own personal area
+            if op == "insert":
+                changes["owner_id"] = me
+            elif local["owner_id"] != me:
+                return "公用區只有管理員可以修改" if local["owner_id"] is None else "這不是你的個人區"
+            if str(changes.get("url") or "").lower().startswith("file:"):
+                return "伺服器上的個人區不能放本機程式"
+            parent = changes.get("parent_id")
+            if parent is not None:
+                cur = await db.execute("SELECT owner_id, node_type FROM nodes WHERE id = ?", (parent,))
+                p = await cur.fetchone()
+                if not p or p["owner_id"] != me or p["node_type"] != "folder":
+                    return "只能放在自己個人區的資料夾裡"
+            return None
         card = changes.get("task_id") if op == "insert" else local["task_id"]
         if card is None or not await visible(card):
             return "你看不到這張卡片"
@@ -323,7 +337,8 @@ async def push(request: Request):
         where, args = _visible_sql(user)
         cur = await db.execute(f"SELECT t.uid FROM tasks t WHERE {where}", args)
         vis = {r[0] for r in await cur.fetchall()}
-        shown = [r for r in rows if (r["uid"] if r["t"] == "tasks" else r["v"].get("task_id")) in vis]
+        shown = [r for r in rows if (r["v"].get("owner_id") in (None, user["username"]) if r["t"] == "nodes"
+                                     else (r["uid"] if r["t"] == "tasks" else r["v"].get("task_id")) in vis)]
         for r in rows:
             if r not in shown and r["uid"] in reasons:
                 tombs.append({"t": r["t"], "uid": r["uid"], "ts": "", "dev": ""})
@@ -364,6 +379,7 @@ async def pull(request: Request):
         rows, tombs = [], []
         if since <= 0:
             rows = await sync.export_cards(db, list(vis.values()), ids)
+            rows += await sync.export_rows(db, "nodes", "(owner_id IS NULL OR owner_id = ?)", (user["id"],), ids)
         else:
             cur = await db.execute("SELECT DISTINCT tbl, uid FROM sync_clock WHERE seq > ?", (since,))
             changed: dict = {}
@@ -372,6 +388,10 @@ async def pull(request: Request):
                     changed.setdefault(t, []).append(u)
             for table in sync.ORDER:
                 for r in await sync.export_by_uid(db, table, changed.get(table, []), ids):
+                    if table == "nodes":
+                        if r["v"].get("owner_id") in (None, user["username"]):
+                            rows.append(r)
+                        continue
                     card = r["uid"] if table == "tasks" else r["v"].get("task_id")
                     if card in vis:
                         rows.append(r)
@@ -420,6 +440,24 @@ async def put_blob(uid: str, request: Request, name: str = ""):
         return {"success": True}
     finally:
         await db.close()
+
+
+@router.put("/icon/{name}")
+async def put_icon(name: str, request: Request):
+    """An icon file used by a personal link (kept if one with that name already exists)."""
+    _server_only()
+    _signed_in(request)
+    from ..config import MAX_ICON_BYTES
+    from .search import safe_icon_path
+    dest = safe_icon_path(name)
+    if dest.exists():
+        return {"success": True, "known": True}
+    data = await request.body()
+    if not data or len(data) > MAX_ICON_BYTES:
+        raise HTTPException(status_code=413, detail="圖示太大")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(data)
+    return {"success": True}
 
 
 @router.get("/blob/{uid}")

@@ -283,6 +283,9 @@ async def init_db():
             await db.execute("ALTER TABLE nodes ADD COLUMN launch_args TEXT")
         if "launch_cwd" not in node_cols:
             await db.execute("ALTER TABLE nodes ADD COLUMN launch_cwd TEXT")
+        if "owner_id" not in node_cols:       # NULL = 公用區 (public area); an account = its 個人區 (personal area)
+            await db.execute("ALTER TABLE nodes ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_nodes_owner ON nodes(owner_id)")
 
         # Create indexes
         await db.execute("CREATE INDEX IF NOT EXISTS idx_nodes_parent ON nodes(parent_id)")

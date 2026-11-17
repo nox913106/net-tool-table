@@ -5,7 +5,7 @@ Global search across nodes
 from pathlib import Path
 from typing import List
 
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Request
 
 from ..config import ALLOWED_ICON_EXTENSIONS, ICON_DIR, MAX_ICON_BYTES
 
@@ -33,7 +33,7 @@ async def get_node_path(db, node_id: int) -> str:
     return " > ".join(path_parts)
 
 @router.get("/search")
-async def search_nodes(q: str, limit: int = 50):
+async def search_nodes(q: str, request: Request, limit: int = 50):
     """Search nodes by name"""
     if not q or len(q) < 1:
         return []
@@ -42,10 +42,10 @@ async def search_nodes(q: str, limit: int = 50):
     try:
         cursor = await db.execute(
             """SELECT * FROM nodes 
-               WHERE name LIKE ? AND is_active = TRUE 
+               WHERE name LIKE ? AND is_active = TRUE AND (owner_id IS NULL OR owner_id IS ?)
                ORDER BY node_type DESC, name 
                LIMIT ?""",
-            (f"%{q}%", limit)
+            (f"%{q}%", (getattr(request.state, "user", None) or {}).get("id"), limit)
         )
         rows = await cursor.fetchall()
         

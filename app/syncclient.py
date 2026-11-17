@@ -247,6 +247,8 @@ async def connect(server: str, username: str, password: str, verify: bool = True
         await db.execute("UPDATE tasks SET owner_id = ? WHERE owner_id IS NULL", (uid,))
         for table in ("task_comments", "task_time", "task_images"):
             await db.execute(f"UPDATE {table} SET user_id = ? WHERE user_id IS NULL", (uid,))
+        if not old.get("user"):                      # first link: this computer's links become my 個人區
+            await db.execute("UPDATE nodes SET owner_id = ? WHERE owner_id IS NULL", (uid,))
         await sync.seed_dirty(db)
         await sync.set_state(db, "server", server)
         await sync.set_state(db, "token", _protect(token))
@@ -356,6 +358,10 @@ async def _pull(cfg):
             await db.close()
         img.remove(rep.files_removed + removed)
         await _fetch_blobs(cfg, rep.need_blobs)
+        if rep.nodes:
+            await _fetch_icons(cfg)
+        if rep.nodes:
+            _status["nodes_rev"] = _status.get("nodes_rev", 0) + 1
         if rep.applied or removed:
             _status["rev"] += 1
             sync.poke()
@@ -421,6 +427,47 @@ async def _fetch_blobs(cfg, uids):
             await db.close()
 
 
+def _icon_file(name):
+    from .routes.search import safe_icon_path
+    try:
+        return safe_icon_path(name)
+    except Exception:
+        return None                                   # a built-in icon name, not a file
+
+
+async def _fetch_icons(cfg):
+    """Icon files used by links that came from the server (public area, my personal links)."""
+    db = await get_db()
+    try:
+        cur = await db.execute("SELECT DISTINCT icon FROM nodes WHERE icon IS NOT NULL AND icon != ''")
+        names = [r[0] for r in await cur.fetchall()]
+    finally:
+        await db.close()
+    for name in names:
+        p = _icon_file(name)
+        if not p or p.exists():
+            continue
+        try:
+            data = await _call(cfg, "GET", "/resource/icon/" + urllib.parse.quote(name), as_json=False, token=False, timeout=30)
+        except SyncError:
+            continue
+        if data and len(data) <= 5 * 1024 * 1024:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(data)
+
+
+async def _send_icons(cfg, names):
+    for name in names:
+        p = _icon_file(name)
+        if not p or not p.is_file():
+            continue
+        try:
+            await _call(cfg, "PUT", "/api/sync/icon/" + urllib.parse.quote(name), raw=p.read_bytes(), timeout=60)
+        except SyncError as e:
+            if e.offline:
+                raise
+
+
 async def _push(cfg):
     db = await get_db()
     try:
@@ -437,6 +484,8 @@ async def _push(cfg):
                 uploads.append((uid, r[0], r[1]))
     finally:
         await db.close()
+    icons = {r["v"].get("icon") for r in payload["rows"] if r["t"] == "nodes" and r["v"].get("icon")}
+    await _send_icons(cfg, icons)
     for uid, stored, name in uploads:                 # files first, so their rows can be applied
         p = img.path(stored)
         if not p or not p.is_file():

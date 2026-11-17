@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import List, Optional
 import aiosqlite
 
+from .. import config as C
 from .. import localapps as la
 from ..database import get_db
 from ..models import (
@@ -14,6 +15,39 @@ from ..models import (
 )
 
 router = APIRouter(prefix="/api/nodes", tags=["nodes"])
+my_router = APIRouter(prefix="/api/my/nodes", tags=["nodes"])
+
+# ============ Public area / personal area ============
+# owner_id NULL = 公用區 (public area: administrators on the server); owner_id = an account =
+# that person's 個人區 (personal area: only they see and edit it). A standalone copy linked to a
+# server keeps its own links in its owner's personal area; the public area comes from the server.
+
+def _viewer(request: Request):
+    user = getattr(request.state, "user", None) or {}
+    return user.get("id")
+
+
+def _area(request: Request):
+    """Whose links /api/nodes manages: None = the public area. On a linked standalone copy the
+    local links are the owner's personal area (the public area is the server's, read-only here)."""
+    if C.AUTH:
+        return None
+    from .. import syncclient
+    u = syncclient.LOCAL_USER
+    return u["id"] if u else None
+
+
+async def _owned(db, node_id: int, owner):
+    cursor = await db.execute("SELECT * FROM nodes WHERE id = ?", (node_id,))
+    row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Node not found")
+    if row["owner_id"] != owner:
+        if row["owner_id"] is None:
+            raise HTTPException(status_code=403, detail="公用區由伺服器的管理員維護，這裡不能修改" if not C.AUTH
+                                else "公用區只有管理員可以修改")
+        raise HTTPException(status_code=404, detail="Node not found")
+    return row
 
 # ============ Helper Functions ============
 
@@ -56,12 +90,20 @@ async def generate_code(db, parent_id: Optional[int]) -> str:
             n += 1
         return f"{parent_code}-{n}"
 
-async def build_tree(db, include_inactive: bool = False) -> List[dict]:
-    """Whole tree in one query. Inactive nodes (and their subtrees) are skipped
-    unless include_inactive is set (admin view)."""
-    where = "" if include_inactive else "WHERE is_active = TRUE"
-    cursor = await db.execute(f"SELECT * FROM nodes {where} ORDER BY sort_order, id")
+async def build_tree(db, include_inactive: bool = False, viewer=None, public_only: bool = False, area=None) -> List[dict]:
+    """Whole tree in one query: the public area plus the viewer's own personal area.
+    Inactive nodes (and their subtrees) are skipped unless include_inactive is set (admin view).
+    personal: in someone's personal area; readonly: not editable through /api/nodes here."""
+    where = ["(owner_id IS NULL" + ("" if public_only else " OR owner_id = ?") + ")"]
+    args = [] if public_only else [viewer]
+    if not include_inactive:
+        where.append("is_active = TRUE")
+    cursor = await db.execute(f"SELECT * FROM nodes WHERE {' AND '.join(where)} ORDER BY sort_order, id", args)
     rows = [dict(r) for r in await cursor.fetchall()]
+    for r in rows:
+        r["personal"] = r["owner_id"] is not None
+        r["readonly"] = r["owner_id"] != area
+        r.pop("uid", None)
     by_id = {r["id"]: r for r in rows}
     roots: List[dict] = []
     for r in rows:
@@ -96,12 +138,13 @@ async def get_node_path(db, node_id: int) -> str:
 # ============ CRUD Routes ============
 
 @router.get("", response_model=List[NodeResponse])
-async def get_root_nodes():
+async def get_root_nodes(request: Request):
     """Get all root nodes"""
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT * FROM nodes WHERE parent_id IS NULL AND is_active = TRUE ORDER BY sort_order, code"
+            "SELECT * FROM nodes WHERE parent_id IS NULL AND is_active = TRUE AND (owner_id IS NULL OR owner_id IS ?) ORDER BY sort_order, code",
+            (_viewer(request),)
         )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
@@ -109,20 +152,22 @@ async def get_root_nodes():
         await db.close()
 
 @router.get("/tree")
-async def get_full_tree(include_inactive: bool = False):
-    """Get complete tree structure (?include_inactive=true for the admin view)"""
+async def get_full_tree(request: Request, include_inactive: bool = False):
+    """Public area + my personal area (?include_inactive=true: the admin view — on the server the
+    public area only, which is what the admin panel manages)"""
     db = await get_db()
     try:
-        return await build_tree(db, include_inactive)
+        return await build_tree(db, include_inactive, _viewer(request), public_only=C.AUTH and include_inactive,
+                                area=_area(request))
     finally:
         await db.close()
 
 @router.get("/{node_id}", response_model=NodeResponse)
-async def get_node(node_id: int):
+async def get_node(node_id: int, request: Request):
     """Get single node by ID"""
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT * FROM nodes WHERE id = ?", (node_id,))
+        cursor = await db.execute("SELECT * FROM nodes WHERE id = ? AND (owner_id IS NULL OR owner_id IS ?)", (node_id, _viewer(request)))
         row = await cursor.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Node not found")
@@ -131,13 +176,13 @@ async def get_node(node_id: int):
         await db.close()
 
 @router.get("/{node_id}/children", response_model=List[NodeResponse])
-async def get_children(node_id: int):
+async def get_children(node_id: int, request: Request):
     """Get children of a node"""
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT * FROM nodes WHERE parent_id = ? AND is_active = TRUE ORDER BY sort_order, code",
-            (node_id,)
+            "SELECT * FROM nodes WHERE parent_id = ? AND is_active = TRUE AND (owner_id IS NULL OR owner_id IS ?) ORDER BY sort_order, code",
+            (node_id, _viewer(request))
         )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
@@ -145,12 +190,12 @@ async def get_children(node_id: int):
         await db.close()
 
 @router.get("/code/{code}")
-async def get_by_code(code: str):
+async def get_by_code(code: str, request: Request):
     """Get node by code (e.g., 3-2-1)"""
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT * FROM nodes WHERE code = ? AND is_active = TRUE", (code,)
+            "SELECT * FROM nodes WHERE code = ? AND is_active = TRUE AND (owner_id IS NULL OR owner_id IS ?)", (code, _viewer(request))
         )
         row = await cursor.fetchone()
         if not row:
@@ -171,6 +216,10 @@ async def get_by_code(code: str):
 @router.post("", response_model=NodeResponse)
 async def create_node(node: NodeCreate, request: Request):
     """Create a new node"""
+    return await _create(node, request, _area(request))
+
+
+async def _create(node: NodeCreate, request: Request, owner):
     db = await get_db()
     try:
         # Validate link type requires URL
@@ -181,10 +230,7 @@ async def create_node(node: NodeCreate, request: Request):
             if la.is_file_url(node.url):
                 la.require_local(request)   # only the PC running the portable edition may add programs
         if node.parent_id is not None:
-            cursor = await db.execute("SELECT node_type FROM nodes WHERE id = ?", (node.parent_id,))
-            parent = await cursor.fetchone()
-            if not parent:
-                raise HTTPException(status_code=404, detail="Parent not found")
+            parent = await _owned(db, node.parent_id, owner)
             if parent['node_type'] != 'folder':
                 raise HTTPException(status_code=400, detail="只能在資料夾底下新增項目")
         
@@ -204,12 +250,12 @@ async def create_node(node: NodeCreate, request: Request):
                 cursor = await db.execute(
                     """INSERT INTO nodes (parent_id, code, name, node_type, icon, url,
                                           description, color, launch_args, launch_cwd,
-                                          new_tab, sort_order, is_active)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                          new_tab, sort_order, is_active, owner_id)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (node.parent_id, code, node.name, node.node_type,
                      node.icon, node.url, node.description, node.color or None,
                      node.launch_args or None, node.launch_cwd or None,
-                     node.new_tab, node.sort_order, node.is_active)
+                     node.new_tab, node.sort_order, node.is_active, owner)
                 )
                 await db.commit()
                 
@@ -229,14 +275,18 @@ async def create_node(node: NodeCreate, request: Request):
         await db.close()
 
 @router.put("/reorder")
-async def reorder_nodes(reorder: NodeReorder):
+async def reorder_nodes(reorder: NodeReorder, request: Request):
     """Batch reorder nodes (declared before /{node_id} so it is matched first)"""
+    return await _reorder(reorder, _area(request))
+
+
+async def _reorder(reorder: NodeReorder, owner):
     db = await get_db()
     try:
         for item in reorder.items:
             await db.execute(
-                "UPDATE nodes SET sort_order = ? WHERE id = ?",
-                (item['sort_order'], item['id'])
+                "UPDATE nodes SET sort_order = ? WHERE id = ? AND owner_id IS ?",
+                (item['sort_order'], item['id'], owner)
             )
         await db.commit()
         return {"success": True, "message": "Nodes reordered"}
@@ -246,13 +296,13 @@ async def reorder_nodes(reorder: NodeReorder):
 @router.put("/{node_id}", response_model=NodeResponse)
 async def update_node(node_id: int, node: NodeUpdate, request: Request):
     """Update a node"""
+    return await _update(node_id, node, request, _area(request))
+
+
+async def _update(node_id: int, node: NodeUpdate, request: Request, owner):
     db = await get_db()
     try:
-        # Check exists
-        cursor = await db.execute("SELECT * FROM nodes WHERE id = ?", (node_id,))
-        existing = await cursor.fetchone()
-        if not existing:
-            raise HTTPException(status_code=404, detail="Node not found")
+        existing = await _owned(db, node_id, owner)
         
         # Guard: prevent changing a folder with children to link type
         if node.node_type == 'link':
@@ -298,14 +348,16 @@ async def update_node(node_id: int, node: NodeUpdate, request: Request):
         await db.close()
 
 @router.delete("/{node_id}")
-async def delete_node(node_id: int):
+async def delete_node(node_id: int, request: Request):
     """Delete a node and its children"""
+    return await _delete(node_id, _area(request))
+
+
+async def _delete(node_id: int, owner):
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT * FROM nodes WHERE id = ?", (node_id,))
-        if not await cursor.fetchone():
-            raise HTTPException(status_code=404, detail="Node not found")
-        
+        await _owned(db, node_id, owner)
+
         await db.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
         await db.commit()
         return {"success": True, "message": "Node deleted"}
@@ -322,14 +374,15 @@ async def collect_descendants(db, node_id: int) -> List[dict]:
     return result
 
 @router.put("/{node_id}/move")
-async def move_node(node_id: int, move: NodeMove):
+async def move_node(node_id: int, move: NodeMove, request: Request):
     """Move node (and its whole subtree) to a new parent"""
+    return await _move(node_id, move, _area(request))
+
+
+async def _move(node_id: int, move: NodeMove, owner):
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT * FROM nodes WHERE id = ?", (node_id,))
-        node = await cursor.fetchone()
-        if not node:
-            raise HTTPException(status_code=404, detail="Node not found")
+        node = await _owned(db, node_id, owner)
 
         if move.new_parent_id == node['parent_id']:
             return {"success": True, "message": "Node unchanged", "new_code": node['code']}
@@ -339,10 +392,7 @@ async def move_node(node_id: int, move: NodeMove):
         if move.new_parent_id is not None:
             if move.new_parent_id == node_id or move.new_parent_id in {d['id'] for d in descendants}:
                 raise HTTPException(status_code=400, detail="不能移動到自己或自己的子節點底下")
-            cursor = await db.execute("SELECT node_type FROM nodes WHERE id = ?", (move.new_parent_id,))
-            parent = await cursor.fetchone()
-            if not parent:
-                raise HTTPException(status_code=404, detail="Parent not found")
+            parent = await _owned(db, move.new_parent_id, owner)
             if parent['node_type'] != 'folder':
                 raise HTTPException(status_code=400, detail="目標必須是資料夾")
 
@@ -365,3 +415,38 @@ async def move_node(node_id: int, move: NodeMove):
         return {"success": True, "message": "Node moved", "new_code": new_code}
     finally:
         await db.close()
+
+
+# ============ 個人區: every signed-in account manages its own links ============
+def _me(request: Request) -> int:
+    user = getattr(request.state, "user", None) or {}
+    if user.get("id") is None:
+        raise HTTPException(status_code=400, detail="個人區需要登入（單機版：先連線到伺服器）")
+    return user["id"]
+
+
+@my_router.post("", response_model=NodeResponse)
+async def my_create(node: NodeCreate, request: Request):
+    if node.url and la.is_file_url(la.normalize_target(node.url)) and C.AUTH:
+        raise HTTPException(status_code=400, detail="伺服器上的個人區不能放本機程式")
+    return await _create(node, request, _me(request))
+
+
+@my_router.put("/reorder")
+async def my_reorder(reorder: NodeReorder, request: Request):
+    return await _reorder(reorder, _me(request))
+
+
+@my_router.put("/{node_id}", response_model=NodeResponse)
+async def my_update(node_id: int, node: NodeUpdate, request: Request):
+    return await _update(node_id, node, request, _me(request))
+
+
+@my_router.delete("/{node_id}")
+async def my_delete(node_id: int, request: Request):
+    return await _delete(node_id, _me(request))
+
+
+@my_router.put("/{node_id}/move")
+async def my_move(node_id: int, move: NodeMove, request: Request):
+    return await _move(node_id, move, _me(request))

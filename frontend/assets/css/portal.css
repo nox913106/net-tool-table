@@ -1354,3 +1354,22 @@ body.kb-selecting .view { padding-bottom: 90px; }
 .sync-card .modal-head h3 { display: flex; align-items: center; gap: 8px; }
 .sync-card .modal-head h3 svg { width: 18px; height: 18px; flex: none; }
 .sync-kv > .sync-inline { justify-self: start; }
+
+/* ---------------------------------------------------------------- 公用區 / 個人區 */
+.nav-title-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.nav-add { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; color: var(--text-3); background: none; border: 0; cursor: pointer; }
+.nav-add:hover { background: var(--surface-hover); color: var(--accent); }
+.nav-add svg { width: 14px; height: 14px; }
+.card-edit {
+  position: absolute; right: 10px; top: 10px; display: grid; place-items: center; width: 28px; height: 28px;
+  border-radius: 8px; border: 0; background: var(--surface); color: var(--text-3); cursor: pointer;
+  opacity: 0; transition: opacity var(--t-fast), color var(--t-fast);
+}
+.card-edit svg { width: 15px; height: 15px; }
+.card:hover .card-edit, .card:focus-within .card-edit { opacity: 1; }
+.card-edit:hover { color: var(--accent); }
+@media (hover: none) { .card-edit { opacity: .8; } }
+.card-row .card-edit { top: 50%; transform: translateY(-50%); right: 76px; }
+.section-personal .section-actions .btn-sm svg { width: 14px; height: 14px; }
+.nav-empty { margin: 0 10px; font-size: 12px; color: var(--text-3); }
+body.nav-collapsed .sidebar:not(.peek) .nav-empty, body.nav-collapsed .sidebar:not(.peek) .nav-add { display: none; }

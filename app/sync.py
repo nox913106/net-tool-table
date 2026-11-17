@@ -62,8 +62,16 @@ TABLES: Dict[str, dict] = {
         "refs": {"task_id": "tasks", "comment_id": "task_comments"}, "people": ("user_id",), "card": "task_id",
         "required": ("task_id",),
     },
+    # portal links: the public area flows server → copies; each account's personal area both ways
+    # (local programs — file: links — and their launch settings stay on their own computer)
+    "nodes": {
+        "fields": ("parent_id", "name", "node_type", "icon", "url", "description", "color", "new_tab", "sort_order",
+                   "is_active", "owner_id", "created_at", "updated_at"),
+        "refs": {"parent_id": "nodes"}, "people": ("owner_id",), "card": None,
+    },
 }
 ORDER = tuple(TABLES)
+BOARD = ("tasks", "task_comments", "task_members", "task_time", "task_images")
 MEMBER_UID = ("(SELECT t.uid FROM tasks t WHERE t.id = {r}.task_id) || '|' || "
               "(SELECT u.username FROM users u WHERE u.id = {r}.user_id) || '|' || {r}.role")
 
@@ -288,6 +296,7 @@ async def export_rows(db, table: str, where: str = "1 = 1", args=(), ids: Option
     ids = ids or Ids(db, server=True)
     extra = " AND pending = 0" if table == "task_images" else ""
     extra += " AND role != 'subtask'" if table == "task_members" else ""
+    extra += " AND (url IS NULL OR lower(url) NOT LIKE 'file:%')" if table == "nodes" else ""
     cur = await db.execute(f"SELECT rowid AS _rid, * FROM {table} x WHERE uid IS NOT NULL AND {where}{extra}", tuple(args))
     rows = await cur.fetchall()
     clk = await clocks(db, table, [r["uid"] for r in rows])
@@ -322,7 +331,7 @@ async def export_cards(db, card_ids: List[int], ids: Optional[Ids] = None) -> Li
     for i in range(0, len(card_ids), 400):
         part = list(card_ids[i:i + 400])
         marks = ",".join("?" * len(part))
-        for table in ORDER:
+        for table in BOARD:
             col = TABLES[table]["card"]
             out += await export_rows(db, table, f"x.{col} IN ({marks})", part, ids)
     return out
@@ -362,6 +371,7 @@ class Report:
         self.need_blobs: List[str] = []          # attachment uids whose file must be fetched
         self.files_removed: List[str] = []
         self.reasons: Dict[str, str] = {}        # uid → why the server refused it (forced rows)
+        self.nodes = False                       # portal links changed
 
 
 async def _log(db, kind, table, uid, field=None, mine=None, theirs=None, note=None, card=None, winner=None):
@@ -388,7 +398,9 @@ async def _write_clocks(db, table: str, uid: str, items: List[tuple], seq: int):
 
 
 async def _card_title(db, table: str, rowid) -> Optional[str]:
-    if table == "tasks":
+    if table == "nodes":
+        cur = await db.execute("SELECT name FROM nodes WHERE id = ?", (rowid,))
+    elif table == "tasks":
         cur = await db.execute("SELECT title FROM tasks WHERE id = ?", (rowid,))
     else:
         cur = await db.execute(f"SELECT t.title FROM {table} x JOIN tasks t ON t.id = x.{TABLES[table]['card']} WHERE x.rowid = ?", (rowid,))
@@ -425,7 +437,7 @@ async def merge(db, payload: dict, *, server: bool, guard: Optional[Guard] = Non
         for tomb in payload.get("tombs") or []:
             if isinstance(tomb, dict) and tomb.get("t") in TABLES and isinstance(tomb.get("uid"), str):
                 await _merge_tomb(db, tomb, ids, rep, server, guard, tomb["uid"] in force, log)
-        if rep.files_removed or any(t.get("t") in ("tasks", "task_comments") for t in payload.get("tombs") or []):
+        if rep.files_removed or any(t.get("t") in ("tasks", "task_comments", "nodes") for t in payload.get("tombs") or []):
             for table in ORDER:                         # clocks of rows removed by a cascade
                 await db.execute(f"DELETE FROM sync_clock WHERE tbl = ? AND uid NOT IN (SELECT uid FROM {table} WHERE uid IS NOT NULL)", (table,))
     finally:
@@ -494,6 +506,8 @@ async def _merge_row(db, table, r, ids: Ids, rep: Report, pending_refs, server, 
         if table == "task_members":
             await db.execute("DELETE FROM task_members WHERE task_id = ? AND user_id = ? AND role = ?",
                              (cols.get("task_id"), cols.get("user_id"), cols.get("role")))
+        if table == "nodes":
+            cols["code"] = "s-" + uid[:16]                 # codes are local (they encode the local tree)
         names = ["uid", *cols]
         cur = await db.execute(f"INSERT INTO {table} ({', '.join(names)}) VALUES ({', '.join('?' * len(names))})",
                                (uid, *cols.values()))
@@ -508,7 +522,10 @@ async def _merge_row(db, table, r, ids: Ids, rep: Report, pending_refs, server, 
         rep.inserted.append((table, uid, rowid))
         if force and log and table == "tasks" and uid in rep.reasons:
             await _log(db, "refused", table, uid, note=rep.reasons[uid] + "：已還原這張卡片", card=cols.get("title"))
-        rep.cards.add(rowid if table == "tasks" else cols.get(spec["card"]))
+        if table == "tasks" or spec["card"]:
+            rep.cards.add(rowid if table == "tasks" else cols.get(spec["card"]))
+        if table == "nodes":
+            rep.nodes = True
         return
 
     mine = (await clocks(db, table, [uid])).get(uid, {})
@@ -551,7 +568,10 @@ async def _merge_row(db, table, r, ids: Ids, rep: Report, pending_refs, server, 
         await db.execute(f"UPDATE {table} SET {', '.join(f + ' = ?' for f in changes)} WHERE rowid = ?",
                          (*changes.values(), local["_rid"]))
         rep.applied += 1
-        rep.cards.add(local["_rid"] if table == "tasks" else (changes.get(spec["card"]) or local[spec["card"]]))
+        if table == "tasks" or spec["card"]:
+            rep.cards.add(local["_rid"] if table == "tasks" else (changes.get(spec["card"]) or local[spec["card"]]))
+        if table == "nodes":
+            rep.nodes = True
     if take:
         await _write_clocks(db, table, uid, take, await next_seq(db))
     for f, ts, dev in saw:                                # seen their version: do not flag it again
@@ -582,7 +602,7 @@ async def _merge_tomb(db, tomb, ids: Ids, rep: Report, server, guard, force, log
         if not force and newest > ts:
             rep.kept.add((table, uid))                     # edited after it was deleted: the row stays
             if not server and table == "tasks":            # send the whole card back up so it reappears there
-                for t in ORDER:
+                for t in BOARD:
                     col = TABLES[t]["card"]
                     await db.execute(f"UPDATE sync_clock SET dirty = 1 WHERE tbl = ? AND uid IN (SELECT uid FROM {t} WHERE {col} = ?)",
                                      (t, local["_rid"]))
@@ -603,7 +623,10 @@ async def _merge_tomb(db, tomb, ids: Ids, rep: Report, server, guard, force, log
             col = {"tasks": "task_id", "task_comments": "comment_id", "task_images": "rowid"}[table]
             cur = await db.execute(f"SELECT stored FROM task_images WHERE {col} = ?", (local["_rid"],))
             files = [x[0] for x in await cur.fetchall() if x[0]]
-        rep.cards.add(local["_rid"] if table == "tasks" else local[TABLES[table]["card"]])
+        if table == "tasks" or TABLES[table]["card"]:
+            rep.cards.add(local["_rid"] if table == "tasks" else local[TABLES[table]["card"]])
+        if table == "nodes":
+            rep.nodes = True
         await db.execute(f"DELETE FROM {table} WHERE rowid = ?", (local["_rid"],))
         await db.execute("DELETE FROM sync_clock WHERE tbl = ? AND uid = ?", (table, uid))
         rep.files_removed += files
@@ -655,7 +678,7 @@ async def seed_dirty(db):
     """Mark everything here as not yet sent (first link): rows made before sync existed get clocks
     from their own timestamps, so older local data never overwrites newer server edits."""
     for table, spec in TABLES.items():
-        stamp = ("COALESCE(updated_at, created_at)" if table == "tasks"
+        stamp = ("COALESCE(updated_at, created_at)" if table in ("tasks", "nodes")
                  else "COALESCE(edited_at, created_at)" if table == "task_comments" else "created_at")
         ts = f"replace(COALESCE({stamp}, '2000-01-01 00:00:00'), ' ', 'T') || '.000'"
         for f in spec["fields"]:

@@ -57,7 +57,10 @@
     if (s.show_clock !== false) TTClock.mount($('clock'), s);
     TTClock.mountNetInfo($('netinfo'), s);
     TTClock.secretAdmin($('clock'), $('brand-mark'));
-    if (s.allow_drop_add !== false && state.me.is_admin) setupLinkDrop();   // adding links = admins
+    // adding links: administrators (public area) and everyone signed in (their own personal area)
+    if (s.allow_drop_add !== false && (state.me.is_admin || personalOn())) setupLinkDrop();
+    $('personal-add').innerHTML = svg('plus');
+    $('personal-add').addEventListener('click', () => personalMenu(null));
     TT.userMenu($('user-menu'));
     if (boardOn()) { TTBoard.init(s); TTBoard.mountBell($('bell-btn')); }
 
@@ -67,6 +70,7 @@
 
   function indexTree(tree) {
     state.tree = tree;
+    state.treeSig = JSON.stringify(tree);
     state.byId.clear();
     state.parent.clear();
     const walk = (nodes, parent) => nodes.forEach(n => {
@@ -78,6 +82,11 @@
   }
 
   const isFolder = n => n.node_type === 'folder';
+  /** 個人區: everyone signed in on the server; on a standalone copy once it is linked to a server */
+  const personalOn = () => state.me?.user?.id != null;
+  const publicRoots = () => state.tree.filter(n => !n.personal);
+  const personalRoots = () => state.tree.filter(n => n.personal);
+  const sideRow = id => document.querySelector(`#sidebar .tree-row[data-id="${id}"]`);
   const pathOf = n => {
     const out = [];
     for (let p = state.parent.get(n.id); p; p = state.parent.get(p.id)) out.unshift(p);
@@ -274,12 +283,12 @@
     const showIcons = s.sidebar_show_icons !== false;
     const showCounts = s.sidebar_show_counts !== false;
 
-    const render = (nodes, depth) => {
+    const render = (nodes, depth, links = showLinks) => {
       const frag = document.createDocumentFragment();
       nodes.forEach(n => {
         const folder = isFolder(n);
-        if (!folder && !showLinks) return;
-        const kids = (n.children || []).filter(c => showLinks || isFolder(c));
+        if (!folder && !links) return;
+        const kids = (n.children || []).filter(c => links || isFolder(c));
         const hasKids = folder && kids.length > 0;
         const open = state.expanded.has(n.id);
 
@@ -305,22 +314,27 @@
         if (folder && showCounts && n.children?.length) row.append(el('span', { class: 'tree-count', text: n.children.length }));
 
         const wrap = el('div', { class: 'tree-node' + (open ? ' open' : '') }, row);
-        if (hasKids) wrap.append(el('div', { class: 'tree-children', role: 'group' }, render(kids, depth + 1)));
+        if (hasKids) wrap.append(el('div', { class: 'tree-children', role: 'group' }, render(kids, depth + 1, links)));
         frag.append(wrap);
       });
       return frag;
     };
 
     const tree = $('tree');
-    tree.replaceChildren(render(state.tree, 0));
+    tree.replaceChildren(render(publicRoots(), 0));
     $('tree-section').hidden = !tree.childElementCount;
+    $('tree-title').textContent = personalOn() ? '公用區' : '分類';
+    $('tree-personal').replaceChildren(render(personalRoots(), 0, true));     // my own links: always listed
+    if (personalOn() && !personalRoots().length)
+      $('tree-personal').append(el('p', { class: 'nav-empty', text: '只有你看得到的連結，按 ＋ 新增' }));
+    $('personal-section').hidden = !personalOn();
   }
 
   function toggleExpand(id, force) {
     const open = force ?? !state.expanded.has(id);
     if (open) state.expanded.add(id); else state.expanded.delete(id);
     store.set('expanded', [...state.expanded]);
-    const node = $('tree').querySelector(`.tree-row[data-id="${id}"]`)?.parentElement;
+    const node = sideRow(id)?.parentElement;
     if (node) {
       node.classList.toggle('open', open);
       node.firstElementChild.setAttribute('aria-expanded', String(open));
@@ -330,12 +344,12 @@
   function highlightNav() {
     const hash = location.hash || '#/';
     document.querySelectorAll('.nav-item').forEach(a => a.classList.toggle('active', a.dataset.route === hash || (hash === '#' && a.dataset.route === '#/')));
-    $('tree').querySelectorAll('.tree-row.active').forEach(r => r.classList.remove('active'));
+    document.querySelectorAll('#sidebar .tree-row.active').forEach(r => r.classList.remove('active'));
     const m = hash.match(/^#\/f\/(\d+)/);
     if (m) {
       const node = state.byId.get(Number(m[1]));
       if (node) pathOf(node).forEach(p => toggleExpand(p.id, true));
-      const row = $('tree').querySelector(`.tree-row[data-id="${m[1]}"]`);
+      const row = sideRow(m[1]);
       if (row) { row.classList.add('active'); row.scrollIntoView({ block: 'nearest' }); }
     }
     document.querySelectorAll('.filter-chip').forEach(c => c.classList.toggle('active', hash === `#/icon/${encodeURIComponent(c.dataset.icon)}`));
@@ -458,6 +472,11 @@
         a.append(el('div', { class: 'card-preview' }, preview.map(c => tile({ icon: c.icon, name: c.name, color: colorOf(c), folder: isFolder(c), size: 22 }))));
       }
     }
+    if (n.personal) {
+      const ed = el('button', { class: 'card-edit', type: 'button', title: '編輯', 'aria-label': `編輯「${n.name}」`, html: svg('edit') });
+      ed.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); personalDialog({ node: n }); });
+      a.append(ed);
+    }
     if (folder) a.append(el('span', { class: 'card-go', html: svg('chevron-right') }));
     else {
       a.append(el('span', { class: 'card-go', html: svg(program ? 'play' : 'external') }));
@@ -548,7 +567,7 @@
         s.site_subtitle ? el('p', { class: 'hero-sub', text: s.site_subtitle }) : null));
     frag.append(hero);
 
-    if (!state.tree.length) {
+    if (!state.tree.length && !personalOn()) {
       frag.append(emptyState('🧭', '還沒有任何項目', '到管理後台建立資料夾與連結，或匯入一份 JSON 範本。',
         el('a', { class: 'btn btn-primary', href: '/admin', html: svg('settings') + '前往管理後台' })));
       view.replaceChildren(frag);
@@ -560,6 +579,7 @@
       const node = renderHomeSection(sec);
       if (node) frag.append(node);
     });
+    if (personalOn()) frag.append(personalSection());
     view.replaceChildren(frag);
   }
 
@@ -619,7 +639,8 @@
       }
 
       case 'roots':
-        return section({ icon: svg('layout'), title: sec.title || '所有分類', body: cardGrid(state.tree, { compact, mode: 'grid' }) });
+        if (!publicRoots().length) return null;
+        return section({ icon: svg('layout'), title: sec.title || (personalOn() ? '公用區' : '所有分類'), body: cardGrid(publicRoots(), { compact, mode: 'grid' }) });
 
       case 'folder': {
         const node = state.byId.get(sec.node_id);
@@ -708,10 +729,13 @@
       title: node.name,
       desc: state.settings.show_descriptions !== false ? node.description : '',
       meta: [folders.length && `${folders.length} 個資料夾`, links.length && `${links.length} 個連結`].filter(Boolean).join(' · ') || '空資料夾',
-      tools: kids.length ? viewToggle(() => renderFolder(node)) : null,
+      tools: node.personal
+        ? el('div', { class: 'section-actions' }, personalAddButtons(node.id), kids.length ? viewToggle(() => renderFolder(node)) : null)
+        : kids.length ? viewToggle(() => renderFolder(node)) : null,
     }));
 
-    if (!kids.length) frag.append(emptyState('📂', '這裡還是空的', '到管理後台為這個資料夾新增項目。'));
+    if (!kids.length) frag.append(node.personal ? emptyState('📂', '這裡還是空的', '用右上角的按鈕新增連結或資料夾，或把網址拖進來。')
+      : emptyState('📂', '這裡還是空的', '到管理後台為這個資料夾新增項目。'));
     if (folders.length) frag.append(section({ icon: svg('folder'), title: '資料夾', body: cardGrid(folders) }));
     if (links.length) frag.append(section({ icon: svg('link'), title: '連結', body: cardGrid(links) }));
     $('view').replaceChildren(frag);
@@ -908,19 +932,12 @@
       placeholder: app ? 'C:\\Program Files\\…\\程式.exe' : 'https://',
     });
     const args = el('input', { class: 'input mono', value: info.args || '', placeholder: '選填，例如 --profile work' });
-    const folder = el('select', { class: 'select' }, el('option', { value: '', text: '（最上層）' }));
-    const walk = (nodes, depth) => nodes.forEach(n => {
-      if (!isFolder(n)) return;
-      folder.append(el('option', { value: n.id, text: '\u3000'.repeat(depth) + n.name }));
-      walk(n.children || [], depth + 1);
-    });
-    walk(state.tree, 0);
-    folder.value = String(parentId ?? '');
+    const folder = folderSelect(parentId, { allowPublic: canEditPublic() && !app, allowPersonal: personalOn() });
 
     const status = el('span', { class: 'drop-preview-status' });
     const preview = el('div', { class: 'drop-preview' });
     const paint = () => {
-      const parent = state.byId.get(Number(folder.value));
+      const parent = state.byId.get(Number(folder.value.replace(/^me:/, '')));
       const where = app ? (target.value.split(/[\\/]/).pop() || '尚未指定程式') : (hostOf(target.value) || target.value);
       preview.replaceChildren(
         tile({ icon, name: name.value || info.name, color: parent ? colorOf(parent) : null, size: 46 }),
@@ -1006,8 +1023,8 @@
         await Promise.race([iconPending, new Promise(r => setTimeout(r, 12000))]);
       }
       try {
-        const parentId = folder.value ? Number(folder.value) : null;
-        const created = await api('/api/nodes', {
+        const { parentId, personal } = folderPick(folder.value);
+        const created = await api(personal ? '/api/my/nodes' : '/api/nodes', {
           method: 'POST',
           body: {
             parent_id: parentId, name: name.value.trim(), node_type: 'link', url: t, icon: icon || null,
@@ -1015,9 +1032,7 @@
           },
         });
         close();
-        indexTree(await api('/api/nodes/tree'));
-        buildTree();
-        buildFilters();
+        await reloadTree(false);
         const dest = parentId ? `#/f/${parentId}` : '#/';
         if (location.hash === dest || (!parentId && !location.hash)) route(); else location.hash = dest;
         setTimeout(() => {
@@ -1034,6 +1049,148 @@
     ok.addEventListener('click', submit);
     [name, target, args].forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }));
   }
+
+  // ======================================================================
+  // 公用區 / 個人區
+  // ======================================================================
+  /** the public area is edited here by administrators — except on a linked standalone copy, where it is the server's */
+  const canEditPublic = () => !!state.me?.is_admin && !(state.me?.auth === false && personalOn());
+
+  /** Folder picker over both areas. Values: "" public top level, "me:" personal top level, "<id>" public, "me:<id>" personal */
+  function folderSelect(parentId, { allowPublic = true, allowPersonal = false, skip = null } = {}) {
+    const sel = el('select', { class: 'select' });
+    const walk = (nodes, depth, prefix, into) => nodes.forEach(n => {
+      if (!isFolder(n) || n.id === skip) return;
+      into.append(el('option', { value: prefix + n.id, text: '\u3000'.repeat(depth) + n.name }));
+      walk(n.children || [], depth + 1, prefix, into);
+    });
+    const both = allowPublic && allowPersonal;
+    if (allowPublic) {
+      const g = both ? el('optgroup', { label: '公用區' }) : sel;
+      g.append(el('option', { value: '', text: both ? '公用區（最上層）' : '（最上層）' }));
+      walk(publicRoots(), 1, '', g);
+      if (both) sel.append(g);
+    }
+    if (allowPersonal) {
+      const g = both ? el('optgroup', { label: '個人區' }) : sel;
+      g.append(el('option', { value: 'me:', text: both ? '個人區（最上層）' : '個人區（最上層）' }));
+      walk(personalRoots(), 1, 'me:', g);
+      if (both) sel.append(g);
+    }
+    const p = parentId != null ? state.byId.get(parentId) : null;
+    const want = p ? (p.personal ? 'me:' : '') + p.id : (allowPublic && !(p === null && parentId === 'me') ? '' : 'me:');
+    sel.value = [...sel.options].some(o => o.value === want) ? want : (sel.options[0]?.value ?? '');
+    return sel;
+  }
+  const folderPick = v => {
+    const personal = v.startsWith('me:');
+    const id = v.replace(/^me:/, '');
+    return { personal, parentId: id ? Number(id) : null };
+  };
+
+  function personalAddButtons(parentId) {
+    const link = el('button', { class: 'btn btn-sm', type: 'button', html: svg('link') + '新增連結' });
+    const folder = el('button', { class: 'btn btn-sm', type: 'button', html: svg('folder') + '新增資料夾' });
+    link.addEventListener('click', () => personalDialog({ parentId, type: 'link' }));
+    folder.addEventListener('click', () => personalDialog({ parentId, type: 'folder' }));
+    return el('div', { class: 'section-actions' }, link, folder);
+  }
+
+  function personalMenu(parentId) {
+    personalDialog({ parentId, type: 'link' });
+  }
+
+  function personalSection() {
+    const roots = personalRoots();
+    const body = roots.length ? cardGrid(roots, { mode: 'grid' })
+      : el('div', { class: 'hint-card', html: `${svg('star')}<span>這裡只有你看得到：放自己常用的連結，${state.me?.auth === false ? '會同步到伺服器上你的個人區' : '單機版連線後也會同步過去'}。也可以把網址直接拖進來。</span>` });
+    return section({ icon: svg('user'), title: '個人區', body, cls: 'section-personal', action: personalAddButtons(null) });
+  }
+
+  /** Add or edit a link / folder in my personal area */
+  function personalDialog({ node = null, parentId = null, type = 'link' } = {}) {
+    const editing = !!node;
+    const kind = editing ? node.node_type : type;
+    const isLink = kind === 'link';
+    const program = isLink && editing && TT.isProgram(node.url);
+    const name = el('input', { class: 'input', value: node?.name || '', maxlength: '200', placeholder: isLink ? '例如：請假系統' : '例如：常用報表' });
+    const url = el('input', { class: 'input', type: 'url', value: node?.url || '', placeholder: 'https://', disabled: program });
+    const desc = el('input', { class: 'input', value: node?.description || '', maxlength: '500', placeholder: '選填' });
+    const parent = editing ? state.parent.get(node.id) : (parentId != null ? state.byId.get(parentId) : null);
+    const folder = folderSelect(parent ? parent.id : null, { allowPublic: false, allowPersonal: true, skip: editing && !isLink ? node.id : null });
+    const label = (text, ctl) => el('label', { class: 'field' }, el('span', { class: 'field-label', text }), ctl);
+    const ok = el('button', { class: 'btn btn-primary', type: 'button', html: svg(editing ? 'check' : 'plus') + (editing ? '儲存' : '新增') });
+    const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: '取消' });
+    const del = editing ? el('button', { class: 'btn btn-ghost btn-danger', type: 'button', html: svg('trash') + '刪除' }) : null;
+    const title = (editing ? '編輯' : '新增') + (isLink ? '個人連結' : '個人資料夾');
+    const wrap = el('div', { class: 'modal' },
+      el('div', { class: 'modal-card', role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
+        el('div', { class: 'modal-head' }, el('h3', { text: title })),
+        el('div', { class: 'modal-body' }, label('名稱', name), isLink ? label(program ? '程式（在單機版修改）' : '網址', url) : null,
+          label('說明', desc), label('放到資料夾', folder),
+          el('p', { class: 'hint', text: '個人區只有你自己看得到。' })),
+        el('div', { class: 'modal-foot' }, del, del ? el('span', { class: 'spacer' }) : null, cancel, ok)));
+    const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey); document.body.classList.remove('modal-open'); };
+    const onKey = e => { if (e.key === 'Escape') close(); };
+    wrap.addEventListener('mousedown', e => { if (e.target === wrap) close(); });
+    cancel.addEventListener('click', close);
+    document.addEventListener('keydown', onKey);
+    document.body.append(wrap);
+    document.body.classList.add('modal-open');
+    setTimeout(() => name.focus(), 30);
+
+    async function save() {
+      const n = name.value.trim();
+      const u = url.value.trim();
+      if (!n) { TT.toast('請輸入名稱', true); return; }
+      if (isLink && !program && !/^https?:\/\//i.test(u)) { TT.toast('請輸入完整網址（例如 https://…）', true); return; }
+      const { parentId: pid } = folderPick(folder.value);
+      ok.disabled = true;
+      try {
+        if (editing) {
+          await api(`/api/my/nodes/${node.id}`, { method: 'PUT', body: { name: n, description: desc.value.trim() || null, ...(isLink && !program ? { url: u } : {}) } });
+          if ((state.parent.get(node.id)?.id ?? null) !== pid) await api(`/api/my/nodes/${node.id}/move`, { method: 'PUT', body: { new_parent_id: pid } });
+        } else {
+          let icon = null;
+          if (isLink) {
+            try { icon = TT.guessIcon(u, n, (await api('/api/icons')).map(i => i.name)); } catch { /* ignore */ }
+            if (!icon) icon = await Promise.race([TT.fetchSiteIcon(u).catch(() => null), new Promise(r => setTimeout(() => r(null), 8000))]);
+          }
+          await api('/api/my/nodes', { method: 'POST', body: { parent_id: pid, name: n, node_type: kind, url: isLink ? u : null, icon, description: desc.value.trim() || null } });
+        }
+        close();
+        await reloadTree();
+        TT.toast(editing ? '已儲存' : `已新增「${n}」`);
+      } catch (err) { TT.toast(err.message, true); ok.disabled = false; }
+    }
+    ok.addEventListener('click', save);
+    [name, url, desc].forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); save(); } }));
+    if (del) del.addEventListener('click', async () => {
+      const kids = (node.children || []).length;
+      if (!confirm(`刪除「${node.name}」？` + (kids ? `\n裡面的 ${kids} 個項目也會一起刪除。` : ''))) return;
+      try {
+        await api(`/api/my/nodes/${node.id}`, { method: 'DELETE' });
+        close();
+        if (location.hash === `#/f/${node.id}`) location.hash = '#/';
+        await reloadTree();
+        TT.toast('已刪除');
+      } catch (err) { TT.toast(err.message, true); }
+    });
+  }
+
+  /** Re-read the tree (after an edit here, or a live update from someone else / the server) */
+  async function reloadTree(rerender = true) {
+    let tree;
+    try { tree = await api('/api/nodes/tree'); } catch { return; }
+    const sig = JSON.stringify(tree);
+    if (rerender === 'live' && sig === state.treeSig) return;       // live update about something else (e.g. the board)
+    state.treeSig = sig;
+    indexTree(tree);
+    buildTree();
+    buildFilters();
+    if (rerender && !/^#\/board/.test(location.hash) && !document.querySelector('.modal')) route();
+  }
+  window.TTPortal = { reloadTree };
 
   // ======================================================================
   // Command palette
