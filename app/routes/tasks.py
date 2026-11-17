@@ -838,6 +838,9 @@ async def update_task(task_id: int, t: TaskUpdate, request: Request):
         for k in ("title", "status", "priority"):
             if k in changes and changes[k] is None:
                 raise HTTPException(status_code=400, detail=f"{k} 不能是空的")
+        if "status" in changes and changes["status"] != cur_task["status"] and changes["status"] != "canceled" \
+                and cur_task["status"] != "canceled" and await _is_summary(db, task_id):
+            raise HTTPException(status_code=400, detail=SUMMARY_MSG)
         if "repeat_every" in changes and changes["repeat_every"] is None:
             changes["repeat_every"] = 1
         merged = {**cur_task, **changes}
@@ -867,6 +870,7 @@ async def update_task(task_id: int, t: TaskUpdate, request: Request):
                 await add_mentions(db, task_id, changes["description"], user, merged["title"], "說明")
         if changes.get("status") == "complete" and cur_task["status"] != "complete":
             await spawn_next(db, task_id)
+        await rollup_status(db, task_id)          # reopened from Canceled, or collaborators changed
         await db.commit()
         return await _one(db, task_id, user)
     finally:
@@ -914,6 +918,14 @@ async def reorder(r: Reorder, request: Request):
             ids = [i for i in r.ids if i in allowed]       # never touch cards the viewer cannot edit
         else:
             ids = []
+        if r.status != "canceled" and ids:            # summary cards follow their subtasks, not a drag
+            marks = ",".join("?" * len(ids))
+            cur = await db.execute(f"""SELECT t.id FROM tasks t WHERE t.id IN ({marks}) AND t.status != ? AND t.status != 'canceled'
+                                       AND EXISTS (SELECT 1 FROM task_comments c WHERE c.task_id = t.id AND c.is_task = 1
+                                                   AND c.parent_id IS NULL AND COALESCE(c.status, 'new') != 'canceled')""",
+                                   (*ids, r.status))
+            blocked = {row["id"] for row in await cur.fetchall()}
+            ids = [i for i in ids if i not in blocked]
         if r.status != "overdue" and ids:             # dragged out of 過期未結案 by hand
             marks = ",".join("?" * len(ids))
             await db.execute(f"""UPDATE tasks SET overdue_ack = due_at, overdue_from = NULL
@@ -977,6 +989,8 @@ async def complete_task(task_id: int, request: Request, body: Optional[CompleteI
     try:
         t = await _get_visible(db, task_id, user)
         await _require_edit(db, task_id, user)
+        if t["status"] != "complete" and await _is_summary(db, task_id):
+            raise HTTPException(status_code=400, detail="這張卡片有子任務：子任務全部完成（協作人也標記完成）後會自動結案")
         if t["status"] != "complete":
             cur = await db.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tasks WHERE status = 'complete'")
             order = (await cur.fetchone())["n"]
@@ -1317,6 +1331,7 @@ async def delete_comment(task_id: int, comment_id: int, request: Request):
         files = [r["stored"] for r in await cur.fetchall()]
         await db.execute("DELETE FROM task_comments WHERE id = ?", (comment_id,))
         await _sync_subtask_members(db, task_id)
+        await rollup_status(db, task_id)
         await db.commit()
         img.remove(files)
         return {"success": True}
@@ -1347,6 +1362,7 @@ async def update_subtask(task_id: int, comment_id: int, body: SubtaskIn, request
             await db.execute("UPDATE task_comments SET is_task = 0 WHERE id = ?", (comment_id,))
             await db.execute("UPDATE task_time SET ended_at = CURRENT_TIMESTAMP, minutes = MAX(1, CAST(ROUND((julianday('now') - julianday(started_at)) * 1440) AS INTEGER)) WHERE comment_id = ? AND ended_at IS NULL AND started_at IS NOT NULL", (comment_id,))
             await _sync_subtask_members(db, task_id)
+            await rollup_status(db, task_id)
             await db.commit()
             return {"success": True, "is_task": False}
 
@@ -1396,6 +1412,7 @@ async def update_subtask(task_id: int, comment_id: int, body: SubtaskIn, request
         if fields.get("status") in CLOSED:      # closing stops running timers
             await db.execute("UPDATE task_time SET ended_at = CURRENT_TIMESTAMP, minutes = MAX(1, CAST(ROUND((julianday('now') - julianday(started_at)) * 1440) AS INTEGER)) WHERE comment_id = ? AND ended_at IS NULL AND started_at IS NOT NULL", (comment_id,))
         await _sync_subtask_members(db, task_id)
+        await rollup_status(db, task_id)
 
         title = fields.get("title") or c["title"] or "子任務"
         if me is not None:
@@ -1431,6 +1448,7 @@ async def collab_done(task_id: int, user_id: int, body: CollabDoneIn, request: R
         if body.done and user.get("id") is not None:
             await notify(db, {t.get("owner_id")}, task_id, user, "subtask", f"{_who(user)} 完成了「{t['title']}」裡的協作部分")
         await db.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))
+        await rollup_status(db, task_id)
         await db.commit()
         return {"success": True}
     finally:
@@ -1460,6 +1478,97 @@ async def order_subtasks(task_id: int, body: OrderIn, request: Request):
         return {"success": True, "order": ids + rest}
     finally:
         await db.close()
+
+
+# ------------------------------------------------- summary cards (roll-up)
+# A card with subtasks is a summary task: its status follows its subtasks and is not set by hand
+# (except Canceled, for dropping the whole thing). Collaborators (co-assignees / @mentioned without a
+# subtask) do not move the status but the card only completes once they marked their part done;
+# until then a card whose subtasks are all done waits in Pending.
+async def _subtask_states(db, task_id: int) -> List[str]:
+    cur = await db.execute("""SELECT COALESCE(status, 'new') AS s FROM task_comments
+                              WHERE task_id = ? AND is_task = 1 AND parent_id IS NULL AND COALESCE(status, 'new') != 'canceled'""", (task_id,))
+    return [r["s"] for r in await cur.fetchall()]
+
+
+async def _open_collaborators(db, task_id: int, owner_id) -> int:
+    """Collaborators who have not marked their part done (people with a subtask are counted by it)."""
+    cur = await db.execute("""SELECT user_id, role, done_at FROM task_members WHERE task_id = ? AND role IN ('assignee', 'mention')
+                              ORDER BY created_at""", (task_id,))
+    rows = await cur.fetchall()
+    assignees = [r["user_id"] for r in rows if r["role"] == "assignee"]
+    lead = owner_id if owner_id in assignees else (assignees[0] if assignees else owner_id)
+    cur = await db.execute("SELECT DISTINCT assignee_id FROM task_comments WHERE task_id = ? AND is_task = 1 AND assignee_id IS NOT NULL", (task_id,))
+    with_sub = {r[0] for r in await cur.fetchall()}
+    seen, open_ = set(), 0
+    for r in rows:
+        if r["user_id"] == lead or r["user_id"] in with_sub or r["user_id"] in seen:
+            continue
+        seen.add(r["user_id"])
+        open_ += not r["done_at"]
+    return open_
+
+
+def derive_status(states: List[str], open_collab: int) -> str:
+    if all(s == "complete" for s in states):
+        return "pending" if open_collab else "complete"
+    if all(s == "new" for s in states):
+        return "new"
+    for s in ("ongoing", "pending", "onhold"):
+        if s in states:
+            return s
+    return "ongoing"                                  # some done, some not started
+
+
+async def rollup_status(db, task_id: int) -> Optional[str]:
+    """Set a summary card's status from its subtasks (no-op for cards without subtasks or canceled ones)."""
+    cur = await db.execute("SELECT id, status, repeat, owner_id FROM tasks WHERE id = ?", (task_id,))
+    t = await cur.fetchone()
+    if not t or t["status"] == "canceled":
+        return None
+    states = await _subtask_states(db, task_id)
+    if not states:
+        return None
+    want = derive_status(states, await _open_collaborators(db, task_id, t["owner_id"]))
+    have = t["status"]
+    if want != "complete" and have in ("overdue", "recurring"):
+        return have                                   # those columns stay until the work is done
+    if want == have:
+        return have
+    if have == "complete" and t["repeat"]:
+        want = "recurring" if want != "complete" else want
+    cur = await db.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tasks WHERE status = ?", (want,))
+    order = (await cur.fetchone())["n"]
+    await db.execute("""UPDATE tasks SET status = ?, sort_order = ?, updated_at = CURRENT_TIMESTAMP,
+                        completed_at = CASE WHEN ? = 'complete' THEN CURRENT_TIMESTAMP END WHERE id = ?""", (want, order, want, task_id))
+    if want == "complete":
+        await spawn_next(db, task_id)
+    return want
+
+
+async def rollup_all() -> int:
+    """Bring every summary card in line with its subtasks (run once at startup, e.g. after an upgrade)."""
+    db = await get_db()
+    try:
+        cur = await db.execute("""SELECT DISTINCT c.task_id FROM task_comments c JOIN tasks t ON t.id = c.task_id
+                                  WHERE c.is_task = 1 AND c.parent_id IS NULL AND t.status != 'canceled'""")
+        ids = [r[0] for r in await cur.fetchall()]
+        changed = 0
+        for i in ids:
+            cur = await db.execute("SELECT status FROM tasks WHERE id = ?", (i,))
+            before = (await cur.fetchone())[0]
+            changed += (await rollup_status(db, i)) not in (None, before)
+        await db.commit()
+        return changed
+    finally:
+        await db.close()
+
+
+async def _is_summary(db, task_id: int) -> bool:
+    return bool(await _subtask_states(db, task_id))
+
+
+SUMMARY_MSG = "這張卡片有子任務，狀態依子任務自動計算（要放棄整個任務可以改成 Canceled）"
 
 
 async def _check_subtask_assignee(db, user: dict, card: dict, person: dict):
@@ -1512,6 +1621,7 @@ async def subtask_timer(task_id: int, comment_id: int, body: TimerIn, request: R
                              (task_id, comment_id, uid, body.work_date))
             if (c["status"] or "new") == "new":
                 await db.execute("UPDATE task_comments SET status = 'ongoing' WHERE id = ?", (comment_id,))
+                await rollup_status(db, task_id)
         else:
             await db.execute(STOP_SQL + "user_id IS ? AND comment_id = ?", (uid, comment_id))
         await db.commit()

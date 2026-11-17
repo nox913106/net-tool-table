@@ -59,6 +59,11 @@ async def _op_worker():
 async def lifespan(app: FastAPI):
     import asyncio
     await init_db()
+    from .routes.tasks import rollup_all
+    try:
+        await rollup_all()
+    except Exception:                       # never block startup over this
+        pass
     task = asyncio.create_task(_scheduler())
     sync = asyncio.create_task(_op_worker())
     yield

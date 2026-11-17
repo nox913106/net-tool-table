@@ -66,6 +66,9 @@ const TTBoard = (() => {
     });
     return out;
   }
+  /** A card with (non-canceled) subtasks is a summary task: its status is computed from them. */
+  const isSummary = t => (t.subtasks?.items || []).some(s => s.status !== 'canceled');
+  const SUMMARY_HINT = '這張卡片有子任務，狀態依子任務與協作人自動計算；要放棄整個任務可以改成 Canceled';
   const expanded = new Set();             // cards whose task tree is open
   /** Main card %: finished subtasks + collaborators who marked their part done, over all of them
    *  (canceled subtasks and a creator who only handed the card out do not count). */
@@ -201,6 +204,9 @@ const TTBoard = (() => {
   async function moveTo(id, status, index) {
     const t = tasks.find(x => x.id === id);
     if (!t) return;
+    if (status !== t.status && status !== 'canceled' && t.status !== 'canceled' && isSummary(t)) {
+      toast(SUMMARY_HINT, true); changed(); return;
+    }
     const col = byStatus(status).filter(x => x.id !== id);
     col.splice(Math.max(0, Math.min(index, col.length)), 0, t);
     const wasClosed = CLOSED.has(t.status);
@@ -734,7 +740,9 @@ const TTBoard = (() => {
       tasks.filter(pass).filter(t => !(hideClosed && CLOSED.has(t.status))).forEach(t => involvement(t).forEach(x => {
         if (x.p.id == null) return;
         const e = counts.get(x.p.id) || { p: x.p, n: {} };
-        e.n[x.status] = (e.n[x.status] || 0) + 1;
+        if (x.kind === 'main' && isSummary(t)) { counts.set(x.p.id, e); return; }   // a summary card is not a task of its own
+        const st = x.kind === 'collab' && x.done ? 'complete' : x.status;
+        e.n[st] = (e.n[st] || 0) + 1;
         counts.set(x.p.id, e);
       }));
       const me = meInfo.user?.id;
@@ -1364,6 +1372,8 @@ const TTBoard = (() => {
     paintAssignees();
     const status = el('select', { class: 'select' }, STATUSES.map(s => el('option', { value: s.key, text: `${s.label}（${s.zh}）` })));
     status.value = t.status;
+    const summary = !!task && isSummary(t) && t.status !== 'canceled';
+    if (summary) [...status.options].forEach(o => { o.disabled = o.value !== t.status && o.value !== 'canceled'; });
     let priority = t.priority;
     const prio = el('div', { class: 'segmented', role: 'group' }, PRIORITIES.map(([v, label]) => {
       const b = el('button', { type: 'button', dataset: { v }, html: (v === 'high' ? svg('flag') : '') + `<span>${label}</span>` });
@@ -1942,7 +1952,8 @@ const TTBoard = (() => {
           field('說明', desc),
           el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('paperclip') + '附件' }), imgBox),
           meInfo.auth ? el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('users') + '負責人' }), assignBox) : null,
-          el('div', { class: 'kb-row' }, field('狀態', status), el('div', { class: 'field' }, el('span', { class: 'field-label', text: '優先順序' }), prio)),
+          el('div', { class: 'kb-row' }, el('div', { class: 'field' }, el('span', { class: 'field-label', text: '狀態' }), status,
+            summary ? el('span', { class: 'hint', text: '自動：依子任務與協作人計算' }) : null), el('div', { class: 'field' }, el('span', { class: 'field-label', text: '優先順序' }), prio)),
           el('div', { class: 'kb-row' },
             el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('play') + '開始日' }), el('div', { class: 'kb-dt' }, startD, startT), startChips),
             el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('clock') + '到期日' }), el('div', { class: 'kb-dt' }, dueD, dueT), dueChips)),
