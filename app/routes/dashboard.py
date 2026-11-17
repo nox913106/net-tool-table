@@ -26,14 +26,14 @@ async def dashboard():
         cur = await db.execute("SELECT COUNT(*) AS n, MAX(updated_at) AS u, MAX(id) AS m FROM tasks")
         v = await cur.fetchone()
         cur = await db.execute("""
-            SELECT t.status, COALESCE(m.user_id, t.owner_id) AS uid, COUNT(*) AS c
+            SELECT t.status, COALESCE(m.user_id, t.owner_id) AS person_id, COUNT(*) AS c
             FROM tasks t
             LEFT JOIN task_members m ON m.task_id = t.id AND m.role = 'assignee'
             WHERE t.status != 'recurring' AND t.repeat IS NULL
-            GROUP BY t.status, uid""")
+            GROUP BY t.status, person_id""")
         counts = {}
         for r in await cur.fetchall():
-            counts.setdefault(r["uid"], {})[r["status"]] = r["c"]
+            counts.setdefault(r["person_id"], {})[r["status"]] = r["c"]
         ids = [u for u in counts if u is not None]
         people = {}
         if ids:
