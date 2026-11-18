@@ -667,8 +667,10 @@
     const add = el('button', { class: 'btn btn-primary', type: 'button', html: svg('plus') + '新增卡片' });
     add.addEventListener('click', () => TTBoard.openEditor(null));
     const pick = el('button', { class: 'btn', type: 'button', title: '多選卡片後匯出 Excel 工作進度報告，或匯入報告（也可以 Ctrl／⌘＋點卡片）', html: svg('check') + '選取／匯出' });
-    // meeting view: one row per person (me, then everyone below me), columns by status
-    let lanes = !!store.get('board-lanes', false);
+    // 依人員: one row per person (me, then everyone below me), columns by status — only with accounts
+    // (server, or a standalone copy linked to one); a single-person board has nobody to lay out
+    const auth = state.me?.people;
+    let lanes = !!auth && !!store.get('board-lanes', false);
     const layout = el('div', { class: 'segmented board-layout', role: 'group', title: '看板版面' },
       ...[['cols', '看板', 'kanban'], ['lanes', '依人員', 'users']].map(([v, l, icon]) => {
         const b = el('button', { type: 'button', dataset: { v }, html: svg(icon) + `<span>${l}</span>` });
@@ -679,7 +681,6 @@
     paintLayout();
     pick.addEventListener('click', () => TTBoard.setSelecting(!TTBoard.selecting));
     // whose cards: everyone I can see / mine / (admins) one person
-    const auth = state.me?.people;
     let filter = auth ? store.get('board-filter', state.me.is_admin ? 'all' : 'all') : 'all';
     const who = el('select', { class: 'select board-who', title: '顯示誰的卡片' });
     const paintWho = () => {
@@ -704,7 +705,7 @@
       title: '待辦看板',
       desc: '拖曳卡片換狀態；設定開始日與到期日，時間到會在右上角 🔔 提醒。',
       meta: ' ',
-      tools: el('div', { class: 'board-tools' }, auth ? who : null, layout, toggle, pick, add),
+      tools: el('div', { class: 'board-tools' }, auth ? who : null, auth ? layout : null, toggle, pick, add),
     }));
     const box = el('div');
     const board = TTBoard.mount(box, { hideClosed, full: true, filter, lanes });
