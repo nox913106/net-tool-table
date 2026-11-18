@@ -20,6 +20,7 @@ server never has to guess the viewer's time zone.
 """
 import asyncio
 import calendar
+import json
 import os
 from urllib.parse import quote
 import re
@@ -46,7 +47,7 @@ DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$")
 REPEAT_RE = re.compile(r"^(daily|weekdays|weekly(:[1-7](,[1-7]){0,6})?|monthly(:\d{1,2})?|yearly)$")
 COLUMNS = ("id, title, description, status, priority, start_at, due_at, remind, repeat, repeat_every, next_id, "
            "overdue_from, overdue_ack, owner_id, sort_order, created_at, updated_at, completed_at, op_project, "
-           "blocked_at, blocked_reason, blocked_by")
+           "blocked_at, blocked_reason, blocked_by, tags")
 
 
 def _repeat(v):
@@ -134,10 +135,10 @@ async def spawn_next(db, task_id: int, today: Optional[date] = None) -> Optional
     cur = await db.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tasks WHERE status = 'recurring'")
     order = (await cur.fetchone())["n"]
     cur = await db.execute(
-        """INSERT INTO tasks (title, description, status, priority, start_at, due_at, remind, repeat, repeat_every, sort_order, owner_id, op_project)
-           VALUES (?, ?, 'recurring', ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        """INSERT INTO tasks (title, description, status, priority, start_at, due_at, remind, repeat, repeat_every, sort_order, owner_id, op_project, tags)
+           VALUES (?, ?, 'recurring', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (t["title"], t["description"], t["priority"], _shift(t["start_at"], delta), due, t["remind"],
-         t["repeat"], t["repeat_every"] or 1, order, t["owner_id"], t["op_project"]))
+         t["repeat"], t["repeat_every"] or 1, order, t["owner_id"], t["op_project"], t["tags"]))
     new_id = cur.lastrowid
     await db.execute("""INSERT INTO task_members (task_id, user_id, role)
                         SELECT ?, user_id, role FROM task_members WHERE task_id = ?""", (new_id, task_id))
@@ -200,6 +201,42 @@ def _prio(v):
     return v
 
 
+TAG_MAX, TAG_LEN = 8, 24
+
+
+def _tags(v):
+    """Custom labels: trimmed, '#' dropped, no duplicates (case-insensitive), at most 8 × 24 characters."""
+    if v is None:
+        return None
+    out, seen = [], set()
+    for x in v:
+        if not isinstance(x, str):
+            continue
+        t = re.sub(r"\s+", " ", x.strip().lstrip("#＃").strip())
+        if not t:
+            continue
+        if len(t) > TAG_LEN:
+            raise ValueError(f"標籤「{t[:10]}…」太長（最多 {TAG_LEN} 字）")
+        if t.lower() not in seen:
+            seen.add(t.lower())
+            out.append(t)
+    if len(out) > TAG_MAX:
+        raise ValueError(f"一張卡片最多 {TAG_MAX} 個標籤")
+    return out
+
+
+def tags_json(v) -> Optional[str]:
+    return json.dumps(v, ensure_ascii=False) if v else None
+
+
+def tags_list(raw) -> List[str]:
+    try:
+        v = json.loads(raw) if raw else []
+    except ValueError:
+        return []
+    return [x for x in v if isinstance(x, str)] if isinstance(v, list) else []
+
+
 def _remind(v):
     if v is not None and v not in REMINDS:
         raise ValueError("提醒時間無效")
@@ -218,6 +255,12 @@ class TaskIn(BaseModel):
     repeat_every: Optional[int] = None
     assignees: Optional[List[str]] = None          # login names (admins only)
     op_project: Optional[str] = None               # OpenProject project id to sync to; "" / null = not synced
+    tags: Optional[List[str]] = None               # custom labels shown on the card
+
+    @field_validator("tags")
+    @classmethod
+    def v_tags(cls, v):
+        return _tags(v)
 
     @field_validator("op_project")
     @classmethod
@@ -281,6 +324,12 @@ class TaskUpdate(BaseModel):
     repeat_every: Optional[int] = None
     assignees: Optional[List[str]] = None          # login names (admins only)
     op_project: Optional[str] = None               # OpenProject project id to sync to; "" / null = not synced
+    tags: Optional[List[str]] = None               # custom labels shown on the card
+
+    @field_validator("tags")
+    @classmethod
+    def v_tags(cls, v):
+        return _tags(v)
 
     @field_validator("op_project")
     @classmethod
@@ -513,6 +562,7 @@ async def _enrich(db, rows: List[dict], user: dict) -> List[dict]:
     me = user.get("id")
     acc = board_access(user)
     for r in rows:
+        r["tags"] = tags_list(r.get("tags"))
         r["blocked"] = {"since": r["blocked_at"], "reason": r.get("blocked_reason") or "",
                         "by": blockers.get(r.get("blocked_by"))} if r.get("blocked_at") else None
         p = people.get(r["id"], {"assignee": [], "mention": [], "subtask": []})
@@ -827,6 +877,15 @@ async def _import_plan(items: List[dict], user: dict) -> List[dict]:
                                 out["warnings"].append("有子任務的卡片狀態依子任務自動計算，狀態欄已略過")
                             else:
                                 changes["status"] = it["status"]; out["changes"].append(_diff("狀態", ZH.get(t["status"]), ZH.get(it["status"])))
+                        if it.get("tags") is not None:
+                            try:
+                                new_tags = _tags(it["tags"]) or []
+                            except ValueError as e:
+                                out["errors"].append(str(e)); new_tags = None
+                            old_tags = tags_list(t.get("tags"))
+                            if new_tags is not None and [x.lower() for x in new_tags] != [x.lower() for x in old_tags]:
+                                changes["tags"] = new_tags
+                                out["changes"].append(_diff("標籤", "、".join(old_tags), "、".join(new_tags)))
                         if person and person["id"] not in ctx["members"] and person["id"] != t["owner_id"]:
                             out["warnings"].append("主責人變更請在系統內調整，負責人欄已略過")
                         if changes and not ctx["edit"]:
@@ -838,6 +897,12 @@ async def _import_plan(items: List[dict], user: dict) -> List[dict]:
                     for k in ("priority", "start_at", "due_at"):
                         if it.get(k):
                             fields[k] = it[k]
+                    if it.get("tags"):
+                        try:
+                            fields["tags"] = _tags(it["tags"])
+                            out["changes"].append("標籤：" + "、".join(fields["tags"]))
+                        except ValueError as e:
+                            out["errors"].append(str(e))
                     if it.get("status"):
                         if it["row"] in has_sub_rows and it["status"] != "canceled":
                             out["warnings"].append("有子任務的卡片狀態依子任務自動計算")
@@ -1007,6 +1072,24 @@ async def import_xlsx(request: Request, file: UploadFile = File(...), apply: boo
             "rows": [{k: v for k, v in o.items() if not k.startswith("_")} for o in plan]}
 
 
+@router.get("/tags")
+async def list_tags(request: Request):
+    """Labels used on cards the viewer can see (most used first) — suggestions in the editor."""
+    user = current_user(request)
+    where, args = _visible_sql(user)
+    db = await get_db()
+    try:
+        cur = await db.execute(f"SELECT t.tags FROM tasks t WHERE t.tags IS NOT NULL AND {where}", args)
+        counts, names = {}, {}
+        for r in await cur.fetchall():
+            for x in tags_list(r[0]):
+                counts[x.lower()] = counts.get(x.lower(), 0) + 1
+                names.setdefault(x.lower(), x)
+        return [{"name": names[k], "count": c} for k, c in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+    finally:
+        await db.close()
+
+
 @router.get("/search")
 async def search_tasks(request: Request, q: str = "", limit: int = 30):
     """Cards the viewer may see whose title, description, comments or people match q."""
@@ -1019,7 +1102,7 @@ async def search_tasks(request: Request, q: str = "", limit: int = 30):
     db = await get_db()
     try:
         cur = await db.execute(f"""
-            SELECT t.id, t.title, t.description, t.status, t.due_at, t.updated_at,
+            SELECT t.id, t.title, t.description, t.status, t.due_at, t.updated_at, t.tags,
                    (SELECT COALESCE(c.title || '：', '') || c.body FROM task_comments c WHERE c.task_id = t.id AND (c.body LIKE ? ESCAPE '\\' OR c.title LIKE ? ESCAPE '\\')
                      ORDER BY c.id DESC LIMIT 1) AS hit_comment,
                    (SELECT COALESCE(u.display_name, u.username) FROM users u
@@ -1036,8 +1119,12 @@ async def search_tasks(request: Request, q: str = "", limit: int = 30):
                 score, field, snip = 80, "標題", ""
             elif low in title.lower():
                 score, field, snip = 60, "標題", ""
+            elif any(low.lstrip("#＃") == x.lower() for x in tags_list(r["tags"])):
+                score, field, snip = 70, "標籤", "#" + next(x for x in tags_list(r["tags"]) if x.lower() == low.lstrip("#＃"))
             elif low in (r["description"] or "").lower():
                 score, field, snip = 40, "說明", _snippet(r["description"], kw)
+            elif any(low.lstrip("#＃") in x.lower() for x in tags_list(r["tags"])):
+                score, field, snip = 35, "標籤", "、".join("#" + x for x in tags_list(r["tags"]))
             elif r["hit_comment"]:
                 score, field, snip = 30, "留言", _snippet(r["hit_comment"], kw)
             elif r["hit_person"]:
@@ -1065,10 +1152,10 @@ async def create_task(t: TaskIn, request: Request):
         order = (await cur.fetchone())["n"]
         cur = await db.execute(
             """INSERT INTO tasks (title, description, status, priority, start_at, due_at, remind, repeat, repeat_every,
-                                  sort_order, owner_id, completed_at, op_project)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'complete' THEN CURRENT_TIMESTAMP END, ?)""",
+                                  sort_order, owner_id, completed_at, op_project, tags)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'complete' THEN CURRENT_TIMESTAMP END, ?, ?)""",
             (t.title, t.description, t.status, t.priority, t.start_at, t.due_at, t.remind, repeat, t.repeat_every or 1,
-             order, user.get("id"), t.status, t.op_project))
+             order, user.get("id"), t.status, t.op_project, tags_json(t.tags)))
         task_id = cur.lastrowid
         if user.get("id") is not None:
             acc_c = board_access(user)
@@ -1118,6 +1205,8 @@ async def update_task(task_id: int, t: TaskUpdate, request: Request):
             raise HTTPException(status_code=400, detail=SUMMARY_MSG)
         if "repeat_every" in changes and changes["repeat_every"] is None:
             changes["repeat_every"] = 1
+        if "tags" in changes:
+            changes["tags"] = tags_json(changes["tags"])
         merged = {**cur_task, **changes}
         _check_dates(merged["start_at"], merged["due_at"], merged["repeat"])
         rule = merged["repeat"] or ""
@@ -2189,6 +2278,8 @@ async def export_tasks(db) -> List[dict]:
         item = {k: r[k] for k in EXPORT_FIELDS if r[k] is not None}
         if r["owner_name"]:
             item["owner"] = r["owner_name"]
+        if tags_list(r["tags"]):
+            item["tags"] = tags_list(r["tags"])
         cur2 = await db.execute("""SELECT u.username, m.role FROM task_members m JOIN users u ON u.id = m.user_id
                                    WHERE m.task_id = ?""", (r["id"],))
         members = await cur2.fetchall()
@@ -2206,7 +2297,7 @@ async def import_tasks(db, items) -> int:
             continue
         try:
             t = TaskIn(**{k: item.get(k) for k in ("title", "description", "status", "priority", "start_at", "due_at", "remind",
-                                                   "repeat", "repeat_every") if item.get(k) is not None})
+                                                   "repeat", "repeat_every", "tags") if item.get(k) is not None})
         except Exception:
             continue
         owner = None
@@ -2216,12 +2307,12 @@ async def import_tasks(db, items) -> int:
             owner = row["id"] if row else None
         cur = await db.execute(
             """INSERT INTO tasks (title, description, status, priority, start_at, due_at, remind, repeat, repeat_every,
-                                  sort_order, completed_at, owner_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                  sort_order, completed_at, owner_id, tags)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (t.title, t.description, t.status, t.priority, t.start_at, t.due_at, t.remind,
              t.repeat if t.due_at else None, t.repeat_every or 1,
              item["sort_order"] if isinstance(item.get("sort_order"), int) else n,
-             item.get("completed_at") if t.status == "complete" else None, owner))
+             item.get("completed_at") if t.status == "complete" else None, owner, tags_json(t.tags)))
         for role, key in (("assignee", "assignees"), ("mention", "mentions")):
             for name in item.get(key) or []:
                 if isinstance(name, str):

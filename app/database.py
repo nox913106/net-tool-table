@@ -90,7 +90,8 @@ async def init_db():
         for col, decl in (("repeat", "TEXT"), ("repeat_every", "INTEGER DEFAULT 1"), ("next_id", "INTEGER"),
                           ("overdue_from", "TEXT"), ("overdue_ack", "TEXT"),
                           ("owner_id", "INTEGER REFERENCES users(id) ON DELETE SET NULL"),
-                          ("blocked_at", "TIMESTAMP"), ("blocked_reason", "TEXT"), ("blocked_by", "INTEGER")):
+                          ("blocked_at", "TIMESTAMP"), ("blocked_reason", "TEXT"), ("blocked_by", "INTEGER"),
+                          ("tags", "TEXT")):
             if col not in task_cols:                       # recurring cards, 卡住 flag (added later)
                 await db.execute(f"ALTER TABLE tasks ADD COLUMN {col} {decl}")
         # a card that is finished or dropped is no longer stuck

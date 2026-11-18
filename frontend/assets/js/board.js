@@ -41,6 +41,38 @@ const TTBoard = (() => {
   const boards = new Set();               // re-render functions of mounted boards
   const bells = new Set();
 
+  // ------------------------------------------------------------ custom tags
+  // Free-text labels on a card; each name always gets the same colour, so a tag is recognised at a glance.
+  // Clicking one filters every board to that tag (store 'kb-tag'); click again or ✕ to clear.
+  const TAG_HUES = [212, 145, 28, 280, 345, 188, 48, 100, 250, 0, 165, 312, 232, 120, 12, 295];
+  const tagHue = name => { let h = 0; for (const ch of name.toLowerCase()) h = (h * 31 + ch.codePointAt(0)) >>> 0; return TAG_HUES[h % TAG_HUES.length]; };
+  let tagFilter = TT.store.get('kb-tag', null);
+  const tagPass = t => !tagFilter || (t.tags || []).some(x => x.toLowerCase() === tagFilter.toLowerCase());
+  function setTagFilter(name) {
+    tagFilter = name && (!tagFilter || tagFilter.toLowerCase() !== name.toLowerCase()) ? name : null;
+    TT.store.set('kb-tag', tagFilter);
+    boards.forEach(fn => fn());
+  }
+  function tagChip(name, { onClick, onRemove } = {}) {
+    const on = tagFilter && tagFilter.toLowerCase() === name.toLowerCase();
+    const c = el(onClick ? 'button' : 'span', { class: 'kb-tag' + (on ? ' on' : ''), type: onClick ? 'button' : null,
+      style: { '--tag-h': tagHue(name) }, title: onClick ? (on ? `取消篩選 #${name}` : `只看標籤 #${name}`) : `#${name}` },
+      el('span', { class: 'kb-tag-hash', text: '#' }), el('span', { text: name }));
+    if (onClick) c.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); onClick(name); });
+    if (onRemove) {
+      const x = el('button', { class: 'kb-tag-x', type: 'button', 'aria-label': `移除標籤 ${name}`, html: svg('x') });
+      x.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); onRemove(name); });
+      c.append(x);
+    }
+    return c;
+  }
+  /** every tag in use on the cards loaded here, most used first */
+  const knownTags = () => {
+    const n = new Map();
+    tasks.forEach(t => (t.tags || []).forEach(x => { const k = x.toLowerCase(); const v = n.get(k) || [x, 0]; v[1]++; n.set(k, v); }));
+    return [...n.values()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(v => v[0]);
+  };
+
   const pad = n => String(n).padStart(2, '0');
   const now = () => (window.TTClock && TTClock.now ? TTClock.now() : new Date());
 
@@ -743,7 +775,7 @@ const TTBoard = (() => {
     let hideClosed = !!opts.hideClosed;
     let filter = opts.filter || 'all';                          // all | mine | user:<id>
     const teamIds = () => new Set([meInfo.user?.id, ...(meInfo.team || []).map(p => p.id)].filter(x => x != null));
-    const pass = t => filter === 'all' ? true : filter === 'mine' ? t.mine !== false
+    const pass = t => !tagPass(t) ? false : filter === 'all' ? true : filter === 'mine' ? t.mine !== false
       : filter === 'team' ? [t.owner, ...(t.assignees || [])].some(p => p && teamIds().has(p.id))
       : filter.startsWith('user:') ? [t.owner, ...(t.assignees || [])].some(p => p && String(p.id) === filter.slice(5))
       : filter.startsWith('dept:') ? (t.departments || []).includes(filter.slice(5)) : true;
@@ -769,6 +801,7 @@ const TTBoard = (() => {
       if (lanes) renderLanes(cols);
       else root.replaceChildren(...cols.map(s => { const c = column(s); if (empty(s)) { c.classList.add('kb-col-empty'); c.title = `${s.label}（${s.zh}）：沒有卡片`; } return c; }));
       paintPeople();
+      paintTagBar();
       root.classList.toggle('is-selecting', selecting);
       if (selecting) root.querySelectorAll('.kb-col').forEach(paintColCheck);
     };
@@ -820,6 +853,19 @@ const TTBoard = (() => {
         moveTo(id, s.key, index < 0 ? 0 : index);
       });
       return col;
+    }
+
+    // ------------------------------------------------ tag filter bar
+    let tagBar = null;
+    function paintTagBar() {
+      if (!tagFilter) { tagBar?.remove(); return; }
+      if (!tagBar) tagBar = el('div', { class: 'kb-tagbar' });
+      if (!tagBar.isConnected && root.isConnected) root.before(tagBar);
+      const n = tasks.filter(t => tagPass(t) && !(hideClosed && CLOSED.has(t.status))).length;
+      const clear = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', html: svg('x') + '清除' });
+      clear.addEventListener('click', () => setTagFilter(null));
+      tagBar.replaceChildren(el('span', { class: 'kb-tagbar-label', text: '篩選標籤' }), tagChip(tagFilter, { onClick: () => setTagFilter(null) }),
+        el('span', { class: 'hint', text: `${n} 張卡片` }), el('span', { class: 'spacer' }), clear);
     }
 
     // ------------------------------------------------ people bar (focus mode)
@@ -1059,6 +1105,7 @@ const TTBoard = (() => {
           t.priority === 'high' ? el('span', { class: 'kb-flag', title: '高優先', html: svg('flag') }) : null,
           el('span', { text: t.title }),
           t.team ? el('span', { class: 'kb-team-tag', title: '下級的卡片（你是上級，可以' + (meInfo.board?.team_edit ? '檢視、留言與增刪修）' : '檢視與留言）'), text: '下級' }) : null),
+        t.tags?.length ? el('div', { class: 'kb-tags' }, t.tags.map(x => tagChip(x, { onClick: setTagFilter }))) : null,
         isBlocked(t) ? el('div', { class: 'kb-blocked-bar', title: `卡住（${t.blocked.by || ''} 標記）：${t.blocked.reason}`,
           text: `⛔ 卡住 ${blockedDays(t.blocked.since)}：${t.blocked.reason}` }) : null,
         t.description ? el('p', { class: 'kb-card-desc', text: t.description }) : null,
@@ -1546,6 +1593,45 @@ const TTBoard = (() => {
     // --- people (server edition)
     const canAssign = meInfo.auth && (task ? task.can_assign : meInfo.board?.edit !== 'own' || !!meInfo.board?.team_edit);
     const readOnly = !!task && task.can_edit === false;          // RO managers: view + comment
+    // --- tags: type and press Enter (or pick a suggestion); Backspace in an empty box removes the last one
+    let tagList = [...(t.tags || [])];
+    const tagInput = el('input', { class: 'kb-tag-input', type: 'text', maxlength: '24', placeholder: '輸入標籤後按 Enter', autocomplete: 'off', list: 'kb-tag-list' });
+    const tagData = el('datalist', { id: 'kb-tag-list' });
+    const tagBox = el('div', { class: 'kb-tag-edit' });
+    const tagSug = el('div', { class: 'kb-tag-sugs' });
+    function addTag(raw) {
+      const v = String(raw || '').trim().replace(/^[#＃]+/, '').replace(/\s+/g, ' ').trim();
+      if (!v) return;
+      if (v.length > 24) { toast('標籤最多 24 個字', true); return; }
+      if (tagList.some(x => x.toLowerCase() === v.toLowerCase())) return;
+      if (tagList.length >= 8) { toast('一張卡片最多 8 個標籤', true); return; }
+      tagList.push(v);
+      paintTags();
+    }
+    function paintTags() {
+      tagBox.replaceChildren(...tagList.map(x => tagChip(x, { onRemove: n => { tagList = tagList.filter(y => y !== n); paintTags(); } })), tagInput);
+      const used = new Set(tagList.map(x => x.toLowerCase()));
+      const free = knownTags().filter(x => !used.has(x.toLowerCase()));
+      tagData.replaceChildren(...free.map(x => el('option', { value: x })));
+      tagSug.replaceChildren(...(free.length ? [el('span', { class: 'hint', text: '常用：' }), ...free.slice(0, 8).map(x => {
+        const b = tagChip(x, { onClick: () => { addTag(x); tagInput.focus(); } });
+        b.classList.add('kb-tag-sug');
+        b.title = `加上 #${x}`;
+        return b;
+      })] : []));
+    }
+    tagInput.addEventListener('keydown', e => {
+      if ((e.key === 'Enter' || e.key === ',' || e.key === '，') && !e.isComposing) {
+        e.preventDefault(); e.stopPropagation();
+        addTag(tagInput.value); tagInput.value = '';
+      } else if (e.key === 'Backspace' && !tagInput.value && tagList.length) {
+        tagList.pop(); paintTags();
+      }
+    });
+    tagInput.addEventListener('change', () => { if (knownTags().some(x => x === tagInput.value)) { addTag(tagInput.value); tagInput.value = ''; } });
+    tagBox.addEventListener('click', e => { if (e.target === tagBox) tagInput.focus(); });
+    paintTags();
+
     let assignees = (t.assignees || []).map(p => ({ ...p }));
     const assignBox = el('div', { class: 'kb-assignees' });
     const assignInput = canAssign ? TT.mentionInput(el('input', { class: 'input kb-assign-input', placeholder: '輸入姓名或帳號，指派負責人…' }), {
@@ -2183,6 +2269,7 @@ const TTBoard = (() => {
         el('div', { class: 'modal-body' },
           field('標題', title),
           field('說明', desc),
+          el('div', { class: 'field' }, el('span', { class: 'field-label', text: '標籤' }), tagBox, tagSug, tagData),
           el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('paperclip') + '附件' }), imgBox),
           meInfo.auth ? el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('users') + '負責人' }), assignBox) : null,
           el('div', { class: 'kb-row' }, el('div', { class: 'field' }, el('span', { class: 'field-label', text: '狀態' }), status,
@@ -2263,6 +2350,8 @@ const TTBoard = (() => {
         repeat: ruleValue(),
         repeat_every: Math.min(365, Math.max(1, Number(every.value) || 1)),
       };
+      if (tagInput.value.trim()) { addTag(tagInput.value); tagInput.value = ''; }
+      body.tags = tagList;
       if (canAssign) body.assignees = assignees.map(p => p.username);
       if (!opBox.hidden && (opProject || null) !== (t.op_project || null)) body.op_project = opProject || '';
       if (body.start_at && body.due_at && body.start_at.slice(0, 10) > body.due_at.slice(0, 10)) { toast('開始日不能晚於到期日', true); return; }
@@ -2285,7 +2374,7 @@ const TTBoard = (() => {
     ok.addEventListener('click', submit);
 
     if (readOnly) {                                               // view + comment only
-      wrap.querySelectorAll('.modal-body input, .modal-body select, .modal-body textarea:not(.kb-comment-input), .modal-body .segmented button, .kb-date-chip, .kb-wd, .kb-person-x')
+      wrap.querySelectorAll('.modal-body input, .modal-body select, .modal-body textarea:not(.kb-comment-input), .modal-body .segmented button, .kb-date-chip, .kb-wd, .kb-person-x, .kb-tag-x, .kb-tag-sug')
         .forEach(x => { x.disabled = true; });
       ok.hidden = true;
       cancel.textContent = '關閉';

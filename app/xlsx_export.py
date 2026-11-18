@@ -9,7 +9,7 @@ Layout (sheet 「工作報告」)
                1.1   子任務   └ subtask
                1.2   協作     └ collaborator  (co-assignee / @mentioned without a subtask of their own)
              Excel outline grouping folds a card's children (+/- on the left).
-Columns  編號 類型 項目 負責人 狀態 優先 開始 到期 完成% 預估(h) 實際(h) 最新進度／說明 備註 系統ID
+Columns  編號 類型 項目 標籤 負責人 狀態 優先 開始 到期 完成% 預估(h) 實際(h) 最新進度／說明 備註 系統ID
   系統ID (T12 / S45 / C7) lets the same file be imported back to update those items; rows without
   one are created. 備註 is free space for the reader and is ignored on import.
 Printing: A4 landscape, fit to one page wide, header row repeated, page numbers in the footer;
@@ -41,7 +41,7 @@ BOX = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 SHEET = "工作報告"
 HEADER_ROW = 5
 # (header, width, kind)
-COLUMNS = [("編號", 7, ""), ("類型", 8, ""), ("項目", 44, "wrap"), ("負責人", 16, "wrap"), ("狀態", 11, ""), ("優先", 6, ""),
+COLUMNS = [("編號", 7, ""), ("類型", 8, ""), ("項目", 44, "wrap"), ("標籤", 14, "wrap"), ("負責人", 16, "wrap"), ("狀態", 11, ""), ("優先", 6, ""),
            ("開始", 16, "date"), ("到期", 16, "date"), ("完成%", 8, "pct"), ("預估(h)", 8, "hours"), ("實際(h)", 8, "hours"),
            ("最新進度／說明", 52, "wrap"), ("備註", 22, "wrap"), ("系統ID", 9, "")]
 COL = {c[0]: i for i, c in enumerate(COLUMNS)}
@@ -170,7 +170,8 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
         blocked_n += bool(_blocked_text(t))
         cmts = comments.get(t["id"], [])
         rows.append((0, [
-            str(n), KIND["card"], _txt(t["title"]), _txt(lead["name"]) if lead else None, STATUS_ZH.get(t["status"], t["status"]),
+            str(n), KIND["card"], _txt(t["title"]), _txt(" ".join("#" + x for x in t.get("tags") or [])) or None,
+            _txt(lead["name"]) if lead else None, STATUS_ZH.get(t["status"], t["status"]),
             PRIORITY.get(t["priority"], t["priority"]), _dt(t["start_at"]), due, pct, _hours(est), _hours(spent),
             _txt(_blocked_text(t) or _latest(cmts, names, None) or (_one_line(t["description"]) or None)), None, f"T{t['id']}"], t["status"], late))
         m = 0
@@ -180,7 +181,7 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
             desc = s["body"] if s["body"] and s["body"].strip() != (s["title"] or "").strip() else None
             sdue = _dt(s["due_at"])
             rows.append((1, [
-                f"{n}.{m}", KIND["sub"], _txt("└ " + (s["title"] or "子任務")), _txt(names.get(s["assignee_id"])) if s["assignee_id"] else None,
+                f"{n}.{m}", KIND["sub"], _txt("└ " + (s["title"] or "子任務")), None, _txt(names.get(s["assignee_id"])) if s["assignee_id"] else None,
                 STATUS_ZH.get(st, st), PRIORITY.get(s["priority"] or "normal"), _dt(s["start_at"]), sdue,
                 1.0 if st == "complete" else 0.0 if st != "canceled" else None, _hours(s["estimate_minutes"]),
                 _hours(sum(e["minutes"] or 0 for e in card_times if e["comment_id"] == s["id"])),
@@ -188,7 +189,7 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
         for c in collab:
             m += 1
             rows.append((1, [
-                f"{n}.{m}", KIND["collab"], _txt(f"└ 協作（{c['why']}）"), _txt(c["name"]), COLLAB_DONE if c.get("done") else COLLAB_OPEN,
+                f"{n}.{m}", KIND["collab"], _txt(f"└ 協作（{c['why']}）"), None, _txt(c["name"]), COLLAB_DONE if c.get("done") else COLLAB_OPEN,
                 None, None, None, 1.0 if c.get("done") else 0.0, None, None, None, None, f"C{c['id']}"],
                 "complete" if c.get("done") else None, False))
 
@@ -346,6 +347,9 @@ def parse(data: bytes) -> List[dict]:
         item["kind"] = kind
         person = str(get(r, "負責人") or "").strip()
         item["person"] = person or None
+        if kind == "card" and "標籤" in cols:                  # "#a #b", "a、b" or "a, b"
+            raw = str(get(r, "標籤") or "")
+            item["tags"] = [x for x in re.split(r"[\s,，、;；]+", raw.replace("＃", "#")) if x.strip("#")]
         st = str(get(r, "狀態") or "").strip()
         if kind == "collab":
             item["done"] = None if not st else st in (COLLAB_DONE, "complete", "已完成")
