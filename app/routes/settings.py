@@ -87,6 +87,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "board_supervisor": "rw",           # 上級 on cards of everyone below them: rw = full rights, ro = view + comment, off = none
     "board_wip_high": 6,                # a column with this many open cards shows 高負荷 (default: ≤5 normal, 6–8 high)
     "board_wip_over": 9,                # … and from this many 超量
+    "board_tag_colors": {},             # card tag (lower case) → "#RRGGBB" chosen by an administrator; others get an automatic colour
 }
 
 ENUMS = {
@@ -121,6 +122,20 @@ def validate_setting(key: str, value: Any) -> Any:
         if not 1 <= n <= 999:
             raise HTTPException(status_code=400, detail="工作量門檻要在 1～999 之間")
         return n
+    if key == "board_tag_colors":
+        if not isinstance(value, dict):
+            raise HTTPException(status_code=400, detail="標籤顏色格式錯誤")
+        clean = {}
+        for name, color in value.items():
+            name = re.sub(r"\s+", " ", str(name).strip().lstrip("#＃").strip()).lower()
+            if not name or len(name) > 24 or not color:
+                continue
+            if not re.fullmatch(r"#[0-9a-fA-F]{6}", str(color)):
+                raise HTTPException(status_code=400, detail=f"標籤「{name}」的顏色必須是 #RRGGBB")
+            clean[name] = str(color).lower()
+        if len(clean) > 300:
+            raise HTTPException(status_code=400, detail="最多設定 300 個標籤顏色")
+        return clean
     if key == "accent_color" and not re.fullmatch(r"#[0-9a-fA-F]{6}", str(value)):
         raise HTTPException(status_code=400, detail="主題色必須是 #RRGGBB")
     if isinstance(default, bool):

@@ -321,6 +321,56 @@
     return wrap;
   }
 
+  /** Card tag colours: every tag in use (plus ones already given a colour) with a colour picker each. */
+  function tagColorsEditor(value, onChange) {
+    const colors = { ...value };
+    const box = el('div', { class: 'tagc' });
+    const list = el('div', { class: 'tagc-list' });
+    const input = el('input', { class: 'input', placeholder: '新增標籤名稱，例如 資安', maxlength: '24' });
+    const add = el('button', { class: 'btn btn-sm', type: 'button', html: svg('plus') + '加入' });
+    let names = [];
+    const counts = {};
+    const preview = (name, c) => {
+      const chip = el('span', { class: 'kb-tag' + (c ? ' custom' : ''), style: c ? { '--tag-c': c } : { '--tag-h': TT.tagHue(name) } },
+        el('span', { class: 'kb-tag-hash', text: '#' }), el('span', { text: name }));
+      return chip;
+    };
+    function paint() {
+      const all = [...new Set([...names, ...Object.keys(colors)].map(n => n.toLowerCase()))];
+      const label = n => names.find(x => x.toLowerCase() === n) || n;
+      list.replaceChildren(...(all.length ? all.map(n => {
+        const holder = el('span', { class: 'tagc-chip' }, preview(label(n), colors[n]));
+        const pick = el('input', { type: 'color', class: 'tagc-color', value: colors[n] || '#6366f1', title: '選擇顏色' });
+        const auto = el('button', { class: 'btn btn-sm btn-ghost tagc-auto' + (colors[n] ? '' : ' on'), type: 'button', text: '自動', title: '依名稱自動配色' });
+        const apply = c => {
+          if (c) colors[n] = c; else delete colors[n];
+          holder.replaceChildren(preview(label(n), colors[n]));
+          auto.classList.toggle('on', !c);
+          onChange({ ...colors });
+        };
+        pick.addEventListener('input', () => apply(pick.value));
+        auto.addEventListener('click', () => apply(''));
+        return el('div', { class: 'tagc-row' }, holder, el('span', { class: 'hint', text: counts[n] ? `${counts[n]} 張` : '尚未使用' }), pick, auto);
+      }) : [el('p', { class: 'hint', text: '還沒有卡片使用標籤。' })]));
+    }
+    add.addEventListener('click', () => {
+      const n = input.value.trim().replace(/^[#＃]+/, '').trim();
+      if (!n) return;
+      if (!names.some(x => x.toLowerCase() === n.toLowerCase())) names.push(n);
+      input.value = '';
+      paint();
+    });
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); add.click(); } });
+    api('/api/tasks/tags').then(rows => {
+      rows.forEach(r => { counts[r.name.toLowerCase()] = r.count; });
+      names = [...rows.map(r => r.name), ...names];
+      paint();
+    }).catch(paint);
+    box.append(list, el('div', { class: 'tagc-add' }, input, add));
+    paint();
+    return box;
+  }
+
   /** Icon picker: uploaded images, emoji, or none. Resolves to the chosen value, '' for none, undefined if cancelled. */
   function pickIcon(current) {
     return new Promise(resolve => {
@@ -1161,7 +1211,8 @@
       { key: 'board_due_soon_days', label: '幾天內到期算「即將到期」', type: 'number' },
       { key: 'board_supervisor', label: '上級對下級卡片的權限', type: 'seg', options: [['rw', '可編輯'], ['ro', '檢視＋留言'], ['off', '不分享']], hint: '上級＝帳號的上級（AD 的 manager 或在「帳號與權限」設定），可以多層。可編輯：瀏覽、留言、增刪修、指派給下級；檢視＋留言：只能看與留言' },
       { key: 'board_wip_high', label: '工作量：每欄幾張起算「高負荷」', type: 'number', hint: '預設 6：每欄 ≤5 張為正常、6～8 張顯示「高負荷」' },
-      { key: 'board_wip_over', label: '工作量：每欄幾張起算「超量」', type: 'number', hint: '預設 9：≥9 張顯示「超量」。看板欄位標題會顯示，開會時「工作流量」步驟會特別標出來' },
+      { key: 'board_wip_over', label: '工作量：每欄幾張起算「超量」', type: 'number', hint: '預設 9：≥9 張顯示「超量」，顯示在看板欄位標題' },
+      { key: 'board_tag_colors', label: '卡片標籤顏色', type: 'tagcolors', hint: '列出卡片上用過的標籤；沒指定的標籤依名稱自動配色。也可以先為還沒用過的標籤設定顏色。' },
       { key: 'public_dashboard', label: '公開進度看板 /dashboard（不需登入、只顯示數量）', type: 'switch', hint: '依部門 → 帳號 → 狀態顯示卡片數，不含任何卡片內容與週期工作；關閉後該頁顯示「已關閉」' },
       { key: 'board_overdue_remind_time', label: '過期未結案：每天提醒時間', type: 'text', hint: '格式 HH:MM（預設 09:30）。單次卡片過了到期日還沒結案，會移到「過期未結案」，每天這個時間跳出提醒直到結案' },
     ] },
@@ -1224,6 +1275,8 @@
         }
         case 'icon': return el('div', { class: 'field' }, el('span', { class: 'field-label', text: f.label }),
           iconButton(v, () => draft.site_title || 'T', x => set(f.key, x)), f.hint ? el('span', { class: 'hint', text: f.hint }) : null);
+        case 'tagcolors': return el('div', { class: 'field span-all' }, el('span', { class: 'field-label', text: f.label }),
+          tagColorsEditor(v || {}, x => set(f.key, x)), el('span', { class: 'hint', text: f.hint }));
         case 'filters': return el('div', { class: 'field span-all' }, el('span', { class: 'field-label', text: f.label }), filtersEditor(v || [], x => set(f.key, x)), el('span', { class: 'hint', text: f.hint }));
         default: return el('span');
       }

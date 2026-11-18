@@ -185,6 +185,11 @@ const TT = (() => {
     setTimeout(() => { t.classList.add('leaving'); setTimeout(() => t.remove(), 300); }, isError ? 4500 : 2400);
   }
 
+  // ----------------------------------------------------------- card tags
+  // a tag without an administrator's colour always gets the same automatic hue from its name
+  const TAG_HUES = [212, 145, 28, 280, 345, 188, 48, 100, 250, 0, 165, 312, 232, 120, 12, 295];
+  const tagHue = name => { let h = 0; for (const ch of String(name).toLowerCase()) h = (h * 31 + ch.codePointAt(0)) >>> 0; return TAG_HUES[h % TAG_HUES.length]; };
+
   // ----------------------------------------------------------- appearance
   const media = window.matchMedia('(prefers-color-scheme: dark)');
 
@@ -541,7 +546,7 @@ const TT = (() => {
   return {
     me, userMenu, avatar, nameOf, mentionInput, ROLE,
     onInstallable, installApp, installed, syncThemeColor,
-    store, api, esc, el, svg, tile, isIconFile, iconUrl, initials, hostOf, toast, applyAppearance, cycleTheme, themePref,
+    store, api, esc, el, svg, tile, tagHue, isIconFile, iconUrl, initials, hostOf, toast, applyAppearance, cycleTheme, themePref,
     togglePerf, setFavicon, isLinkDrag, readDroppedLink, guessIcon, nameFromUrl,
     isProgram, isFileDrag, programPath, looksLikePath, localStatus, launchProgram, inspectDroppedFile, fetchSiteIcon,
   };

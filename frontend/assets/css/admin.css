@@ -483,3 +483,15 @@ body.link-dragging .quick-admin { outline: 2px dashed var(--accent-line); outlin
 .boss-src { font-size: 10.5px; color: var(--text-3); border: 1px solid var(--border); border-radius: 5px; padding: 0 4px; }
 .kb-link-btn { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 7px; border-radius: 7px; border: 0; background: transparent; color: var(--text-3); font-size: 12px; font-weight: 600; cursor: pointer; }
 .kb-link-btn:hover { color: var(--accent-text); }
+
+/* card tag colours (settings → 待辦看板) */
+.tagc { display: grid; gap: 10px; }
+.tagc-list { display: grid; gap: 6px; }
+.tagc-list { max-height: 420px; overflow: auto; }
+.tagc-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 40px auto; align-items: center; gap: 10px;
+  padding: 5px 10px; border: 1px solid var(--border); border-radius: 10px; }
+.tagc-color { width: 40px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: none; cursor: pointer; }
+.tagc-auto.on { color: var(--accent); border-color: var(--accent); }
+.tagc-chip { min-width: 0; display: flex; }
+.tagc-add { display: flex; gap: 8px; max-width: 420px; }
+

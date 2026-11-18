@@ -670,7 +670,7 @@
     // meeting view: one row per person (me, then everyone below me), columns by status
     let lanes = !!store.get('board-lanes', false);
     const layout = el('div', { class: 'segmented board-layout', role: 'group', title: '看板版面' },
-      ...[['cols', '看板', 'kanban'], ['lanes', '依人員（會議）', 'users']].map(([v, l, icon]) => {
+      ...[['cols', '看板', 'kanban'], ['lanes', '依人員', 'users']].map(([v, l, icon]) => {
         const b = el('button', { type: 'button', dataset: { v }, html: svg(icon) + `<span>${l}</span>` });
         b.addEventListener('click', () => { lanes = v === 'lanes'; store.set('board-lanes', lanes); paintLayout(); board.setLanes(lanes); });
         return b;

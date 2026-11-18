@@ -44,8 +44,7 @@ const TTBoard = (() => {
   // ------------------------------------------------------------ custom tags
   // Free-text labels on a card; each name always gets the same colour, so a tag is recognised at a glance.
   // Clicking one filters every board to that tag (store 'kb-tag'); click again or ✕ to clear.
-  const TAG_HUES = [212, 145, 28, 280, 345, 188, 48, 100, 250, 0, 165, 312, 232, 120, 12, 295];
-  const tagHue = name => { let h = 0; for (const ch of name.toLowerCase()) h = (h * 31 + ch.codePointAt(0)) >>> 0; return TAG_HUES[h % TAG_HUES.length]; };
+  const tagHue = TT.tagHue;
   let tagFilter = TT.store.get('kb-tag', null);
   const tagPass = t => !tagFilter || (t.tags || []).some(x => x.toLowerCase() === tagFilter.toLowerCase());
   function setTagFilter(name) {
@@ -53,10 +52,13 @@ const TTBoard = (() => {
     TT.store.set('kb-tag', tagFilter);
     boards.forEach(fn => fn());
   }
+  /** an administrator's colour for this tag (後台 → 設定 → 待辦看板), else none: automatic */
+  const tagColor = name => ((settings && settings.board_tag_colors) || {})[name.toLowerCase()] || null;
   function tagChip(name, { onClick, onRemove } = {}) {
     const on = tagFilter && tagFilter.toLowerCase() === name.toLowerCase();
-    const c = el(onClick ? 'button' : 'span', { class: 'kb-tag' + (on ? ' on' : ''), type: onClick ? 'button' : null,
-      style: { '--tag-h': tagHue(name) }, title: onClick ? (on ? `取消篩選 #${name}` : `只看標籤 #${name}`) : `#${name}` },
+    const custom = tagColor(name);
+    const c = el(onClick ? 'button' : 'span', { class: 'kb-tag' + (on ? ' on' : '') + (custom ? ' custom' : ''), type: onClick ? 'button' : null,
+      style: custom ? { '--tag-c': custom } : { '--tag-h': tagHue(name) }, title: onClick ? (on ? `取消篩選 #${name}` : `只看標籤 #${name}`) : `#${name}` },
       el('span', { class: 'kb-tag-hash', text: '#' }), el('span', { text: name }));
     if (onClick) c.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); onClick(name); });
     if (onRemove) {
@@ -782,10 +784,10 @@ const TTBoard = (() => {
     const inFocus = t => focusId == null || involvement(t).some(x => x.p.id === focusId);
     const colItems = key => byStatus(key).filter(t => pass(t) && (lanes || inFocus(t)));
     let drag = null;                                           // { id, from }
-    let lanes = !!opts.lanes;                                  // meeting view: one row per person
+    let lanes = !!opts.lanes;                                  // 依人員: one row per person
     let focusId = null;                                        // focus mode: one person's work + what they are part of
     // created on first paint: on a direct page load the board can render before /me has answered
-    let peopleBar = null, meetBar = null;
+    let peopleBar = null;
     const placeholder = el('div', { class: 'kb-placeholder' });
 
     const render = () => {
@@ -872,13 +874,10 @@ const TTBoard = (() => {
     function paintPeople() {
       if (!peopleBar && opts.full && meInfo.auth) {
         peopleBar = el('div', { class: 'kb-people-bar' });
-        meetBar = el('div', { class: 'kb-meet' });
       }
       if (!peopleBar) return;
       if (!peopleBar.isConnected && root.isConnected) root.before(peopleBar);
-      if (meetBar && !meetBar.isConnected && peopleBar.isConnected) peopleBar.before(meetBar);
       peopleBar.hidden = lanes;
-      paintMeet();
       if (lanes) return;
       const counts = new Map();                                // person id → { p, byStatus }
       tasks.filter(pass).filter(t => !(hideClosed && CLOSED.has(t.status))).forEach(t => involvement(t).forEach(x => {
@@ -892,6 +891,8 @@ const TTBoard = (() => {
       }));
       const me = meInfo.user?.id;
       const team = new Set((meInfo.team || []).map(p => p.id));
+      // a supervisor sees every person below them, also those with nothing on the board yet
+      if (filter !== 'mine' && !tagFilter) (meInfo.team || []).forEach(p => { if (!counts.has(p.id)) counts.set(p.id, { p, n: {} }); });
       const rank = id => id === me ? 0 : team.has(id) ? 1 : 2;
       const people = [...counts.values()].sort((a, b) => rank(a.p.id) - rank(b.p.id) || TT.nameOf(a.p).localeCompare(TT.nameOf(b.p), 'zh-Hant'));
       if (focusId != null && !counts.has(focusId)) focusId = null;
@@ -899,6 +900,7 @@ const TTBoard = (() => {
         const b = el('button', { class: 'kb-person-pill' + (focusId === p.id ? ' on' : focusId != null ? ' off' : ''), type: 'button',
           title: `${TT.nameOf(p)}：` + STATUSES.filter(s => n[s.key]).map(s => `${s.zh} ${n[s.key]}`).join('、') + '（主責、子任務、協作都算）' },
           TT.avatar(p, 26), el('span', { class: 'kb-pp-name', text: TT.nameOf(p) + (p.id === me ? '（我）' : '') }),
+          team.has(p.id) && !Object.keys(n).length ? el('span', { class: 'kb-pp-zero', text: '0' }) : null,
           el('span', { class: 'kb-pp-counts' }, ...STATUSES.filter(s => n[s.key]).map(s => el('span', { class: 'kb-pp-sq', style: { '--c': s.color }, text: n[s.key] })),
             ...(blocked ? [el('span', { class: 'kb-pp-blocked', title: `${blocked} 張主責卡片卡住`, text: `⛔${blocked}` })] : [])));
         b.addEventListener('click', () => setFocus(focusId === p.id ? null : p.id));
@@ -906,93 +908,10 @@ const TTBoard = (() => {
       });
       const clear = focusId != null ? el('button', { class: 'btn btn-sm', type: 'button', html: svg('x') + '取消專注（Esc）' }) : null;
       clear?.addEventListener('click', () => setFocus(null));
-      peopleBar.replaceChildren(...[el('span', { class: 'kb-pp-label', text: focusId != null ? '專注：' : '點人員專注：' }), ...pills,
+      const teamN = people.filter(x => team.has(x.p.id)).length;
+      peopleBar.replaceChildren(...[el('span', { class: 'kb-pp-label', text: focusId != null ? '專注：' : teamN ? `點人員專注（下級 ${teamN} 人）：` : '點人員專注：' }), ...pills,
         el('span', { class: 'spacer' }), clear || el('span', { class: 'kb-pp-legend' }, ...STATUSES.filter(s => !(hideClosed && CLOSED.has(s.key))).map(s => el('span', {}, el('i', { style: { '--c': s.color } }), s.zh)))].filter(Boolean));
     }
-    // ------------------------------------------------ meeting: 卡住與逾期 first, then flow, people, decisions
-    const MEET_STEPS = [
-      ['卡住與逾期', '先排除阻礙：卡住的當場找人協助；逾期的決定延期、拆小還是取消'],
-      ['工作流量', '看各欄的「高負荷／超量」：同時進行太多、或工作堆在某一欄，先收斂再開新工作'],
-      ['逐人專注', '點上方人員逐一確認（有 ⛔ 的人先看），每人只談變化與需要的協助'],
-      ['決議與指派', '把會議決議開成卡片或子任務，指派負責人與到期日'],
-    ];
-    function meetState() { try { return JSON.parse(sessionStorage.getItem('kb-meet') || 'null'); } catch { return null; } }
-    function setMeet(v) { try { v ? sessionStorage.setItem('kb-meet', JSON.stringify(v)) : sessionStorage.removeItem('kb-meet'); } catch { /* private mode */ } }
-    let meetTimer = null;
-    function paintMeet() {
-      if (!meetBar) return;
-      meetBar.hidden = lanes;
-      if (lanes) return;
-      const m = meetState();
-      const open = tasks.filter(pass).filter(t => !CLOSED.has(t.status));
-      const blocked = open.filter(isBlocked).sort((a, b) => String(a.blocked.since).localeCompare(String(b.blocked.since)));
-      const late = open.filter(t => !isBlocked(t) && (t.status === 'overdue' || timing(t).due === 'overdue'))
-        .sort((a, b) => String(a.due_at || '').localeCompare(String(b.due_at || '')));
-      const step = m ? m.step : -1;
-      const showList = m ? step === 0 : !!store.get('kb-triage-open', false);
-      clearInterval(meetTimer);
-      const parts = [];
-      if (m) {
-        const clock = el('span', { class: 'kb-meet-clock' });
-        const tick = () => { const sec = Math.max(0, Math.floor((Date.now() - m.start) / 1000)); clock.textContent = `⏱ ${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`; };
-        tick(); meetTimer = setInterval(() => { if (!meetBar.isConnected) clearInterval(meetTimer); else tick(); }, 1000);
-        const steps = MEET_STEPS.map(([name, tip], i) => {
-          const b = el('button', { class: 'kb-meet-step' + (i === step ? ' on' : i < step ? ' done' : ''), type: 'button', title: tip },
-            el('b', { text: i < step ? '✓' : String(i + 1) }), el('span', { text: i === 0 ? `${name}（${blocked.length + late.length}）` : name }));
-          b.addEventListener('click', () => goStep(i));
-          return b;
-        });
-        const end = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', html: svg('x') + '結束會議' });
-        end.addEventListener('click', () => { setMeet(null); root.classList.remove('kb-wip-spot'); paintMeet(); });
-        const next = step < MEET_STEPS.length - 1 ? el('button', { class: 'btn btn-sm', type: 'button', text: '下一步 →' }) : null;
-        next?.addEventListener('click', () => goStep(step + 1));
-        parts.push(el('div', { class: 'kb-meet-head' }, el('strong', { class: 'kb-meet-title', text: '部門會議' }), ...steps,
-          el('span', { class: 'spacer' }), clock, next, end),
-          el('p', { class: 'kb-meet-tip', text: MEET_STEPS[step][1] + (step === 1 && !root.querySelector('.kb-wip')
-            ? `。目前每一欄都在正常範圍（≤ ${(Number(settings.board_wip_high) || 6) - 1} 張）` : '') }));
-        if (step === 3) {
-          const add = el('button', { class: 'btn btn-sm btn-primary', type: 'button', html: svg('plus') + '新增決議卡片' });
-          add.addEventListener('click', () => openEditor(null, { status: 'new' }));
-          parts[parts.length - 1].append(' ', add);
-        }
-      } else {
-        const toggle = el('button', { class: 'kb-meet-toggle', type: 'button', 'aria-expanded': String(showList) },
-          el('span', { class: 'kb-meet-n is-blocked', text: `⛔ 卡住 ${blocked.length}` }), el('span', { class: 'kb-meet-n is-late', text: `⏰ 逾期 ${late.length}` }),
-          el('span', { class: 'kb-tree-caret', text: showList ? '▾' : '▸' }));
-        toggle.addEventListener('click', () => { store.set('kb-triage-open', !showList); paintMeet(); });
-        const start = el('button', { class: 'btn btn-sm', type: 'button', html: svg('users') + '開始會議', title: '依「卡住與逾期 → 工作流量 → 逐人專注 → 決議」的順序開會，附計時' });
-        start.addEventListener('click', () => { setMeet({ start: Date.now(), step: 0 }); setFocus(null); });
-        parts.push(el('div', { class: 'kb-meet-head' }, el('strong', { class: 'kb-meet-title', text: '會議開場' }), toggle, el('span', { class: 'spacer' }), start));
-      }
-      if (showList) {
-        const row = (t, tag, cls, why) => {
-          const lead = leadOf(t);
-          const r = el('button', { class: 'kb-meet-row', type: 'button', title: '開啟卡片' },
-            el('span', { class: `kb-meet-tag ${cls}`, text: tag }), el('strong', { class: 'kb-meet-row-title', text: t.title }),
-            lead ? TT.avatar(lead, 22) : el('span'), el('span', { class: 'kb-meet-why', text: why || '' }));
-          r.addEventListener('click', () => openEditor(t));
-          return r;
-        };
-        const lateDays = t => { const d = t.due_at ? Math.floor((now() - parse(t.due_at).date) / 864e5) : 0; return d > 0 ? `逾期 ${d} 天` : '逾期'; };
-        parts.push(el('div', { class: 'kb-meet-lists' },
-          el('div', { class: 'kb-meet-box' }, el('h4', {}, '⛔ 卡住', el('span', { class: 'hint', text: '先排除阻礙，誰能幫忙當場指派' })),
-            ...(blocked.length ? blocked.map(t => row(t, `卡住 ${blockedDays(t.blocked.since)}`, 'is-blocked', `${t.blocked.reason}${t.blocked.by ? `（${t.blocked.by}）` : ''}`))
-              : [el('p', { class: 'hint', text: '沒有卡住的卡片' })])),
-          el('div', { class: 'kb-meet-box' }, el('h4', {}, '⏰ 逾期', el('span', { class: 'hint', text: '決定：延期、拆小、還是取消' })),
-            ...(late.length ? late.map(t => row(t, lateDays(t), 'is-late', t.due_at ? `到期 ${fmt(t.due_at)}` : ''))
-              : [el('p', { class: 'hint', text: '沒有逾期的卡片' })]))));
-      }
-      meetBar.replaceChildren(...parts);
-      meetBar.classList.toggle('is-running', !!m);
-    }
-    function goStep(i) {
-      const m = meetState() || { start: Date.now() };
-      m.step = i;
-      setMeet(m);
-      root.classList.toggle('kb-wip-spot', i === 1);
-      if (i !== 2) setFocus(null); else paintMeet();
-    }
-
     function setFocus(id) {
       focusId = id;
       if (id != null) expanded.clear();
@@ -1002,7 +921,7 @@ const TTBoard = (() => {
       if (e.key === 'Escape' && focusId != null && root.isConnected && !document.querySelector('.modal:not([hidden])')) setFocus(null);
     });
 
-    // ------------------------------------------------ meeting view (swimlanes)
+    // ------------------------------------------------ 依人員 view (swimlanes)
     /** Whose row a card goes in: its first assignee, else its creator. */
     const laneOf = t => leadOf(t);
     function renderLanes(cols) {
@@ -2248,7 +2167,7 @@ const TTBoard = (() => {
         blockBox.replaceChildren(el('div', { class: 'kb-blocked-bar is-big' },
           el('span', { text: `⛔ 卡住 ${blockedDays(b.since)}：${b.reason}` + (b.by ? `（${b.by} 標記）` : '') }), el('span', { class: 'spacer' }), edit, clear));
       } else if (canFlag) {
-        const flag = el('button', { class: 'btn btn-sm btn-ghost kb-block-btn', type: 'button', text: '⛔ 標記卡住…', title: '工作卡住、在等別人時標記，會議開場會先處理，並通知負責人與上級' });
+        const flag = el('button', { class: 'btn btn-sm btn-ghost kb-block-btn', type: 'button', text: '⛔ 標記卡住…', title: '工作卡住、在等別人時標記：卡片會標紅並通知負責人與上級' });
         flag.addEventListener('click', () => paintBlock(true));
         blockBox.replaceChildren(flag);
       } else blockBox.replaceChildren();
