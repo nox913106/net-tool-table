@@ -127,6 +127,7 @@
           st = await api('/api/sync/client/connect', { method: 'POST', body: { server: server.value, username: user.value, password: pass.value, verify: verify.checked } });
           paintPill(); paint();
           toast(st.error ? '已連結，但同步失敗：' + st.error : '已連線，開始同步', !!st.error);
+          setTimeout(() => location.reload(), 1200);       // the board now works as this account (people, assignees, @)
           window.TTBoard && TTBoard.refresh && TTBoard.refresh();
         } catch (ex) {
           err.textContent = ex.message; err.hidden = false;

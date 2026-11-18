@@ -40,6 +40,9 @@ from ..database import get_db
 from ..roles import board_access
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
+# board rules an administrator sets on the server; a linked standalone copy follows them
+BOARD_SETTINGS = ("board_tag_colors", "board_wip_high", "board_wip_over", "board_supervisor", "board_due_soon_days",
+                  "board_overdue_remind_time")
 MAX_PAYLOAD = 50 * 1024 * 1024
 
 
@@ -406,11 +409,19 @@ async def pull(request: Request):
         cur = await db.execute("SELECT * FROM users WHERE id = ?", (user["id"],))
         me = public_user(await cur.fetchone())
         me["supervisor"] = user.get("supervisor")
+        if me.get("manager_id"):
+            cur = await db.execute("SELECT username FROM users WHERE id = ?", (me["manager_id"],))
+            m = await cur.fetchone()
+            me["manager_username"] = m[0] if m else None
         team = list(user.get("team") or [])
         if team:
             cur = await db.execute(f"SELECT username FROM users WHERE id IN ({','.join('?' * len(team))})", team)
             me["team_usernames"] = [r[0] for r in await cur.fetchall()]
-        return {"rows": rows, "tombs": tombs, "visible": list(vis), "seq": seq, "users": people, "me": me, "now": _now_ms()}
+        from .settings import read_settings
+        site = await read_settings(db)
+        board = {k: site.get(k) for k in BOARD_SETTINGS}
+        return {"rows": rows, "tombs": tombs, "visible": list(vis), "seq": seq, "users": people, "me": me, "now": _now_ms(),
+                "settings": board}
     finally:
         await db.close()
 

@@ -171,9 +171,11 @@ async def logout(request: Request):
 
 @router.get("/api/auth/me")
 async def me(user: dict = Depends(current_user)):
-    out = {"user": user, "auth": C.AUTH, "is_admin": is_admin(user), "board": board_access(user),
-           "role_label": LABELS.get(user.get("role"), user.get("role"))}
-    if C.AUTH and user.get("id") is not None:
+    # people: a multi-user board (server, or a standalone copy linked to a server as an account)
+    people_on = C.AUTH or bool(user.get("local_admin"))
+    out = {"user": user, "auth": C.AUTH, "people": people_on and user.get("id") is not None, "is_admin": is_admin(user),
+           "board": board_access(user), "role_label": LABELS.get(user.get("role"), user.get("role"))}
+    if people_on and user.get("id") is not None:
         db = await get_db()
         try:
             ids = [i for i in [user.get("manager_id"), *(user.get("team") or [])] if i]

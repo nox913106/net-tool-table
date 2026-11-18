@@ -679,7 +679,7 @@
     paintLayout();
     pick.addEventListener('click', () => TTBoard.setSelecting(!TTBoard.selecting));
     // whose cards: everyone I can see / mine / (admins) one person
-    const auth = state.me?.auth;
+    const auth = state.me?.people;
     let filter = auth ? store.get('board-filter', state.me.is_admin ? 'all' : 'all') : 'all';
     const who = el('select', { class: 'select board-who', title: '顯示誰的卡片' });
     const paintWho = () => {

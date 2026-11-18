@@ -727,10 +727,10 @@ const TTBoard = (() => {
     try { opInfo = await api('/api/openproject' + (refresh ? '?refresh=1' : '')); } catch { opInfo = { enabled: false, projects: [] }; }
     return opInfo;
   }
-  let meInfo = { auth: false, is_admin: true, user: {}, board: { view: 'all', edit: 'all', depts: [] } };
+  let meInfo = { auth: false, people: false, is_admin: true, user: {}, board: { view: 'all', edit: 'all', depts: [] } };
   let notes = [];
   async function loadNotes() {
-    if (!meInfo.auth) return;
+    if (!meInfo.people) return;
     try {
       const list = await api('/api/notifications');
       const seen = store.get('board-notes-seen', 0);
@@ -872,7 +872,7 @@ const TTBoard = (() => {
 
     // ------------------------------------------------ people bar (focus mode)
     function paintPeople() {
-      if (!peopleBar && opts.full && meInfo.auth) {
+      if (!peopleBar && opts.full && meInfo.people) {
         peopleBar = el('div', { class: 'kb-people-bar' });
       }
       if (!peopleBar) return;
@@ -928,7 +928,7 @@ const TTBoard = (() => {
       const people = new Map();                                // id → person
       const me = meInfo.user?.id;
       const add = p => { if (p && !people.has(p.id ?? 'none')) people.set(p.id ?? 'none', p); };
-      if (meInfo.auth && me != null) add({ id: me, username: meInfo.user.username, name: meInfo.user.display_name || meInfo.user.username, department: meInfo.user.department });
+      if (meInfo.people && me != null) add({ id: me, username: meInfo.user.username, name: meInfo.user.display_name || meInfo.user.username, department: meInfo.user.department });
       if (filter === 'all' || filter === 'team') (meInfo.team || []).forEach(add);   // the team shows even with nothing on it
       const visible = cols.flatMap(s => colItems(s.key));
       visible.forEach(t => add(laneOf(t) || { id: 'none', name: '未指派' }));
@@ -1036,7 +1036,7 @@ const TTBoard = (() => {
             el('span', { class: 'kb-progress-bar' }, el('span', { style: { width: pr.pct + '%' } })),
             el('span', { class: 'kb-progress-text', text: `${pr.pct}%` }));
         })(),
-        meInfo.auth ? cardPeople(t) : null,
+        meInfo.people ? cardPeople(t) : null,
         taskTree(t));
       const lead = leadOf(t);
       if (focusId != null && !lanes && lead?.id !== focusId) {               // someone else's task I am part of
@@ -1291,7 +1291,7 @@ const TTBoard = (() => {
     const title = el('input', { class: 'input kb-title-input', value: s.title || '', maxlength: '200', disabled: !edit });
     const desc = el('textarea', { class: 'textarea', rows: '4', placeholder: '細節、步驟、注意事項…', disabled: !c.can_edit_body });
     desc.value = c.body && c.body.trim() !== (s.title || '').trim() ? c.body : '';
-    if (meInfo.auth && c.can_edit_body) TT.mentionInput(desc);
+    if (meInfo.people && c.can_edit_body) TT.mentionInput(desc);
     const status = el('select', { class: 'select', disabled: !s.can_update },
       STATUSES.filter(x => x.key !== 'recurring' && x.key !== 'overdue').map(x => el('option', { value: x.key, text: `${x.label}（${x.zh}）` })));
     status.value = s.status;
@@ -1380,7 +1380,7 @@ const TTBoard = (() => {
           field('標題', title),
           field('說明', desc),
           el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('paperclip') + '附件' }), filesBox),
-          meInfo.auth ? el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('user') + '負責人' }), who) : null,
+          meInfo.people ? el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('user') + '負責人' }), who) : null,
           el('div', { class: 'kb-row' }, field('狀態', status), el('div', { class: 'field' }, el('span', { class: 'field-label', text: '優先順序' }), prio)),
           el('div', { class: 'kb-row' },
             el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('play') + '開始日' }), el('div', { class: 'kb-dt' }, startD, startT)),
@@ -1461,9 +1461,9 @@ const TTBoard = (() => {
     const [dd, dt] = split(t.due_at);
 
     const title = el('input', { class: 'input kb-title-input', value: t.title, maxlength: '200', placeholder: '要做什麼？' });
-    const desc = el('textarea', { class: 'textarea', rows: '4', placeholder: meInfo.auth ? '細節、連結、注意事項（選填）。輸入 @ 可以找同事一起協作' : '細節、連結、注意事項（選填）' });
+    const desc = el('textarea', { class: 'textarea', rows: '4', placeholder: meInfo.people ? '細節、連結、注意事項（選填）。輸入 @ 可以找同事一起協作' : '細節、連結、注意事項（選填）' });
     desc.value = t.description || '';
-    if (meInfo.auth) TT.mentionInput(desc);
+    if (meInfo.people) TT.mentionInput(desc);
 
     // --- images (existing card: saved right away; new card: uploaded after 新增)
     const canImage = !task || task.can_edit !== false;
@@ -1510,7 +1510,7 @@ const TTBoard = (() => {
     paintImages();
 
     // --- people (server edition)
-    const canAssign = meInfo.auth && (task ? task.can_assign : meInfo.board?.edit !== 'own' || !!meInfo.board?.team_edit);
+    const canAssign = meInfo.people && (task ? task.can_assign : meInfo.board?.edit !== 'own' || !!meInfo.board?.team_edit);
     const readOnly = !!task && task.can_edit === false;          // RO managers: view + comment
     // --- tags: type and press Enter (or pick a suggestion); Backspace in an empty box removes the last one
     let tagList = [...(t.tags || [])];
@@ -1725,8 +1725,8 @@ const TTBoard = (() => {
     if (task) {
       const listBox = el('div', { class: 'kb-comment-list' });
       const rollBox = el('div', { class: 'kb-rollup' });
-      const input = el('textarea', { class: 'textarea kb-comment-input', rows: '2', placeholder: meInfo.auth ? '留言…（輸入 @ 提到同事，他會收到通知）' : '留言…' });
-      if (meInfo.auth) TT.mentionInput(input);
+      const input = el('textarea', { class: 'textarea kb-comment-input', rows: '2', placeholder: meInfo.people ? '留言…（輸入 @ 提到同事，他會收到通知）' : '留言…' });
+      if (meInfo.people) TT.mentionInput(input);
       const send = el('button', { class: 'btn btn-sm btn-primary', type: 'button', html: svg('message') + '送出' });
       const attach = el('button', { class: 'btn btn-sm kb-comment-attach', type: 'button', title: '附加圖片或檔案（也可以貼上或拖曳）', 'aria-label': '附加檔案', html: svg('paperclip') });
       const pendingBox = el('div', { class: 'kb-comment-pending' });
@@ -1832,7 +1832,7 @@ const TTBoard = (() => {
 
         // row 2: assignee, start, due, estimate
         const fields = el('div', { class: 'kb-sub-fields' });
-        if (meInfo.auth) {
+        if (meInfo.people) {
           const who = el('div', { class: 'kb-sub-who' });
           const paintWho = () => {
             const chip = s.assignee
@@ -1900,7 +1900,7 @@ const TTBoard = (() => {
             });
             return el('div', { class: 'kb-time-row' },
               el('span', { class: 'kb-time-date', text: e.work_date ? e.work_date.slice(5).replace('-', '/') : '' }),
-              meInfo.auth && e.user ? el('span', { class: 'kb-time-user', text: TT.nameOf(e.user) }) : null,
+              meInfo.people && e.user ? el('span', { class: 'kb-time-user', text: TT.nameOf(e.user) }) : null,
               el('b', { text: e.running ? '計時中…' : fmtMin(e.minutes) }),
               el('span', { class: 'kb-time-note', text: e.note || '' }), x);
           })));
@@ -1933,7 +1933,7 @@ const TTBoard = (() => {
       function editBox(c) {
         const box = el('textarea', { class: 'textarea kb-reply-input', rows: '3' });
         box.value = c.body || '';
-        if (meInfo.auth) TT.mentionInput(box);
+        if (meInfo.people) TT.mentionInput(box);
         const ok = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: '儲存' });
         const cancel = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '取消' });
         cancel.addEventListener('click', () => { editing = null; paint(); });
@@ -1952,7 +1952,7 @@ const TTBoard = (() => {
 
       function replyBox(root) {
         const box = el('textarea', { class: 'textarea kb-reply-input', rows: '2', placeholder: `回覆 ${TT.nameOf(root.author)}…（Ctrl+Enter 送出，Esc 取消）` });
-        if (meInfo.auth) TT.mentionInput(box);
+        if (meInfo.people) TT.mentionInput(box);
         if (replyTo.mention) box.value = `@${replyTo.mention} `;
         const go = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: '回覆' });
         const cancel = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '取消' });
@@ -2014,7 +2014,7 @@ const TTBoard = (() => {
             el('span', { class: 'kb-outline-no', text: String(i + 1) }),
             el('span', { class: 'kb-sub-dot' }),
             el('span', { class: 'kb-outline-title', text: s.title }),
-            meInfo.auth && s.assignee ? TT.avatar(s.assignee, 18) : null,
+            meInfo.people && s.assignee ? TT.avatar(s.assignee, 18) : null,
             s.due_at ? el('span', { class: `kb-outline-due due-${tm.due || ''}`, text: fmt(s.due_at) }) : null);
           row.addEventListener('click', () => {
             const target = listBox.querySelector(`.kb-comment[data-cid="${c.id}"]`);
@@ -2190,7 +2190,7 @@ const TTBoard = (() => {
           field('說明', desc),
           el('div', { class: 'field' }, el('span', { class: 'field-label', text: '標籤' }), tagBox, tagSug, tagData),
           el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('paperclip') + '附件' }), imgBox),
-          meInfo.auth ? el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('users') + '負責人' }), assignBox) : null,
+          meInfo.people ? el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('users') + '負責人' }), assignBox) : null,
           el('div', { class: 'kb-row' }, el('div', { class: 'field' }, el('span', { class: 'field-label', text: '狀態' }), status,
             summary ? el('span', { class: 'hint', text: '自動：依子任務與協作人計算' }) : null), el('div', { class: 'field' }, el('span', { class: 'field-label', text: '優先順序' }), prio)),
           blockBox,

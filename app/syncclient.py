@@ -194,7 +194,9 @@ async def _as_local_user(db, uid: int, info: dict) -> dict:
         i = await ids.user_id(name)
         if i:
             team.append(i)
+    manager = await ids.user_id(info["manager_username"]) if info.get("manager_username") else None
     return {"id": uid, "username": info["username"], "display_name": info.get("display_name") or info["username"],
+            "manager_id": manager,
             "role": info.get("role") or "user", "source": "ldap", "department": info.get("department") or "",
             "email": info.get("email") or "", "active": 1, "scope_departments": info.get("scope_departments") or [],
             "team": team, "supervisor": info.get("supervisor") or "rw", "local_admin": True}
@@ -345,6 +347,16 @@ async def _pull(cfg):
             cur = await db.execute("SELECT uid FROM sync_tomb WHERE tbl = 'tasks' AND dirty = 1")
             local |= {r[0] for r in await cur.fetchall()}
             missing = [u for u in res.get("visible") or [] if u not in local]
+            if isinstance(res.get("settings"), dict):       # the server's board rules (tag colours, load thresholds…)
+                from .routes.settings import DEFAULT_SETTINGS, validate_setting
+                for k, v in res["settings"].items():
+                    if k in DEFAULT_SETTINGS and k.startswith("board_"):
+                        try:
+                            v = validate_setting(k, v)
+                        except Exception:
+                            continue
+                        await db.execute("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                                         (k, json.dumps(v, ensure_ascii=False)))
             if isinstance(res.get("seq"), int):
                 await sync.set_state(db, "cursor", str(res["seq"]))
                 cfg["cursor"] = res["seq"]
