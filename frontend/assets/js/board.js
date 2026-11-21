@@ -827,7 +827,8 @@ const TTBoard = window.TTBoard = (() => {
               return w ? [el('span', { class: `kb-wip is-${w.cls}`, title: w.tip, text: w.text })] : []; })())),
           selecting && items.length ? (() => {
             const lab = el('label', { class: 'kb-col-select', title: '全選這一欄' }, el('input', { type: 'checkbox' }));
-            lab.querySelector('input').addEventListener('change', e => { items.forEach(t => toggleSelect(t.id, e.target.checked)); });
+            // read the wanted state once: each toggleSelect repaints this box (partly ticked after the first card)
+            lab.querySelector('input').addEventListener('change', e => { const on = e.target.checked; items.forEach(t => toggleSelect(t.id, on)); });
             return lab;
           })() : null,
           el('span', { class: 'kb-count', text: items.length })),
@@ -1020,7 +1021,11 @@ const TTBoard = window.TTBoard = (() => {
         draggable: t.can_edit === false || selecting ? 'false' : 'true', tabindex: '0', dataset: { id: t.id },
         title: t.can_edit === false ? '唯讀：你可以檢視與留言' : null,
       },
-        selecting ? el('label', { class: 'kb-select', title: '選取' }, el('input', { type: 'checkbox', checked: selection.has(t.id), tabindex: '-1' })) : null,
+        selecting ? (() => {
+          const box = el('input', { type: 'checkbox', checked: selection.has(t.id), tabindex: '-1' });
+          box.addEventListener('change', () => toggleSelect(t.id, box.checked));
+          return el('label', { class: 'kb-select', title: '選取' }, box);
+        })() : null,
         t.images?.length ? el('div', { class: 'kb-cover' }, el('img', { src: t.images[0].url, alt: '', loading: 'lazy', draggable: 'false' })) : null,
         el('div', { class: 'kb-card-title' },
           t.priority === 'high' ? el('span', { class: 'kb-flag', title: '高優先', html: svg('flag') }) : null,
@@ -1052,7 +1057,12 @@ const TTBoard = window.TTBoard = (() => {
       if (selection.has(t.id)) c.classList.add('is-selected');
       if (t.team) c.classList.add('is-team');
       c.addEventListener('click', e => {
-        if (selecting) { e.preventDefault(); toggleSelect(t.id); return; }
+        if (selecting) {
+          // the checkbox itself: let it toggle natively (its change event updates the selection); preventing
+          // the default here made the box snap back to unchecked although the card was selected
+          if (e.target.closest('.kb-select')) return;
+          e.preventDefault(); toggleSelect(t.id); return;
+        }
         if (e.ctrlKey || e.metaKey) { setSelecting(true); toggleSelect(t.id, true); return; }     // Ctrl/⌘-click starts selecting
         openEditor(t);
       });
