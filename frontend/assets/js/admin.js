@@ -1199,8 +1199,8 @@
     ] },
     { title: '頁首', icon: 'monitor', fields: [
       { key: 'show_clock', label: '顯示時鐘', type: 'switch' },
-      { key: 'clock_style', label: '時鐘樣式', type: 'seg', options: [['flip', '翻頁'], ['simple', '簡潔']] },
-      { key: 'clock_show_seconds', label: '顯示秒數', type: 'switch' },
+      { key: 'clock_style', label: '時鐘樣式', type: 'seg', options: [['hud', '戰術數位 00:00:00.000'], ['simple', '簡潔']] },
+      { key: 'clock_show_seconds', label: '顯示秒數（簡潔樣式）', type: 'switch' },
       { key: 'show_client_ip', label: '顯示使用者 IP（本伺服器看到的位址）', type: 'switch' },
       { key: 'show_public_ip', label: '顯示對外 IP 與所在地（瀏覽器會連線 ipinfo.io）', type: 'switch' },
       { key: 'show_admin_button', label: '顯示 ⚙ 後台按鈕', type: 'switch', hint: '關閉時：快速點 Logo 或時鐘 5 次進入後台' },
@@ -1267,7 +1267,7 @@
         case 'switch': return switchCtl(v, f.label, x => set(f.key, x));
         case 'text': { const i = el('input', { class: 'input', value: v ?? '', placeholder: f.placeholder || '' }); i.addEventListener('input', () => set(f.key, i.value)); return field(f.label, i, f.hint); }
         case 'number': { const i = el('input', { class: 'input', type: 'number', min: '1', value: v ?? '' }); i.addEventListener('input', () => set(f.key, parseInt(i.value, 10) || 1)); return field(f.label, i, f.hint); }
-        case 'seg': return el('div', { class: 'field' }, el('span', { class: 'field-label', text: f.label }), segmented(f.options, v, x => set(f.key, x)), f.hint ? el('span', { class: 'hint', text: f.hint }) : null);
+        case 'seg': return el('div', { class: 'field' }, el('span', { class: 'field-label', text: f.label }), segmented(f.options, f.key === 'clock_style' && v === 'flip' ? 'hud' : v, x => set(f.key, x)), f.hint ? el('span', { class: 'hint', text: f.hint }) : null);
         case 'accent': {
           const pick = colorPicker(v === '#6366f1' ? '' : v, x => set(f.key, x || ''));
           pick.querySelector('.swatch-none').title = '主題預設（深色：戰術綠 #10B981，淺色：墨綠 #2B4C3F）';

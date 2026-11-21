@@ -72,9 +72,37 @@ const TTClock = (() => {
     }, { once: true });
   }
 
+  // HUD readout HH:MM:SS.mmm — each character in a fixed-width cell (no jitter as digits change),
+  // zero drawn with a slash; striped phosphor glyphs and glow come from tactical.css
+  function mountHud(time, now, perfLow) {
+    const cell = ch => TT.el('span', { class: 'hud-c' + (ch === ':' || ch === '.' ? ' hud-sep' : '') + (ch === '.' ? ' dot' : '') + (ch === '0' ? ' z' : ''), text: ch });
+    const main = TT.el('span', { class: 'hud-main' });
+    const ms = TT.el('span', { class: 'hud-ms' });
+    time.replaceChildren(main, ms);
+    const cells = [];
+    for (const ch of '00:00:00') { const c = cell(ch); cells.push(c); main.append(c); }
+    for (const ch of '.000') { const c = cell(ch); cells.push(c); ms.append(c); }
+    const pad3 = n => String(n).padStart(3, '0');
+    const draw = () => {
+      const d = now();
+      const text = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad3(d.getMilliseconds())}`;
+      for (let i = 0; i < text.length; i++) {
+        const c = cells[i];
+        if (c.textContent !== text[i]) { c.textContent = text[i]; c.classList.toggle('z', text[i] === '0'); }
+      }
+    };
+    const loop = () => { if (time.isConnected) { draw(); requestAnimationFrame(loop); } };
+    if (perfLow) { draw(); setInterval(draw, 250); }          // low-performance mode: 4 updates a second
+    else requestAnimationFrame(loop);
+    return draw;
+  }
+
   function mount(root, settings) {
     root.hidden = false;
-    root.classList.toggle('clock-flip', settings.clock_style !== 'simple');
+    // 'hud' (default) — the old 'flip' default counts as hud too; 'simple' = plain text
+    const style = settings.clock_style === 'simple' ? 'simple' : 'hud';
+    root.classList.toggle('clock-flip', false);
+    root.classList.toggle('clock-hud', style === 'hud');
     const showSec = settings.clock_show_seconds !== false;
     const time = TT.el('div', { class: 'clock-time' });
     const date = TT.el('div', { class: 'clock-date' });
@@ -92,21 +120,12 @@ const TTClock = (() => {
       date.title = `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日，星期${WEEK[d.getDay()]}\nISO 週次：${w.year} 年第 ${w.week} 週`;
     };
 
-    let digits = null;
-    if (settings.clock_style !== 'simple') {
-      digits = [];
-      parts(now()).forEach((p, i) => {
-        if (i) time.append(TT.el('span', { class: 'clock-sep', text: ':' }));
-        const pair = TT.el('span', { class: 'flip-pair' });
-        for (const ch of p) { const fd = flipDigit(ch); digits.push(fd); pair.append(fd); }
-        time.append(pair);
-      });
-    }
+    const hud = style === 'hud' ? mountHud(time, now, document.documentElement.dataset.perf === 'low') : null;
 
     let lastDay = -1;
     const tick = () => {
       const d = now();
-      if (digits) parts(d).join('').split('').forEach((ch, i) => setDigit(digits[i], ch));
+      if (hud) hud();
       else time.textContent = parts(d).join(':');
       if (d.getDate() !== lastDay) { lastDay = d.getDate(); paintDate(d); }
     };

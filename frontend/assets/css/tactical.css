@@ -447,3 +447,54 @@ body { font-family: var(--font); background: var(--bg); }
 @media (max-width: 720px) { .radar-float { right: 12px; bottom: 12px; } }
 @media (max-width: 380px) { .radar-scope { width: 150px; } }
 [data-perf="low"] .radar-sweep, [data-perf="low"] .radar-mini-sweep { display: none; }
+
+/* =============================================================================
+   Header clock: HUD readout 00:00:00.000 (Orbitron, slashed zero, striped phosphor glyphs)
+   ============================================================================= */
+@font-face { font-family: "Orbitron"; font-style: normal; font-weight: 900; font-display: swap; src: url(../fonts/Orbitron-900.woff2) format("woff2"); }
+@font-face { font-family: "Orbitron"; font-style: normal; font-weight: 700; font-display: swap; src: url(../fonts/Orbitron-700.woff2) format("woff2"); }
+.clock-hud .clock-time {
+  --hud-ink: #F2FBFF;                     /* glyph colour (stripes) */
+  --hud-glow: var(--accent);
+  gap: 0;
+  align-items: baseline;
+  font: 900 23px/1 "Orbitron", var(--mono);
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--hud-glow) 85%, transparent))
+          drop-shadow(0 0 9px color-mix(in srgb, var(--hud-glow) 45%, transparent));
+}
+.clock-hud .hud-main, .clock-hud .hud-ms { display: inline-flex; align-items: baseline; }
+.clock-hud .hud-c {
+  position: relative;
+  display: inline-block;
+  width: .86em;
+  text-align: center;
+  color: transparent;
+  /* horizontal scan stripes inside every glyph */
+  background: repeating-linear-gradient(to bottom, var(--hud-ink) 0 2px, transparent 2px 3px);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+.clock-hud .hud-c.hud-sep { width: .36em; }
+/* slashed zero: a stroke from the bottom-left to the top-right inside the 0 */
+.clock-hud .hud-c.z::after {
+  content: "";
+  position: absolute;
+  left: 50%; top: 50%;
+  width: .14em; height: .74em;
+  transform: translate(-50%, -54%) rotate(38deg);
+  background: repeating-linear-gradient(to bottom, var(--hud-ink) 0 2px, transparent 2px 3px);
+}
+/* the decimal point: a solid square on the baseline (a striped dot would vanish) */
+.clock-hud .hud-c.dot { color: transparent; background: none; }
+.clock-hud .hud-c.dot::after { content: ""; position: absolute; left: 50%; bottom: .04em; width: .2em; height: .2em; transform: translateX(-50%); background: var(--hud-ink); }
+.clock-hud .hud-ms { --hud-ink: var(--accent); font-size: .62em; margin-left: 1px; }
+.clock-hud .hud-ms .hud-c:not(.dot) { background: repeating-linear-gradient(to bottom, var(--hud-ink) 0 1.5px, transparent 1.5px 2.3px); -webkit-background-clip: text; background-clip: text; }
+.clock-hud .hud-ms .hud-c { width: .9em; }
+.clock-hud .hud-ms .hud-c.hud-sep { width: .4em; }
+[data-theme="light"] .clock-hud .clock-time {
+  --hud-ink: var(--accent);
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 30%, transparent));
+}
+[data-theme="light"] .clock-hud .hud-ms { --hud-ink: color-mix(in srgb, var(--accent) 70%, var(--text)); }
+.clock-hud .clock-ymd { font-family: var(--mono); }
+.clock-hud .clock-wk { font-family: var(--mono); font-size: 11px; }

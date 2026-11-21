@@ -35,7 +35,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
 
     # --- Header ---
     "show_clock": True,
-    "clock_style": "flip",              # flip | simple
+    "clock_style": "hud",              # flip | simple
     "clock_show_seconds": True,
     "show_client_ip": False,            # viewer's IP as seen by this server
     "show_public_ip": False,            # public IP / city via ipinfo.io (browser → ipinfo.io)
@@ -95,7 +95,7 @@ ENUMS = {
     "background": {"aurora", "gradient", "plain"},
     "density": {"comfortable", "compact"},
     "default_view": {"grid", "list"},
-    "clock_style": {"flip", "simple"},
+    "clock_style": {"hud", "flip", "simple"},   # flip = old name of hud
     "sidebar_default": {"expanded", "collapsed"},
     "board_supervisor": {"rw", "ro", "off"},
 }
