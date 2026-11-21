@@ -565,6 +565,11 @@
         el('p', { class: 'hero-kicker', text: greeting() }),
         el('h1', { class: 'hero-title', text: s.site_title || 'Tool Table' }),
         s.site_subtitle ? el('p', { class: 'hero-sub', text: s.site_subtitle }) : null));
+    if (boardOn() && window.TTRadar) {                     // tactical radar: open cards by urgency
+      const radar = el('div', { class: 'hero-radar' });
+      hero.append(radar);
+      TTRadar.mount(radar);
+    }
     frag.append(hero);
 
     if (!state.tree.length && !personalOn()) {

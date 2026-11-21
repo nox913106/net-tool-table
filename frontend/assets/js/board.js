@@ -12,7 +12,7 @@
    ============================================================================= */
 'use strict';
 
-const TTBoard = (() => {
+const TTBoard = window.TTBoard = (() => {
   const { api, el, svg, toast, store } = TT;
 
   const STATUSES = [
@@ -296,6 +296,7 @@ const TTBoard = (() => {
   function changed() {
     boards.forEach(f => f());
     refreshAlerts();
+    document.dispatchEvent(new Event('tt:tasks'));            // e.g. the home page radar
   }
   const byStatus = s => tasks.filter(t => t.status === s).sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
 

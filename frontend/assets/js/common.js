@@ -185,6 +185,12 @@ const TT = (() => {
     setTimeout(() => { t.classList.add('leaving'); setTimeout(() => t.remove(), 300); }, isError ? 4500 : 2400);
   }
 
+  // ----------------------------------------------------------- tactical scan line
+  // a glowing line sweeps down the screen (styling and on/off: tactical.css, perf mode, reduced motion)
+  document.addEventListener('DOMContentLoaded', () => {
+    if (!document.querySelector('.tt-scan')) document.body.append(el('div', { class: 'tt-scan', 'aria-hidden': 'true' }, el('i')));
+  });
+
   // ----------------------------------------------------------- card tags
   // a tag without an administrator's colour always gets the same automatic hue from its name
   const TAG_HUES = [212, 145, 28, 280, 345, 188, 48, 100, 250, 0, 165, 312, 232, 120, 12, 295];
