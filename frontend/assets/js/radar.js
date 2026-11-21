@@ -61,7 +61,7 @@
     const scope = el('div', { class: 'radar-scope' }, sweep, svg, tip);
     const legend = el('div', { class: 'radar-legend' });
     const head = el('div', { class: 'radar-head' }, el('span', { class: 'radar-title', text: '任務雷達' }), el('span', { class: 'radar-sub', text: 'TASK RADAR // SWEEP 6S' }));
-    host.replaceChildren(head, scope, legend);
+    host.replaceChildren(head, el('div', { class: 'radar-body' }, scope, legend));
 
     let shown = false;                                     // mounted before it is on the page: wait for it
     function paint() {

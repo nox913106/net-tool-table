@@ -346,7 +346,7 @@ body { font-family: var(--font); background: var(--bg); }
    ============================================================================= */
 .hero { align-items: center; }
 .hero-radar {
-  position: relative; width: min(330px, 100%); padding: 10px 12px 12px;
+  position: relative; width: auto; max-width: 100%; padding: 8px 12px 10px;
   background: var(--surface); border: 1px solid var(--border);
 }
 .hero-radar::before, .hero-radar::after { content: ""; position: absolute; width: 9px; height: 9px; pointer-events: none; z-index: 3; }
@@ -355,7 +355,8 @@ body { font-family: var(--font); background: var(--bg); }
 .radar-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .radar-title { font-family: var(--hud); font-weight: 700; letter-spacing: .08em; font-size: 13px; }
 .radar-sub { font-family: var(--mono); font-size: 9.5px; letter-spacing: .14em; color: var(--text-3); }
-.radar-scope { position: relative; aspect-ratio: 1; }
+.radar-body { display: flex; align-items: center; gap: 14px; }
+.radar-scope { position: relative; width: 172px; flex: none; aspect-ratio: 1; }
 .radar-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .radar-ring { fill: none; stroke: color-mix(in srgb, var(--accent) 50%, var(--border)); stroke-width: .7; }
 .radar-ring.dash { stroke-dasharray: 3 2.5; }
@@ -395,15 +396,18 @@ body { font-family: var(--font); background: var(--bg); }
 .radar-blip.is-ok { --c: var(--success); }
 .radar-blip.is-idle { --c: var(--text-3); }
 .radar-tip {
-  position: absolute; left: 50%; bottom: 4px; transform: translateX(-50%); max-width: 96%;
+  position: absolute; left: 50%; bottom: -2px; transform: translateX(-50%); width: max-content; max-width: 260px; z-index: 4;
   padding: 3px 8px; background: var(--bg-2); border: 1px solid var(--reticle);
   font-family: var(--mono); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
 }
-.radar-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 8px; font-family: var(--mono); font-size: 10.5px; color: var(--text-2); }
-.radar-key { display: inline-flex; align-items: center; gap: 4px; }
+.radar-legend { display: grid; gap: 5px; min-width: 92px; font-family: var(--mono); font-size: 11px; color: var(--text-2); }
+.radar-key { justify-content: space-between; padding-bottom: 3px; border-bottom: 1px dashed var(--border); }
+.radar-key { display: flex; align-items: center; gap: 6px; }
+.radar-key b { margin-left: auto; }
 .radar-key i { width: 7px; height: 7px; background: var(--c); }
 .radar-key b { color: var(--text); }
 .radar-key.is-crit { --c: var(--danger); } .radar-key.is-warn { --c: var(--warning); }
 .radar-key.is-ok { --c: var(--success); } .radar-key.is-idle { --c: var(--text-3); }
-@media (max-width: 720px) { .hero-radar { width: 100%; } }
+@media (max-width: 720px) { .hero-radar { width: 100%; } .radar-body { justify-content: center; } }
+@media (max-width: 380px) { .radar-scope { width: 150px; } }
 [data-perf="low"] .radar-sweep { display: none; }
