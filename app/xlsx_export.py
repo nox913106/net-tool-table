@@ -12,6 +12,8 @@ Layout (sheet 「工作報告」)
 Columns  編號 類型 項目 標籤 負責人 狀態 優先 開始 到期 完成% 預估(h) 實際(h) 最新進度／說明 備註 系統ID
   系統ID (T12 / S45 / C7) lets the same file be imported back to update those items; rows without
   one are created. 備註 is free space for the reader and is ignored on import.
+  Under each subtask its work log follows (類型 工時: date, hours, who, note; outline level 2) —
+  report only, skipped on import.
 Printing: A4 landscape, fit to one page wide, header row repeated, page numbers in the footer;
 the 系統ID column is outside the print area.
 The caller passes only cards the user may see (routes/tasks.py export_xlsx).
@@ -29,7 +31,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 STATUS_ZH = {"recurring": "週期工作", "overdue": "過期未結案", "new": "新建", "ongoing": "進行中", "pending": "待確認",
              "onhold": "暫緩", "complete": "完成", "canceled": "取消"}
 PRIORITY = {"low": "低", "normal": "一般", "high": "高"}
-KIND = {"card": "主任務", "sub": "子任務", "collab": "協作"}
+KIND = {"card": "主任務", "sub": "子任務", "collab": "協作", "time": "工時"}   # 工時 = a work log row (report only)
 COLLAB_DONE, COLLAB_OPEN = "完成", "未完成"
 ILLEGAL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")           # characters Excel refuses
 STATUS_FILL = {"recurring": "CCFBF1", "overdue": "FFE4E6", "new": "F1F5F9", "ongoing": "DBEAFE", "pending": "FEF3C7",
@@ -147,7 +149,7 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
     ws = wb.active
     ws.title = SHEET
     rows = []                                            # (level, values, status, late)
-    tally, done_all, total_all, late_n, blocked_n = {}, 0, 0, 0, 0
+    tally, done_all, total_all, late_n, blocked_n, hours_all = {}, 0, 0, 0, 0, 0
 
     for n, t in enumerate(cards, start=1):
         subs = subtasks.get(t["id"], [])
@@ -186,6 +188,16 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
                 1.0 if st == "complete" else 0.0 if st != "canceled" else None, _hours(s["estimate_minutes"]),
                 _hours(sum(e["minutes"] or 0 for e in card_times if e["comment_id"] == s["id"])),
                 _txt(_latest(cmts, names, s["id"]) or (_one_line(desc) or None)), None, f"S{s['id']}"], st, _is_late(sdue, st, today)))
+            # the work log of this subtask: one row per entry (date, hours, who, what) — ignored on import
+            logs = sorted((e for e in card_times if e["comment_id"] == s["id"]),
+                          key=lambda e: (e["work_date"] or str(e["created_at"] or ""), e["id"]))
+            for k, e in enumerate(logs, start=1):
+                day = _dt(e["work_date"]) if e["work_date"] else None
+                label = (f"{day:%m/%d} " if day else "") + (_one_line(e["note"]) or "工時")
+                rows.append((2, [
+                    f"{n}.{m}.{k}", KIND["time"], _txt("　　· " + label), None, _txt(names.get(e["user_id"])) if e["user_id"] else None,
+                    None, None, day, None, None, None, _hours(e["minutes"]), _txt(e["note"]) or None, None, None], None, False))
+                hours_all += (e["minutes"] or 0)
         for c in collab:
             m += 1
             rows.append((1, [
@@ -203,7 +215,8 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
     parts = [f"{STATUS_ZH[k]} {tally[k]}" for k in order if tally.get(k)]
     overall = f"整體完成率 {round(done_all / total_all * 100)}%" if total_all else ""
     ws["A3"] = _txt("　".join(x for x in ["／".join(parts), overall, f"逾期 {late_n} 項" if late_n else "",
-                                         f"卡住 {blocked_n} 項" if blocked_n else ""] if x))
+                                         f"卡住 {blocked_n} 項" if blocked_n else "",
+                                         f"工時合計 {hours_all / 60:.1f} 小時" if hours_all else ""] if x))
     ws["A3"].font = Font(bold=True)
     for r in (1, 2, 3):
         ws.merge_cells(f"A{r}:{last_col}{r}")
@@ -224,12 +237,14 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
         for i, v in enumerate(values, start=1):
             ws.cell(row=r, column=i, value=v)
         if level:
-            ws.row_dimensions[r].outline_level = 1
+            ws.row_dimensions[r].outline_level = level
         for i, cell in enumerate(ws[r], start=1):
             name, _, kind = COLUMNS[i - 1]
             cell.border = BOX
             cell.alignment = Alignment(vertical="top", wrap_text=kind == "wrap",
                                        horizontal="center" if name in ("編號", "類型", "狀態", "優先", "完成%") else None)
+            if level == 2:
+                cell.font = Font(color="475569", size=10)
             if level == 0:
                 cell.fill = CARD_FILL
                 if name in ("編號", "項目"):
@@ -333,6 +348,8 @@ def parse(data: bytes) -> List[dict]:
         kind_txt = str(get(r, "類型") or "").strip()
         num = str(get(r, "編號") or "").strip()
         if not title and not sid and not kind_txt:
+            continue
+        if kind_txt == KIND["time"]:                    # work log rows are a report, not something to import
             continue
         item = {"row": i, "errors": [], "title": title}
         m = ID_RE.match(sid) if sid else None
