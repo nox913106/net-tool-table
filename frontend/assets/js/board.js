@@ -1783,6 +1783,7 @@ const TTBoard = window.TTBoard = (() => {
       let replyTo = null;                 // { root, mention }
       let openLogs = new Set();           // subtasks whose time log is expanded
       let openTime = null;                // subtask id with the "add time" form open
+      let editTime = null;                // { cid, entry, prompt }: fixing a work-log entry (opens by itself when a timer stops)
 
       const subPut = async (c, body) => {
         try { await api(`/api/tasks/${task.id}/comments/${c.id}/task`, { method: 'PUT', body }); await loadComments(); load(true); }
@@ -1881,7 +1882,11 @@ const TTBoard = window.TTBoard = (() => {
           ? el('button', { class: 'btn btn-sm ' + (running ? 'btn-danger' : ''), type: 'button', html: running ? '■ 停止' : '▶ 開始計時' }) : null;
         timerBtn?.addEventListener('click', async () => {
           timerBtn.disabled = true;
-          try { await api(`/api/tasks/${task.id}/comments/${c.id}/timer`, { method: 'POST', body: { action: running ? 'stop' : 'start', work_date: isoDay(now()) } }); }
+          try {
+            const r = await api(`/api/tasks/${task.id}/comments/${c.id}/timer`, { method: 'POST', body: { action: running ? 'stop' : 'start', work_date: isoDay(now()) } });
+            // stopped: ask right away what the time was for (otherwise the log is just a number)
+            if (running && r && r.entry) { editTime = { cid: c.id, entry: r.entry, prompt: true }; openTime = null; openLogs.add(c.id); }
+          }
           catch (e) { toast(e.message, true); }
           await loadComments(); load(true);
         });
@@ -1893,9 +1898,12 @@ const TTBoard = window.TTBoard = (() => {
           bar, othersRunning.length ? el('span', { class: 'hint', text: `${othersRunning.map(e => TT.nameOf(e.user || {})).join('、')} 計時中` }) : null,
           el('span', { class: 'spacer' }), clock, timerBtn, addBtn, logBtn));
         if (openTime === c.id) box.append(timeForm(c));
+        if (editTime && editTime.cid === c.id) box.append(timeForm(c, editTime.entry, editTime.prompt));
         if (openLogs.has(c.id) && s.entries.length) {
           box.append(el('div', { class: 'kb-time-log' }, s.entries.map(e => {
             const x = e.can_delete && !e.running ? el('button', { class: 'kb-comment-del', type: 'button', title: '刪除這筆工時', html: svg('trash') }) : null;
+            const ed = e.can_delete && !e.running ? el('button', { class: 'kb-comment-del', type: 'button', title: '修改這筆工時（說明、時數、日期）', html: svg('edit') }) : null;
+            ed?.addEventListener('click', () => { editTime = { cid: c.id, entry: e }; openTime = null; paint(); });
             x?.addEventListener('click', async () => {
               try { await api(`/api/tasks/${task.id}/comments/${c.id}/time/${e.id}`, { method: 'DELETE' }); await loadComments(); load(true); } catch (err) { toast(err.message, true); }
             });
@@ -1903,31 +1911,39 @@ const TTBoard = window.TTBoard = (() => {
               el('span', { class: 'kb-time-date', text: e.work_date ? e.work_date.slice(5).replace('-', '/') : '' }),
               meInfo.people && e.user ? el('span', { class: 'kb-time-user', text: TT.nameOf(e.user) }) : null,
               el('b', { text: e.running ? '計時中…' : fmtMin(e.minutes) }),
-              el('span', { class: 'kb-time-note', text: e.note || '' }), x);
+              el('span', { class: 'kb-time-note' + (e.note ? '' : ' is-empty'), text: e.note || (e.running ? '' : '（沒有說明）') }), ed, x);
           })));
         }
         if (s.completed_at && s.status === 'complete') box.append(el('p', { class: 'hint kb-sub-done', text: `完成於 ${s.completed_at.slice(0, 16)}` }));
         return box;
       }
 
-      function timeForm(c) {
-        const h = el('input', { class: 'input input-sm', type: 'number', min: '0', max: '24', step: '1', value: '1', 'aria-label': '小時' });
-        const m = el('input', { class: 'input input-sm', type: 'number', min: '0', max: '59', step: '5', value: '0', 'aria-label': '分鐘' });
-        const day = el('input', { class: 'input input-sm', type: 'date', value: isoDay(now()) });
-        const note = el('input', { class: 'input input-sm kb-time-note-in', maxlength: '200', placeholder: '做了什麼（選填）' });
-        const ok = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: '記錄' });
+      /** New entry, or (entry given) fix one — after stopping the timer it opens by itself with the note focused. */
+      function timeForm(c, entry = null, prompt = false) {
+        const mins = entry ? entry.minutes || 0 : 60;
+        const h = el('input', { class: 'input input-sm', type: 'number', min: '0', max: '24', step: '1', value: String(Math.floor(mins / 60)), 'aria-label': '小時' });
+        const m = el('input', { class: 'input input-sm', type: 'number', min: '0', max: '59', step: '5', value: String(mins % 60), 'aria-label': '分鐘' });
+        const day = el('input', { class: 'input input-sm', type: 'date', value: entry?.work_date || isoDay(now()) });
+        const note = el('input', { class: 'input input-sm kb-time-note-in', maxlength: '200', value: entry?.note || '',
+          placeholder: entry ? '這段時間做了什麼？例如：編寫腳本、測試、與廠商確認' : '做了什麼（選填）' });
+        const ok = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: entry ? '儲存' : '記錄' });
+        const skip = entry ? el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: prompt ? '略過' : '取消' }) : null;
+        skip?.addEventListener('click', () => { editTime = null; paint(); });
         ok.addEventListener('click', async () => {
           const minutes = (parseInt(h.value, 10) || 0) * 60 + (parseInt(m.value, 10) || 0);
           if (minutes < 1) { toast('請輸入工時', true); return; }
           ok.disabled = true;
           try {
-            await api(`/api/tasks/${task.id}/comments/${c.id}/time`, { method: 'POST', body: { minutes, note: note.value, work_date: day.value || null } });
-            openTime = null; openLogs.add(c.id);
+            if (entry) await api(`/api/tasks/${task.id}/comments/${c.id}/time/${entry.id}`, { method: 'PUT', body: { minutes, note: note.value, work_date: day.value || null } });
+            else await api(`/api/tasks/${task.id}/comments/${c.id}/time`, { method: 'POST', body: { minutes, note: note.value, work_date: day.value || null } });
+            openTime = null; editTime = null; openLogs.add(c.id);
             await loadComments(); load(true);
           } catch (e) { toast(e.message, true); ok.disabled = false; }
         });
         note.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); ok.click(); } });
-        return el('div', { class: 'kb-time-form' }, h, el('span', { text: '小時' }), m, el('span', { text: '分' }), day, note, ok);
+        if (entry) setTimeout(() => note.isConnected && note.focus(), 40);
+        const head = entry ? el('div', { class: 'kb-time-form-head', text: prompt ? `計時已停止：${fmtMin(entry.minutes)}。這段時間做了什麼？` : '修改這筆工時' }) : null;
+        return el('div', { class: 'kb-time-form' + (entry ? ' is-edit' : '') }, head, h, el('span', { text: '小時' }), m, el('span', { text: '分' }), day, note, skip, ok);
       }
 
       let editing = null;                 // comment id being edited inline

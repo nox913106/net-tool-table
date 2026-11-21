@@ -2040,7 +2040,15 @@ async def subtask_timer(task_id: int, comment_id: int, body: TimerIn, request: R
                 await db.execute("UPDATE task_comments SET status = 'ongoing' WHERE id = ?", (comment_id,))
                 await rollup_status(db, task_id)
         else:
+            cur = await db.execute("SELECT id FROM task_time WHERE ended_at IS NULL AND started_at IS NOT NULL AND user_id IS ? AND comment_id = ?",
+                                   (uid, comment_id))
+            running = [r["id"] for r in await cur.fetchall()]
             await db.execute(STOP_SQL + "user_id IS ? AND comment_id = ?", (uid, comment_id))
+            if running:                           # hand the entry back so the person can say what the time was for
+                cur = await db.execute("SELECT id, minutes, note, work_date FROM task_time WHERE id = ?", (running[-1],))
+                e = await cur.fetchone()
+                await db.commit()
+                return {"success": True, "entry": dict(e) if e else None}
         await db.commit()
         return {"success": True}
     finally:
@@ -2058,6 +2066,60 @@ async def add_time(task_id: int, comment_id: int, body: TimeIn, request: Request
                                (task_id, comment_id, user.get("id"), body.minutes, body.note, body.work_date))
         await db.commit()
         return {"id": cur.lastrowid}
+    finally:
+        await db.close()
+
+
+class TimeEdit(BaseModel):
+    minutes: Optional[int] = None
+    note: Optional[str] = None
+    work_date: Optional[str] = None
+
+    @field_validator("minutes")
+    @classmethod
+    def v_minutes(cls, v):
+        if v is not None and not 1 <= v <= 24 * 60:
+            raise ValueError("工時要在 1 分鐘到 24 小時之間")
+        return v
+
+    @field_validator("note")
+    @classmethod
+    def v_note(cls, v):
+        return (v or "").strip()[:200]
+
+    @field_validator("work_date")
+    @classmethod
+    def v_day(cls, v):
+        if v and not re.match(r"^\d{4}-\d{2}-\d{2}$", v):
+            raise ValueError("日期格式應為 YYYY-MM-DD")
+        return v or None
+
+
+@router.put("/{task_id}/comments/{comment_id}/time/{entry_id}")
+async def edit_time(task_id: int, comment_id: int, entry_id: int, body: TimeEdit, request: Request):
+    """Fix a work-log entry: what it was for, how long, which day (own entries, or card editors)."""
+    user = current_user(request)
+    db = await get_db()
+    try:
+        await _get_visible(db, task_id, user)
+        cur = await db.execute("SELECT user_id, ended_at, started_at FROM task_time WHERE id = ? AND comment_id = ? AND task_id = ?",
+                               (entry_id, comment_id, task_id))
+        e = await cur.fetchone()
+        if not e:
+            raise HTTPException(status_code=404, detail="找不到這筆工時")
+        if not await _can_edit(db, task_id, user) and not (user.get("id") is not None and e["user_id"] == user.get("id")):
+            raise HTTPException(status_code=403, detail="只能修改自己記錄的工時")
+        if e["ended_at"] is None and e["started_at"] is not None and body.minutes is not None:
+            raise HTTPException(status_code=400, detail="計時中的工時要先停止才能改時數")
+        sets, vals = [], []
+        for k in ("minutes", "note", "work_date"):
+            if k in body.model_fields_set and (k != "minutes" or body.minutes is not None):
+                sets.append(f"{k} = ?")
+                vals.append(getattr(body, k) or (None if k != "minutes" else getattr(body, k)))
+        if sets:
+            await db.execute(f"UPDATE task_time SET {', '.join(sets)} WHERE id = ?", (*vals, entry_id))
+            await db.commit()
+        return {"success": True}
     finally:
         await db.close()
 
