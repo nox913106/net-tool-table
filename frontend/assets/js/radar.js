@@ -98,5 +98,36 @@
     if (typeof TTBoard !== 'undefined') TTBoard.load().catch(() => {});
   }
 
-  window.TTRadar = { mount };
+  /** Floating radar in the bottom-right corner of every portal page; collapses to a small square. */
+  function float() {
+    if (document.querySelector('.radar-float')) return;
+    const box = el('div', { class: 'radar-float', role: 'complementary', 'aria-label': '任務雷達' });
+    const panel = el('div', { class: 'radar-panel' });
+    const min = el('button', { class: 'radar-min', type: 'button', title: '縮小', 'aria-label': '縮小任務雷達', text: '—' });
+    const mini = el('button', { class: 'radar-mini', type: 'button', title: '展開任務雷達', 'aria-label': '展開任務雷達' },
+      el('span', { class: 'radar-mini-scope' }, el('span', { class: 'radar-mini-sweep' })),
+      el('span', { class: 'radar-mini-n', hidden: true }));
+    box.append(panel, mini);
+    document.body.append(box);
+    mount(panel);
+    panel.querySelector('.radar-head').append(min);
+    const narrow = matchMedia('(max-width: 720px)').matches;
+    let open = TT.store.get('radar-open', !narrow);
+    const paint = () => { box.classList.toggle('is-open', open); box.classList.toggle('is-closed', !open); };
+    const set = v => { open = v; TT.store.set('radar-open', v); paint(); };
+    min.addEventListener('click', () => set(false));
+    mini.addEventListener('click', () => set(true));
+    // the collapsed square shows how many cards are overdue
+    const badge = mini.querySelector('.radar-mini-n');
+    const count = () => {
+      const n = (typeof TTBoard !== 'undefined' ? TTBoard.tasks : []).filter(t => !['complete', 'canceled'].includes(t.status) && ringOf(t) === 0).length;
+      badge.textContent = n; badge.hidden = !n;
+      mini.title = n ? `展開任務雷達（${n} 張逾期）` : '展開任務雷達';
+    };
+    document.addEventListener('tt:tasks', count);
+    count();
+    paint();
+  }
+
+  window.TTRadar = { mount, float };
 })();
