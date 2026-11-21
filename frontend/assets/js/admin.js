@@ -1193,7 +1193,7 @@
     { title: '外觀', icon: 'palette', fields: [
       { key: 'theme', label: '預設主題', type: 'seg', options: [['auto', '跟隨系統', 'monitor'], ['light', '淺色', 'sun'], ['dark', '深色', 'moon']], hint: '使用者仍可自行切換' },
       { key: 'accent_color', label: '主題色', type: 'accent' },
-      { key: 'background', label: '背景', type: 'seg', options: [['aurora', '極光'], ['gradient', '漸層'], ['plain', '純色']] },
+      { key: 'background', label: '背景', type: 'seg', options: [['aurora', '戰術方格'], ['gradient', '方格（中央淡出）'], ['plain', '純色']] },
       { key: 'density', label: '卡片密度', type: 'seg', options: [['comfortable', '舒適'], ['compact', '緊湊']] },
       { key: 'default_view', label: '預設顯示方式', type: 'seg', options: [['grid', '格狀', 'grid'], ['list', '清單', 'list']] },
     ] },
@@ -1269,8 +1269,8 @@
         case 'number': { const i = el('input', { class: 'input', type: 'number', min: '1', value: v ?? '' }); i.addEventListener('input', () => set(f.key, parseInt(i.value, 10) || 1)); return field(f.label, i, f.hint); }
         case 'seg': return el('div', { class: 'field' }, el('span', { class: 'field-label', text: f.label }), segmented(f.options, v, x => set(f.key, x)), f.hint ? el('span', { class: 'hint', text: f.hint }) : null);
         case 'accent': {
-          const pick = colorPicker(v, x => set(f.key, x || state.defaults.accent_color));
-          pick.querySelector('.swatch-none')?.remove();
+          const pick = colorPicker(v === '#6366f1' ? '' : v, x => set(f.key, x || ''));
+          pick.querySelector('.swatch-none').title = '主題預設（深色：戰術綠 #10B981，淺色：墨綠 #2B4C3F）';
           return el('div', { class: 'field' }, el('span', { class: 'field-label', text: f.label }), pick);
         }
         case 'icon': return el('div', { class: 'field' }, el('span', { class: 'field-label', text: f.label }),

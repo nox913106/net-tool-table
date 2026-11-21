@@ -205,7 +205,10 @@ const TT = (() => {
     root.dataset.bg = settings.background || 'aurora';
     root.dataset.density = settings.density || 'comfortable';
     root.dataset.perf = store.get('perf') === 'low' ? 'low' : 'normal';
-    if (/^#[0-9a-f]{6}$/i.test(settings.accent_color || '')) root.style.setProperty('--accent', settings.accent_color);
+    // accent: the theme's own (戰術綠 / 墨綠) unless an administrator picked another; the old default violet counts as unset
+    const ac = settings.accent_color || '';
+    if (/^#[0-9a-f]{6}$/i.test(ac) && ac.toLowerCase() !== '#6366f1') root.style.setProperty('--accent', ac);
+    else root.style.removeProperty('--accent');
     media.onchange = () => { root.dataset.theme = resolveTheme(settings.theme); document.dispatchEvent(new Event('tt:theme')); };
     syncThemeColor();
   }

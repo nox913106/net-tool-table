@@ -28,7 +28,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
 
     # --- Appearance ---
     "theme": "auto",                    # auto | dark | light (viewer can still toggle)
-    "accent_color": "#6366f1",
+    "accent_color": "",                 # "" = the theme's accent (dark #10B981, light #2B4C3F)
     "background": "aurora",             # aurora | gradient | plain
     "density": "comfortable",           # comfortable | compact
     "default_view": "grid",             # grid | list (viewer can still toggle)
@@ -136,7 +136,7 @@ def validate_setting(key: str, value: Any) -> Any:
         if len(clean) > 300:
             raise HTTPException(status_code=400, detail="最多設定 300 個標籤顏色")
         return clean
-    if key == "accent_color" and not re.fullmatch(r"#[0-9a-fA-F]{6}", str(value)):
+    if key == "accent_color" and value not in ("", None) and not re.fullmatch(r"#[0-9a-fA-F]{6}", str(value)):
         raise HTTPException(status_code=400, detail="主題色必須是 #RRGGBB")
     if isinstance(default, bool):
         return bool(value)
