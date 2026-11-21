@@ -308,12 +308,12 @@ body { font-family: var(--font); background: var(--bg); }
 /* =============================================================================
    Scan line + CRT texture (whole screen)
    ============================================================================= */
-.tt-scan { position: fixed; inset: 0; z-index: 90; pointer-events: none; overflow: hidden; }
+.tt-scan { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }   /* inside .backdrop: behind everything */
 /* fine horizontal scan texture */
 .tt-scan::before {
   content: ""; position: absolute; inset: 0;
-  background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, .16) 0 1px, transparent 1px 3px);
-  opacity: .55; mix-blend-mode: multiply;
+  background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, .22) 0 1px, transparent 1px 3px);
+  opacity: .6;
 }
 /* the sweeping beam: a bright line with a fading trail above it */
 .tt-scan i {
@@ -331,7 +331,7 @@ body { font-family: var(--font); background: var(--bg); }
   border-bottom-color: color-mix(in srgb, var(--accent) 45%, transparent);
   box-shadow: 0 1px 10px color-mix(in srgb, var(--accent) 25%, transparent);
 }
-[data-perf="low"] .tt-scan, .tt-scan:has(+ .modal) { display: none; }
+[data-perf="low"] .tt-scan { display: none; }
 @media (prefers-reduced-motion: reduce) { .tt-scan i { display: none; } }
 @media print { .tt-scan { display: none; } }
 

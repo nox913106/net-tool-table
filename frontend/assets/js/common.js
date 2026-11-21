@@ -186,9 +186,11 @@ const TT = (() => {
   }
 
   // ----------------------------------------------------------- tactical scan line
-  // a glowing line sweeps down the screen (styling and on/off: tactical.css, perf mode, reduced motion)
+  // a glowing line sweeps down the background grid only: it lives in the backdrop, so the header,
+  // sidebar, panels and cards (all opaque) stay clear of it (styling: tactical.css)
   document.addEventListener('DOMContentLoaded', () => {
-    if (!document.querySelector('.tt-scan')) document.body.append(el('div', { class: 'tt-scan', 'aria-hidden': 'true' }, el('i')));
+    const grid = document.querySelector('.backdrop');
+    if (grid && !grid.querySelector('.tt-scan')) grid.append(el('div', { class: 'tt-scan', 'aria-hidden': 'true' }, el('i')));
   });
 
   // ----------------------------------------------------------- card tags
