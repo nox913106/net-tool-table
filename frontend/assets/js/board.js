@@ -102,7 +102,8 @@ const TTBoard = window.TTBoard = (() => {
   }
   /** A card with (non-canceled) subtasks is a summary task: its status is computed from them. */
   const isSummary = t => (t.subtasks?.items || []).some(s => s.status !== 'canceled');
-  const SUMMARY_HINT = '這張卡片有子任務，狀態依子任務與協作人自動計算；要放棄整個任務可以改成 Canceled';
+  const SUMMARY_HINT = '有子任務：子任務或協作人有變動時，狀態會自動更新；也可以自己改';
+  const openSubs = t => (t.subtasks?.items || []).filter(s => s.status !== 'complete' && s.status !== 'canceled').length;
   /** 卡住: how long a card has been stuck ("今天" / "3 天"). since is a UTC SQLite timestamp. */
   const isBlocked = t => !!t.blocked && !CLOSED.has(t.status);
   function blockedDays(since) {
@@ -328,8 +329,8 @@ const TTBoard = window.TTBoard = (() => {
   async function moveTo(id, status, index) {
     const t = tasks.find(x => x.id === id);
     if (!t) return;
-    if (status !== t.status && status !== 'canceled' && t.status !== 'canceled' && isSummary(t)) {
-      toast(SUMMARY_HINT, true); changed(); return;
+    if (status === 'complete' && t.status !== 'complete' && openSubs(t) && !confirm(`「${t.title}」還有 ${openSubs(t)} 個子任務沒完成，仍要把整張卡片改成 Complete？`)) {
+      changed(); return;
     }
     const col = byStatus(status).filter(x => x.id !== id);
     col.splice(Math.max(0, Math.min(index, col.length)), 0, t);
@@ -1566,7 +1567,7 @@ const TTBoard = window.TTBoard = (() => {
     const status = el('select', { class: 'select' }, STATUSES.map(s => el('option', { value: s.key, text: `${s.label}（${s.zh}）` })));
     status.value = t.status;
     const summary = !!task && isSummary(t) && t.status !== 'canceled';
-    if (summary) [...status.options].forEach(o => { o.disabled = o.value !== t.status && o.value !== 'canceled'; });
+
     let priority = t.priority;
     const prio = el('div', { class: 'segmented', role: 'group' }, PRIORITIES.map(([v, label]) => {
       const b = el('button', { type: 'button', dataset: { v }, html: (v === 'high' ? svg('flag') : '') + `<span>${label}</span>` });
@@ -2209,7 +2210,7 @@ const TTBoard = window.TTBoard = (() => {
           el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('paperclip') + '附件' }), imgBox),
           meInfo.people ? el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('users') + '負責人' }), assignBox) : null,
           el('div', { class: 'kb-row' }, el('div', { class: 'field' }, el('span', { class: 'field-label', text: '狀態' }), status,
-            summary ? el('span', { class: 'hint', text: '自動：依子任務與協作人計算' }) : null), el('div', { class: 'field' }, el('span', { class: 'field-label', text: '優先順序' }), prio)),
+            summary ? el('span', { class: 'hint', text: SUMMARY_HINT }) : null), el('div', { class: 'field' }, el('span', { class: 'field-label', text: '優先順序' }), prio)),
           blockBox,
           el('div', { class: 'kb-row' },
             el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('play') + '開始日' }), el('div', { class: 'kb-dt' }, startD, startT), startChips),
@@ -2275,6 +2276,8 @@ const TTBoard = window.TTBoard = (() => {
 
     async function submit() {
       if (!title.value.trim()) { toast('請輸入標題', true); title.focus(); return; }
+      if (task && status.value === 'complete' && t.status !== 'complete' && openSubs(t)
+          && !confirm(`還有 ${openSubs(t)} 個子任務沒完成，仍要把整張卡片改成 Complete？`)) return;
       const body = {
         title: title.value.trim(),
         description: desc.value.trim() || null,

@@ -873,10 +873,9 @@ async def _import_plan(items: List[dict], user: dict) -> List[dict]:
                             if it.get(k) and it[k] != (t[k] or ""):
                                 changes[k] = it[k]; out["changes"].append(_diff(label, t[k], it[k]))
                         if it.get("status") and it["status"] != t["status"]:
-                            if ctx["summary"] and it["status"] != "canceled" and t["status"] != "canceled":
-                                out["warnings"].append("有子任務的卡片狀態依子任務自動計算，狀態欄已略過")
-                            else:
-                                changes["status"] = it["status"]; out["changes"].append(_diff("狀態", ZH.get(t["status"]), ZH.get(it["status"])))
+                            changes["status"] = it["status"]; out["changes"].append(_diff("狀態", ZH.get(t["status"]), ZH.get(it["status"])))
+                            if ctx["summary"]:
+                                out["warnings"].append("有子任務的卡片：之後子任務有變動時，狀態會再依子任務自動更新")
                         if it.get("tags") is not None:
                             try:
                                 new_tags = _tags(it["tags"]) or []
@@ -1200,9 +1199,6 @@ async def update_task(task_id: int, t: TaskUpdate, request: Request):
         for k in ("title", "status", "priority"):
             if k in changes and changes[k] is None:
                 raise HTTPException(status_code=400, detail=f"{k} 不能是空的")
-        if "status" in changes and changes["status"] != cur_task["status"] and changes["status"] != "canceled" \
-                and cur_task["status"] != "canceled" and await _is_summary(db, task_id):
-            raise HTTPException(status_code=400, detail=SUMMARY_MSG)
         if "repeat_every" in changes and changes["repeat_every"] is None:
             changes["repeat_every"] = 1
         if "tags" in changes:
@@ -1234,7 +1230,8 @@ async def update_task(task_id: int, t: TaskUpdate, request: Request):
                 await add_mentions(db, task_id, changes["description"], user, merged["title"], "說明")
         if changes.get("status") == "complete" and cur_task["status"] != "complete":
             await spawn_next(db, task_id)
-        await rollup_status(db, task_id)          # reopened from Canceled, or collaborators changed
+        if "status" not in changes:               # a status set by hand stays until a subtask / collaborator changes
+            await rollup_status(db, task_id)      # (collaborators changed)
         await db.commit()
         return await _one(db, task_id, user)
     finally:
@@ -1288,14 +1285,6 @@ async def reorder(r: Reorder, request: Request):
             ids = [i for i in r.ids if i in allowed]       # never touch cards the viewer cannot edit
         else:
             ids = []
-        if r.status != "canceled" and ids:            # summary cards follow their subtasks, not a drag
-            marks = ",".join("?" * len(ids))
-            cur = await db.execute(f"""SELECT t.id FROM tasks t WHERE t.id IN ({marks}) AND t.status != ? AND t.status != 'canceled'
-                                       AND EXISTS (SELECT 1 FROM task_comments c WHERE c.task_id = t.id AND c.is_task = 1
-                                                   AND c.parent_id IS NULL AND COALESCE(c.status, 'new') != 'canceled')""",
-                                   (*ids, r.status))
-            blocked = {row["id"] for row in await cur.fetchall()}
-            ids = [i for i in ids if i not in blocked]
         if r.status != "overdue" and ids:             # dragged out of 過期未結案 by hand
             marks = ",".join("?" * len(ids))
             await db.execute(f"""UPDATE tasks SET overdue_ack = due_at, overdue_from = NULL
@@ -1359,8 +1348,6 @@ async def complete_task(task_id: int, request: Request, body: Optional[CompleteI
     try:
         t = await _get_visible(db, task_id, user)
         await _require_edit(db, task_id, user)
-        if t["status"] != "complete" and await _is_summary(db, task_id):
-            raise HTTPException(status_code=400, detail="這張卡片有子任務：子任務全部完成（協作人也標記完成）後會自動結案")
         if t["status"] != "complete":
             cur = await db.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tasks WHERE status = 'complete'")
             order = (await cur.fetchone())["n"]
@@ -1898,7 +1885,8 @@ async def order_subtasks(task_id: int, body: OrderIn, request: Request):
 
 
 # ------------------------------------------------- summary cards (roll-up)
-# A card with subtasks is a summary task: its status follows its subtasks and is not set by hand
+# A card with subtasks is a summary task: its status follows its subtasks whenever a subtask or a
+# collaborator changes; it can still be set by hand (it stays until the next such change)
 # (except Canceled, for dropping the whole thing). Collaborators (co-assignees / @mentioned without a
 # subtask) do not move the status but the card only completes once they marked their part done;
 # until then a card whose subtasks are all done waits in Pending.

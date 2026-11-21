@@ -61,8 +61,19 @@ async def lifespan(app: FastAPI):
     import asyncio
     await init_db()
     from .routes.tasks import rollup_all
-    try:
-        await rollup_all()
+    try:                                    # once, after the upgrade that introduced summary cards; since then a
+        from .database import get_db       # status set by hand must survive restarts
+        db = await get_db()
+        try:
+            cur = await db.execute("SELECT 1 FROM settings WHERE key = '_migr_rollup_v1'")
+            done = await cur.fetchone()
+            if not done:
+                await db.execute("INSERT INTO settings (key, value) VALUES ('_migr_rollup_v1', '1')")
+                await db.commit()
+        finally:
+            await db.close()
+        if not done:
+            await rollup_all()
     except Exception:                       # never block startup over this
         pass
     task = asyncio.create_task(_scheduler())
