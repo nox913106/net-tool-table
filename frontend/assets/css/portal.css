@@ -1006,6 +1006,13 @@ body.link-dragging .drop-overlay { display: grid; }
 .kb-link-btn svg { width: 13px; height: 13px; }
 .kb-comment:not(:hover):not(:focus-within) > .kb-comment-main .kb-comment-head > .kb-comment-actions .kb-link-btn span { display: none; }
 @media (hover: none) { .kb-comment-actions .kb-link-btn span { display: inline !important; } }
+.kb-lv { flex: none; padding: 1px 5px; font-family: var(--mono); font-size: 10.5px; font-weight: 700; color: var(--text-3); border: 1px solid var(--border); }
+.kb-subtree { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding: 8px 0 2px 8px; border-left: 2px dashed var(--border-strong, var(--border)); }
+.kb-subtree .kb-sub-row { flex-wrap: wrap; }
+.kb-subtree .kb-sub-title { flex: 1 1 160px; min-width: 160px; }
+.kb-subtree-head { font-size: 11.5px; font-weight: 700; color: var(--text-3); letter-spacing: .06em; }
+.kb-subtree > .kb-link-btn { align-self: flex-start; }
+.kb-outline-row.is-nested { margin-left: calc(var(--depth, 1) * 18px); cursor: pointer; opacity: .92; }
 .kb-replies { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; padding-left: 10px; border-left: 2px solid var(--border); }
 .kb-comment.is-reply > div { background: var(--surface-solid); padding: 6px 10px; }
 .kb-comment.is-reply .kb-comment-body { font-size: 13px; }
@@ -1376,6 +1383,7 @@ body.nav-collapsed .sidebar:not(.peek) .nav-empty, body.nav-collapsed .sidebar:n
   padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--c, var(--accent));
   animation: kb-nav-in .18s var(--ease);
 }
+.kb-nav-col > * { flex-shrink: 0; }
 .kb-nav-col.is-card { flex-basis: 300px; border-top-color: var(--accent); }
 @keyframes kb-nav-in { from { opacity: 0; transform: translateX(-12px); } }
 .kb-nav-kicker { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; color: var(--text-3); }
@@ -1413,13 +1421,28 @@ body.nav-collapsed .sidebar:not(.peek) .nav-empty, body.nav-collapsed .sidebar:n
 .kb-nav-comments { display: flex; flex-direction: column; gap: 8px; }
 .kb-nav-cmt { padding: 6px 8px; background: var(--surface-2); border: 1px solid var(--border); }
 .kb-nav-cmt-head { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-.kb-nav-cmt-head small { color: var(--text-3); margin-left: auto; }
+.kb-nav-cmt-head small { color: var(--text-3); }
+.kb-nav-cmt-head .spacer { flex: 1; }
 .kb-nav-cmt-body { margin-top: 4px; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
 .kb-nav-reply-row { display: flex; gap: 6px; align-items: flex-end; }
 .kb-nav-reply { min-height: 54px; }
 .kb-nav .kb-time-form { flex-wrap: wrap; }
 .kb-nav .kb-time-form input[type=number] { width: 54px; }
 .kb-nav .kb-time-form input[type=date] { width: 138px; }
+.kb-nav-title-in { font-size: 15px; font-weight: 700; height: 36px; }
+.kb-nav-strow { display: flex; align-items: center; gap: 8px; }
+.kb-nav-strow .kb-nav-status { flex: 1; }
+.kb-nav-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+.kb-nav-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 11.5px; color: var(--text-3); }
+.kb-nav-field.is-wide { grid-column: 1 / -1; }
+.kb-nav-field .input, .kb-nav-field .select { width: 100%; min-width: 0; }
+.kb-nav-who { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 30px; font-size: 13px; color: var(--text); }
+.kb-nav-who .input { flex: 1; }
+.kb-nav-descbox { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.kb-nav-edit { display: flex; flex-direction: column; gap: 6px; }
+.kb-nav-edit-btns { display: flex; justify-content: flex-end; gap: 6px; }
+.kb-nav-replies { display: flex; flex-direction: column; gap: 6px; margin: -2px 0 2px 12px; padding-left: 8px; border-left: 2px solid var(--border); }
+.kb-nav .kb-nav-kicker .kb-link-btn { font-family: inherit; letter-spacing: 0; }
 @media (max-width: 720px) {
   .modal.kb-nav-modal { padding: 0; }
   .modal-card.kb-nav { width: 100vw; height: 100dvh; }

@@ -1503,10 +1503,25 @@ async def _comment_rights(db, task_id: int, c, user: dict) -> dict:
     me = user.get("id")
     editor = await _can_edit(db, task_id, user)
     author = me is None or (c["user_id"] is not None and c["user_id"] == me)
-    mine = me is not None and c["assignee_id"] == me and bool(c["is_task"])
+    above = me is not None and bool(c["is_task"]) and me in await _owners_above(db, c["task_parent_id"])
+    mine = me is not None and bool(c["is_task"]) and (c["assignee_id"] == me or above)
     task_edit = bool(c["is_task"]) and (editor or mine)
     return {"editor": editor, "edit_body": author or task_edit or (board_access(user)["edit"] == "all"),
-            "edit_task": task_edit, "assign": editor}
+            "edit_task": task_edit, "assign": editor or above}
+
+
+async def _owners_above(db, comment_id) -> set:
+    """Assignees of this subtask and of every subtask above it: they look after everything below."""
+    out, cid, n = set(), comment_id, 0
+    while cid and n < 10:
+        cur = await db.execute("SELECT assignee_id, task_parent_id FROM task_comments WHERE id = ?", (cid,))
+        r = await cur.fetchone()
+        if not r:
+            break
+        if r["assignee_id"] is not None:
+            out.add(r["assignee_id"])
+        cid, n = r["task_parent_id"], n + 1
+    return out
 
 
 async def _comment(db, task_id: int, comment_id: int):
@@ -1562,17 +1577,29 @@ async def list_comments(task_id: int, request: Request):
         times = {}
         for e in await cur.fetchall():
             times.setdefault(e["comment_id"], []).append(e)
+        row_by = {c["id"]: c for c in rows}
+
+        def owners(cid, above_only=False):
+            got, n = set(), 0
+            if above_only:
+                cid = row_by[cid]["task_parent_id"] if cid in row_by else None
+            while cid in row_by and n < 10:
+                if row_by[cid]["assignee_id"] is not None:
+                    got.add(row_by[cid]["assignee_id"])
+                cid, n = row_by[cid]["task_parent_id"], n + 1
+            return got
         out, by_id = [], {}
         for c in rows:
             item = {
                 "id": c["id"], "body": c["body"], "created_at": c["created_at"], "images": pics.get(c["id"], []),
                 "parent_id": c["parent_id"], "task_parent_id": c["task_parent_id"],
                 "author": _person(c["user_id"], c["username"], c["display_name"]) or {"id": None, "name": "本機"},
-                "can_delete": acc_all or (c["user_id"] is not None and c["user_id"] == me) or (me is None),
+                "can_delete": acc_all or (c["user_id"] is not None and c["user_id"] == me) or (me is None)
+                              or (bool(c["is_task"]) and c["parent_id"] is None and (editor or (me is not None and me in owners(c["id"], True)))),
                 "can_reply": True,
                 "edited_at": c["edited_at"],
                 "can_edit_body": acc_all or me is None or (c["user_id"] is not None and c["user_id"] == me)
-                                 or (bool(c["is_task"]) and c["parent_id"] is None and (editor or (me is not None and c["assignee_id"] == me))),
+                                 or (bool(c["is_task"]) and c["parent_id"] is None and (editor or (me is not None and me in owners(c["id"])))),
             }
             if c["parent_id"] is None:
                 item["replies"] = []
@@ -1582,7 +1609,8 @@ async def list_comments(task_id: int, request: Request):
                     assignee = _person(c["assignee_id"], c["a_username"], c["a_name"])
                     if assignee:
                         assignee["department"] = c["a_department"]
-                    mine = me is not None and c["assignee_id"] == me
+                    mine = me is not None and me in owners(c["id"])
+                    above = me is not None and me in owners(c["id"], True)
                     item["task"] = {
                         "title": c["title"], "status": c["status"] or "new", "start_at": c["start_at"], "due_at": c["due_at"],
                         "sort_order": c["sort_order"], "priority": c["priority"] or "normal", "remind": c["remind"],
@@ -1597,7 +1625,7 @@ async def list_comments(task_id: int, request: Request):
                         "my_timer": next(({"id": e["id"], "elapsed": e["elapsed"]} for e in entries
                                           if e["ended_at"] is None and e["started_at"] is not None and e["user_id"] == me), None),
                         "can_edit": editor or mine,             # every field but the assignee
-                        "can_assign": editor,
+                        "can_assign": editor or above,
                         "can_update": editor or mine,           # status + time log
                     }
                 out.append(item)
@@ -1699,10 +1727,14 @@ async def delete_comment(task_id: int, comment_id: int, request: Request):
     try:
         await _get_visible(db, task_id, user)
         c = await _comment(db, task_id, comment_id)
-        if board_access(user)["edit"] != "all" and c["user_id"] != user.get("id"):
+        me = user.get("id")
+        if board_access(user)["edit"] != "all" and c["user_id"] != me and not (
+                c["is_task"] and (await _can_edit(db, task_id, user) or (me is not None and me in await _owners_above(db, c["task_parent_id"])))):
             raise HTTPException(status_code=403, detail="只能刪除自己的留言")
-        cur = await db.execute("""SELECT stored FROM task_images WHERE comment_id = ?
-                                  OR comment_id IN (SELECT id FROM task_comments WHERE parent_id = ?)""", (comment_id, comment_id))
+        # the comment, its replies, the subtasks below it (any depth) and their replies
+        cur = await db.execute("""WITH RECURSIVE tree(id) AS (SELECT ? UNION SELECT c.id FROM task_comments c JOIN tree ON c.task_parent_id = tree.id)
+                                  SELECT stored FROM task_images WHERE comment_id IN (SELECT id FROM tree)
+                                  OR comment_id IN (SELECT id FROM task_comments WHERE parent_id IN (SELECT id FROM tree))""", (comment_id,))
         files = [r["stored"] for r in await cur.fetchall()]
         await db.execute("DELETE FROM task_comments WHERE id = ?", (comment_id,))
         await _sync_subtask_members(db, task_id)
@@ -1732,8 +1764,8 @@ async def update_subtask(task_id: int, comment_id: int, body: SubtaskIn, request
             raise HTTPException(status_code=400, detail="回覆不能設為子任務，請用原本的留言")
         rights = await _comment_rights(db, task_id, c, user)
         editor = rights["editor"]
-        if not editor and not (rights["edit_task"] and not sent & {"assignee", "is_task"}):
-            raise HTTPException(status_code=403, detail="只有能編輯這張卡片的人可以設定或指派子任務；子任務負責人可以修改其他內容")
+        if not editor and ("is_task" in sent or not rights["edit_task"] or ("assignee" in sent and not rights["assign"])):
+            raise HTTPException(status_code=403, detail="只有能編輯這張卡片的人可以設定或指派子任務；子任務負責人可以修改其他內容（上層子任務的負責人也可以指派下層）")
         is_task = bool(c["is_task"]) if body.is_task is None else body.is_task
         if not is_task:
             cur = await db.execute("SELECT 1 FROM task_comments WHERE task_parent_id = ? LIMIT 1", (comment_id,))
@@ -1888,6 +1920,7 @@ async def set_blocked(task_id: int, body: BlockedIn, request: Request):
 
 class OrderIn(BaseModel):
     ids: List[int]
+    parent: Optional[int] = None            # order the subtasks below this subtask; empty = the card's own
 
 
 @router.post("/{task_id}/subtasks/order")
@@ -1897,9 +1930,13 @@ async def order_subtasks(task_id: int, body: OrderIn, request: Request):
     db = await get_db()
     try:
         await _get_visible(db, task_id, user)
-        await _require_edit(db, task_id, user)
-        cur = await db.execute("SELECT id FROM task_comments WHERE task_id = ? AND is_task = 1 AND parent_id IS NULL AND task_parent_id IS NULL",
-                               (task_id,))
+        if body.parent:
+            if not await _can_edit(db, task_id, user) and user.get("id") not in await _owners_above(db, body.parent):
+                raise HTTPException(status_code=403, detail="只有能編輯卡片的人或上層子任務的負責人可以調整順序")
+        else:
+            await _require_edit(db, task_id, user)
+        cur = await db.execute("SELECT id FROM task_comments WHERE task_id = ? AND is_task = 1 AND parent_id IS NULL AND task_parent_id IS ?",
+                               (task_id, body.parent))
         mine = {r["id"] for r in await cur.fetchall()}
         ids = [i for i in dict.fromkeys(body.ids) if i in mine]
         rest = sorted(mine - set(ids))                    # anything not sent keeps its place at the end
@@ -2055,7 +2092,7 @@ async def create_subtask(task_id: int, body: SubtaskNew, request: Request):
                 raise HTTPException(status_code=400, detail="只能在子任務底下新增子任務")
             if await subtask_depth(db, body.parent) >= SUB_MAX_DEPTH:
                 raise HTTPException(status_code=400, detail="最多四層（主卡＋三層子任務）")
-            if not editor and not (me is not None and p["assignee_id"] == me):
+            if not editor and not (me is not None and me in await _owners_above(db, body.parent)):
                 raise HTTPException(status_code=403, detail="只有能編輯卡片的人或這個子任務的負責人可以新增下層子任務")
         elif not editor:
             raise HTTPException(status_code=403, detail="只有能編輯這張卡片的人可以新增子任務")
@@ -2135,8 +2172,8 @@ async def _subtask_for_time(db, task_id: int, comment_id: int, user: dict):
     if not c["is_task"]:
         raise HTTPException(status_code=400, detail="這則留言不是子任務")
     editor = await _can_edit(db, task_id, user)
-    if not editor and not (user.get("id") is not None and c["assignee_id"] == user.get("id")):
-        raise HTTPException(status_code=403, detail="只有子任務負責人或能編輯卡片的人可以記錄工時")
+    if not editor and not (user.get("id") is not None and user.get("id") in await _owners_above(db, comment_id)):
+        raise HTTPException(status_code=403, detail="只有子任務（或上層子任務）負責人或能編輯卡片的人可以記錄工時")
     return c, editor
 
 

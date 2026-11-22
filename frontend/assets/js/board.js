@@ -1824,7 +1824,7 @@ const TTBoard = window.TTBoard = (() => {
         return b;
       };
 
-      function subtaskBox(c) {
+      function subtaskBox(c, level = 2) {
         const s = c.task;
         const st = STATUS[s.status] || STATUS.new;
         const box = el('div', { class: `kb-sub st-${s.status}`, style: { '--st': st.color } });
@@ -1841,7 +1841,7 @@ const TTBoard = window.TTBoard = (() => {
         const dueChip = tm.due && tm.due !== 'later' ? el('span', { class: `kb-chip due-${tm.due}`, html: svg('clock') + `<span>${tm.dueText}</span>` }) : null;
         const editBtn = el('button', { class: 'kb-link-btn kb-sub-edit', type: 'button', title: edit ? '編輯子任務（說明、附件、時間、提醒…）' : '檢視子任務', html: svg(edit ? 'edit' : 'external') + `<span>${edit ? '編輯' : '檢視'}</span>` });
         editBtn.addEventListener('click', () => openSubtaskEditor(task, c, async () => { await loadComments(); load(true); }));
-        box.append(el('div', { class: 'kb-sub-row' }, el('span', { class: 'kb-sub-dot' }), stSel,
+        box.append(el('div', { class: 'kb-sub-row' }, el('span', { class: 'kb-lv', title: `第 ${level} 層（主卡為 L1）`, text: `L${level}` }), stSel,
           s.priority === 'high' ? el('span', { class: 'kb-flag', title: '高優先', html: svg('flag') }) : null, titleIn,
           s.due_at && s.remind != null && !CLOSED.has(s.status) ? el('span', { class: 'kb-chip remind', title: `提醒：${fmtMoment(remindMoment(s))}`, html: svg('bell') }) : null,
           dueChip, editBtn));
@@ -2002,27 +2002,54 @@ const TTBoard = window.TTBoard = (() => {
         return el('div', { class: 'kb-reply-new' }, box, el('div', { class: 'kb-comment-btns' }, go, cancel));
       }
 
-      function commentNode(c, root) {
+      let addBelow = null;                // subtask id with the "new subtask below" input open
+      /** The subtasks below subtask c (L3, L4), each a full subtask with its own comments, time and children. */
+      function subTree(c, level) {
+        const kids = allThreads.filter(x => x.task_parent_id === c.id).sort(byOrder);
+        const canAdd = level < 4 && (task.can_edit !== false || c.task.can_edit);
+        if (!kids.length && !canAdd) return null;
+        const box = el('div', { class: 'kb-subtree' });
+        if (kids.length) box.append(el('div', { class: 'kb-subtree-head', text: `下層子任務（L${level + 1}）· ${kids.length}` }), ...kids.map(k => commentNode(k, null, level + 1)));
+        if (canAdd) {
+          if (addBelow === c.id) {
+            const input = el('input', { class: 'input input-sm', maxlength: '200', placeholder: `新增 L${level + 1} 子任務名稱（Enter 新增，Esc 取消）` });
+            input.addEventListener('keydown', async e => {
+              if (e.key === 'Escape') { e.stopPropagation(); addBelow = null; paint(); return; }
+              if (e.key !== 'Enter' || e.isComposing || !input.value.trim()) return;
+              e.preventDefault(); e.stopPropagation(); input.disabled = true;
+              try { await api(`/api/tasks/${task.id}/subtasks`, { method: 'POST', body: { title: input.value.trim(), parent: c.id } }); await loadComments(); load(true); }
+              catch (err) { toast(err.message, true); input.disabled = false; }
+              setTimeout(() => box.querySelector('input')?.focus(), 0);
+            });
+            setTimeout(() => input.isConnected && input.focus(), 0);
+            box.append(input);
+          } else box.append(linkBtn(`新增 L${level + 1} 子任務`, 'plus', () => { addBelow = c.id; paint(); }));
+        }
+        return box;
+      }
+
+      function commentNode(c, root, level = 2) {
         const isRoot = !root;
         const actions = el('span', { class: 'kb-comment-actions' },
           linkBtn('回覆', 'message', () => { replyTo = { root: (root || c).id, mention: isRoot ? null : c.author?.username }; paint(); }),
           c.task ? linkBtn(`任務樹${(() => { const n = allThreads.filter(x => x.task_parent_id === c.id).length; return n ? `（${n}）` : ''; })()}`, 'layout',
             () => openNavigator(task, [c.id]), '在任務視窗展開：工時、留言與下層子任務（最多四層）') : null,
           c.can_edit_body && !c.task ? linkBtn('編輯', 'edit', () => { editing = c.id; paint(); }) : null,
-          isRoot && c.can_make_task ? (c.task
+          isRoot && c.can_make_task && !c.task_parent_id ? (c.task
             ? linkBtn('取消子任務', 'x', () => { if (confirm(`把「${c.task.title}」改回一般留言？（工時記錄會保留）`)) subPut(c, { is_task: false }); }, '改回一般留言')
             : linkBtn('設為子任務', 'check', () => subPut(c, { is_task: true }), '把這則留言變成這張卡片的子任務（可設定狀態、負責人、日期與工時）')) : null,
           delBtn(c, isRoot));
         const node = el('div', { class: 'kb-comment' + (isRoot ? '' : ' is-reply') + (c.task ? ' is-task' : ''), dataset: { cid: c.id } }, TT.avatar(c.author, isRoot ? 28 : 22),
           el('div', { class: 'kb-comment-main' },
             el('div', { class: 'kb-comment-head' }, el('strong', { text: TT.nameOf(c.author) }), el('small', { text: (c.created_at || '').slice(5, 16) }), actions),
-            c.task ? subtaskBox(c) : null,
+            c.task ? subtaskBox(c, level) : null,
             editing === c.id ? editBox(c)
               : c.body && !(c.task && c.body.trim() === (c.task.title || '').trim()) ? renderBody(c.body) : null,
             c.edited_at && editing !== c.id ? el('small', { class: 'kb-edited', text: '（已編輯）' }) : null,
             c.images?.length ? thumbs(c.images, { size: 'sm' }) : null,
             isRoot && c.replies.length ? el('div', { class: 'kb-replies' }, c.replies.map(r => commentNode(r, c))) : null,
-            isRoot && replyTo?.root === c.id ? replyBox(c) : null));
+            isRoot && replyTo?.root === c.id ? replyBox(c) : null,
+            isRoot && c.task ? subTree(c, level) : null));
         return node;
       }
 
@@ -2049,13 +2076,7 @@ const TTBoard = window.TTBoard = (() => {
             el('span', { class: 'kb-outline-title', text: s.title }),
             meInfo.people && s.assignee ? TT.avatar(s.assignee, 18) : null,
             s.due_at ? el('span', { class: `kb-outline-due due-${tm.due || ''}`, text: fmt(s.due_at) }) : null);
-          row.addEventListener('click', () => {
-            const target = listBox.querySelector(`.kb-comment[data-cid="${c.id}"]`);
-            if (!target) { onlyTasks = false; paintOrder(); paint(); }
-            const t2 = listBox.querySelector(`.kb-comment[data-cid="${c.id}"]`);
-            t2?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            t2?.classList.add('kb-flash'); setTimeout(() => t2?.classList.remove('kb-flash'), 1200);
-          });
+          row.addEventListener('click', () => jump(c.id));
           if (editable) {
             row.addEventListener('keydown', e => {
               if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
@@ -2092,8 +2113,31 @@ const TTBoard = window.TTBoard = (() => {
             });
           }
           list.append(row);
+          nested(c.id, String(i + 1), 1);
         });
+        function nested(pid, prefix, depth) {
+          allThreads.filter(x => x.task_parent_id === pid).sort(byOrder).forEach((k, j) => {
+            const ks = k.task;
+            const no = `${prefix}.${j + 1}`;
+            const r = el('li', { class: `kb-outline-row is-nested st-${ks.status}`, style: { '--st': (STATUS[ks.status] || STATUS.new).color, '--depth': depth },
+              tabindex: '0', dataset: { id: k.id }, title: `L${depth + 2}：點一下跳到子任務` },
+              el('span', { class: 'kb-outline-no', text: no }), el('span', { class: 'kb-sub-dot' }),
+              el('span', { class: 'kb-outline-title', text: ks.title }),
+              meInfo.people && ks.assignee ? TT.avatar(ks.assignee, 18) : null,
+              ks.due_at ? el('span', { class: `kb-outline-due due-${timing({ status: ks.status, due_at: ks.due_at }).due || ''}`, text: fmt(ks.due_at) }) : null);
+            r.addEventListener('click', () => jump(k.id));
+            r.addEventListener('keydown', e => { if (e.key === 'Enter') jump(k.id); });
+            list.append(r);
+            nested(k.id, no, depth + 1);
+          });
+        }
         return list;
+      }
+      function jump(id) {
+        if (!listBox.querySelector(`.kb-comment[data-cid="${id}"]`)) { onlyTasks = false; paintOrder(); paint(); }
+        const t2 = listBox.querySelector(`.kb-comment[data-cid="${id}"]`);
+        t2?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        t2?.classList.add('kb-flash'); setTimeout(() => t2?.classList.remove('kb-flash'), 1200);
       }
 
       function paintRollup() {
@@ -2142,7 +2186,7 @@ const TTBoard = window.TTBoard = (() => {
         refreshComments = loadComments;
         try {
           allThreads = await api(`/api/tasks/${task.id}/comments`);
-          threads = allThreads.filter(c => !c.task_parent_id);          // subtasks of subtasks: in the task window
+          threads = allThreads.filter(c => !c.task_parent_id);          // subtasks of subtasks: shown under their parent
           fetchedAt = Date.now();
           paint();
         } catch (e) { listBox.replaceChildren(el('p', { class: 'hint', text: e.message })); }
@@ -2467,7 +2511,7 @@ const TTBoard = window.TTBoard = (() => {
     let threads = [];
     let path = [...startPath];                       // selected subtask id per level (level 2, 3, 4)
     let fetchedAt = Date.now();
-    let timeOpen = null, editEntry = null, replyOpen = null;
+    let timeOpen = null, editEntry = null, replyOpen = null, editCmt = null, editDesc = null;
     const cols = el('div', { class: 'kb-nav-cols' });
     const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey, true); clearInterval(tick);
       if (!document.querySelector('.modal:not([hidden])')) document.body.classList.remove('modal-open'); };
@@ -2532,9 +2576,9 @@ const TTBoard = window.TTBoard = (() => {
         box.append(b);
       });
       const canAdd = level < NAV_MAX && (pid == null ? cardNow().can_edit !== false
-        : (cardNow().can_edit !== false || byId(pid)?.task.assignee?.id === meInfo.user?.id));
+        : (cardNow().can_edit !== false || !!byId(pid)?.task.can_edit));
       if (canAdd) {
-        const input = el('input', { class: 'input input-sm', maxlength: '200', placeholder: pid == null ? '＋ 新增子任務（Enter）' : `＋ 新增第 ${level + 1} 層子任務（Enter）` });
+        const input = el('input', { class: 'input input-sm', maxlength: '200', placeholder: pid == null ? '＋ 新增 L2 子任務（Enter）' : `＋ 新增 L${level + 1} 子任務（Enter）` });
         input.addEventListener('keydown', async e => {
           if (e.key !== 'Enter' || e.isComposing || !input.value.trim()) return;
           e.preventDefault(); input.disabled = true;
@@ -2560,8 +2604,69 @@ const TTBoard = window.TTBoard = (() => {
           el('span', { text: `工時 ${fmtMin(subs().reduce((n, c) => n + (c.task.spent_minutes || 0), 0))}` })),
         pr != null ? el('div', { class: 'kb-progress' }, el('span', { class: 'kb-progress-bar' }, el('span', { style: { width: pr + '%' } })), el('span', { class: 'kb-progress-text', text: `${pr}%` })) : null,
         t.description ? el('p', { class: 'kb-nav-desc', text: t.description }) : null,
-        el('div', { class: 'kb-nav-sec', text: '子任務' }),
-        childList(null, 1, 0));
+        el('div', { class: 'kb-nav-sec', text: '子任務（L2）' }),
+        childList(null, 1, 0),
+        el('div', { class: 'kb-nav-sec', text: `卡片留言（${threads.filter(c => !c.task).length}）` }),
+        cardComments());
+    }
+
+    /** One comment (or reply): author, time, text, edit / delete for whoever may. */
+    function cmt(r, onReply) {
+      const editing = editCmt === r.id;
+      const ed = r.can_edit_body && !r.task ? el('button', { class: 'kb-comment-del', type: 'button', title: '修改留言', html: svg('edit') }) : null;
+      const del = r.can_delete && !r.task ? el('button', { class: 'kb-comment-del', type: 'button', title: '刪除留言', html: svg('trash') }) : null;
+      const rp = onReply ? el('button', { class: 'kb-comment-del', type: 'button', title: '回覆', html: svg('message') }) : null;
+      ed?.addEventListener('click', () => { editCmt = editing ? null : r.id; paint(); });
+      del?.addEventListener('click', () => confirm(r.replies?.length ? `刪除這則留言與 ${r.replies.length} 則回覆？` : '刪除這則留言？') && call(`${base}/${r.id}`, { method: 'DELETE' }));
+      rp?.addEventListener('click', onReply);
+      let body;
+      if (editing) {
+        const ta = el('textarea', { class: 'textarea kb-nav-reply', rows: '3' });
+        ta.value = r.body || '';
+        if (meInfo.people) TT.mentionInput(ta);
+        const ok = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: '儲存' });
+        const no = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '取消' });
+        no.addEventListener('click', () => { editCmt = null; paint(); });
+        ok.addEventListener('click', async () => { ok.disabled = true; editCmt = null; await call(`${base}/${r.id}`, { method: 'PUT', body: { body: ta.value } }); });
+        ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ok.click(); } if (e.key === 'Escape') { e.stopPropagation(); no.click(); } });
+        setTimeout(() => ta.isConnected && ta.focus(), 30);
+        body = el('div', { class: 'kb-nav-edit' }, ta, el('div', { class: 'kb-nav-edit-btns' }, no, ok));
+      } else body = el('div', { class: 'kb-nav-cmt-body', text: r.body });
+      return el('div', { class: 'kb-nav-cmt' },
+        el('div', { class: 'kb-nav-cmt-head' }, TT.avatar(r.author, 18), el('strong', { text: TT.nameOf(r.author) }),
+          el('small', { text: (r.created_at || '').slice(5, 16) + (r.edited_at ? '（已編輯）' : '') }), el('span', { class: 'spacer' }), rp, ed, del),
+        body, r.images?.length ? thumbs(r.images, { size: 'sm' }) : null);
+    }
+
+    function newBox(parent, placeholder) {
+      const input = el('textarea', { class: 'textarea kb-nav-reply', rows: '2', placeholder: placeholder + (meInfo.people ? '（@ 提到同事，Ctrl+Enter 送出）' : '（Ctrl+Enter 送出）') });
+      if (meInfo.people) TT.mentionInput(input);
+      const send = el('button', { class: 'btn btn-sm', type: 'button', text: '送出' });
+      send.addEventListener('click', async () => {
+        if (!input.value.trim()) return;
+        send.disabled = true;
+        if (replyOpen === parent) replyOpen = null;
+        const r = await call(base, { method: 'POST', body: parent ? { body: input.value, parent_id: parent } : { body: input.value } });
+        if (!r) send.disabled = false;
+      });
+      input.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send.click(); } });
+      return el('div', { class: 'kb-nav-reply-row' }, input, send);
+    }
+
+    /** Comments on the card itself (threads that are not subtasks), with replies. */
+    function cardComments() {
+      const box = el('div', { class: 'kb-nav-comments' });
+      const list = threads.filter(c => !c.task);
+      list.forEach(c => {
+        box.append(cmt(c, () => { replyOpen = replyOpen === c.id ? null : c.id; paint(); }));
+        if (c.replies?.length || replyOpen === c.id) {
+          box.append(el('div', { class: 'kb-nav-replies' }, (c.replies || []).map(r => cmt(r)),
+            replyOpen === c.id ? newBox(c.id, `回覆 ${TT.nameOf(c.author)}…`) : null));
+        }
+      });
+      if (!list.length) box.append(el('p', { class: 'hint', text: '還沒有留言' }));
+      box.append(newBox(null, '在卡片留言…'));
+      return box;
     }
 
     function timeBlock(c) {
@@ -2630,22 +2735,72 @@ const TTBoard = window.TTBoard = (() => {
 
     function comments(c) {
       const box = el('div', { class: 'kb-nav-comments' });
-      (c.replies || []).forEach(r => box.append(el('div', { class: 'kb-nav-cmt' },
-        el('div', { class: 'kb-nav-cmt-head' }, TT.avatar(r.author, 18), el('strong', { text: TT.nameOf(r.author) }), el('small', { text: (r.created_at || '').slice(5, 16) })),
-        el('div', { class: 'kb-nav-cmt-body', text: r.body }))));
+      (c.replies || []).forEach(r => box.append(cmt(r)));
       if (!(c.replies || []).length) box.append(el('p', { class: 'hint', text: '還沒有留言' }));
-      const input = el('textarea', { class: 'textarea kb-nav-reply', rows: '2', placeholder: meInfo.people ? '留言…（@ 提到同事）' : '留言…' });
-      if (meInfo.people) TT.mentionInput(input);
-      const send = el('button', { class: 'btn btn-sm', type: 'button', text: '送出' });
-      send.addEventListener('click', async () => {
-        if (!input.value.trim()) return;
-        send.disabled = true;
-        const r = await call(base, { method: 'POST', body: { body: input.value, parent_id: c.id } });
-        if (!r) send.disabled = false;
-      });
-      input.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send.click(); } });
-      box.append(el('div', { class: 'kb-nav-reply-row' }, input, send));
+      box.append(newBox(c.id, '留言…'));
       return box;
+    }
+
+    /** Editable fields of a subtask at any level (assignee, priority, dates, estimate). */
+    function fieldsBlock(c) {
+      const s = c.task;
+      const put = body => call(`${base}/${c.id}/task`, { method: 'PUT', body });
+      const box = el('div', { class: 'kb-nav-fields' });
+      const row = (label, ctl) => el('label', { class: 'kb-nav-field' }, el('span', { text: label }), ctl);
+      if (meInfo.people) {
+        const who = el('div', { class: 'kb-nav-who' });
+        const paintWho = () => {
+          const chip = s.assignee ? el('span', { class: 'kb-tree-who' }, TT.avatar(s.assignee, 18), el('span', { text: TT.nameOf(s.assignee) })) : el('span', { class: 'hint', text: '未指派' });
+          const pick = s.can_assign ? el('button', { class: 'kb-link-btn', type: 'button', html: svg('user') + `<span>${s.assignee ? '改派' : '指派'}</span>` }) : null;
+          const clear = s.can_assign && s.assignee ? el('button', { class: 'kb-comment-del', type: 'button', title: '取消指派', html: svg('x') }) : null;
+          clear?.addEventListener('click', () => put({ assignee: '' }));
+          pick?.addEventListener('click', () => {
+            const inp = TT.mentionInput(el('input', { class: 'input input-sm', placeholder: '輸入姓名或帳號…' }), { onPick: p => put({ assignee: p.username }) });
+            inp.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); paintWho(); } });
+            inp.addEventListener('blur', () => setTimeout(() => inp.isConnected && paintWho(), 200));
+            who.replaceChildren(inp); inp.focus();
+          });
+          who.replaceChildren(...[chip, clear, pick].filter(Boolean));
+        };
+        paintWho();
+        box.append(el('div', { class: 'kb-nav-field is-wide' }, el('span', { text: '負責' }), who));
+      }
+      const prio = el('select', { class: 'select input-sm', disabled: !s.can_edit }, PRIORITIES.map(([v, l]) => el('option', { value: v, text: l, selected: v === (s.priority || 'normal') })));
+      prio.addEventListener('change', () => put({ priority: prio.value }));
+      box.append(row('優先', prio));
+      const date = key => {
+        const inp = el('input', { class: 'input input-sm', type: 'date', value: (s[key] || '').slice(0, 10), disabled: !s.can_edit });
+        inp.addEventListener('change', () => put({ [key]: inp.value ? inp.value + (s[key]?.includes('T') ? s[key].slice(10) : '') : null }));
+        return inp;
+      };
+      box.append(row('開始', date('start_at')), row('到期', date('due_at')));
+      const est = el('input', { class: 'input input-sm', type: 'number', min: '0', max: '1000', step: '0.5', placeholder: '—', disabled: !s.can_edit,
+        value: s.estimate_minutes ? String(+(s.estimate_minutes / 60).toFixed(2)) : '' });
+      est.addEventListener('change', () => { const h = parseFloat(est.value); put({ estimate_minutes: Number.isFinite(h) && h > 0 ? Math.round(h * 60) : null }); });
+      box.append(row('預估（時）', est));
+      return box;
+    }
+
+    function descBlock(c) {
+      const s = c.task;
+      const text = c.body && c.body.trim() !== (s.title || '').trim() ? c.body : '';
+      if (editDesc === c.id) {
+        const ta = el('textarea', { class: 'textarea kb-nav-reply', rows: '4', placeholder: '細節、步驟、注意事項…' });
+        ta.value = text;
+        if (meInfo.people) TT.mentionInput(ta);
+        const ok = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: '儲存' });
+        const no = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '取消' });
+        no.addEventListener('click', () => { editDesc = null; paint(); });
+        ok.addEventListener('click', async () => { ok.disabled = true; editDesc = null; await call(`${base}/${c.id}`, { method: 'PUT', body: { body: ta.value } }); });
+        ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ok.click(); } if (e.key === 'Escape') { e.stopPropagation(); no.click(); } });
+        setTimeout(() => ta.isConnected && ta.focus(), 30);
+        return el('div', { class: 'kb-nav-edit' }, ta, el('div', { class: 'kb-nav-edit-btns' }, no, ok));
+      }
+      const ed = c.can_edit_body ? el('button', { class: 'kb-link-btn', type: 'button', html: svg('edit') + `<span>${text ? '修改說明' : '加說明'}</span>` }) : null;
+      ed?.addEventListener('click', () => { editDesc = c.id; paint(); });
+      return el('div', { class: 'kb-nav-descbox' },
+        text ? el('p', { class: 'kb-nav-desc', text }) : (ed ? null : el('p', { class: 'hint', text: '沒有說明' })),
+        c.images?.length ? thumbs(c.images, { size: 'sm' }) : null, ed);
     }
 
     function detailColumn(c, level, colIndex) {
@@ -2662,18 +2817,27 @@ const TTBoard = window.TTBoard = (() => {
         const n = kids(c.id).length;
         if (confirm(`刪除「${s.title}」？` + (n ? `\n底下 ${n} 個子任務也會一起刪除。` : ''))) { path = path.slice(0, colIndex - 1); call(`${base}/${c.id}`, { method: 'DELETE' }); }
       });
+      let title;
+      if (s.can_edit) {
+        title = el('input', { class: 'input kb-nav-title-in', value: s.title || '', maxlength: '200', title: '子任務名稱（Enter 儲存）' });
+        title.addEventListener('change', () => {
+          const v = title.value.trim();
+          if (v && v !== s.title) call(`${base}/${c.id}/task`, { method: 'PUT', body: { title: v } }); else title.value = s.title;
+        });
+        title.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); title.blur(); } });
+      } else title = el('h4', { class: 'kb-nav-title', text: s.title });
+      const more = el('button', { class: 'kb-link-btn', type: 'button', title: '附件、時間、提醒等完整設定', html: svg(s.can_edit ? 'edit' : 'external') + `<span>${s.can_edit ? '更多設定' : '檢視'}</span>` });
+      more.addEventListener('click', () => openSubtaskEditor(cardNow(), c, () => reload()));
       return el('section', { class: 'kb-nav-col', style: { '--c': (STATUS[s.status] || STATUS.new).color } },
-        el('div', { class: 'kb-nav-kicker' }, el('span', { text: `L${level} // 子任務` }), el('span', { class: 'spacer' }), del),
-        el('h4', { class: 'kb-nav-title', text: s.title }),
-        stSel,
-        el('div', { class: 'kb-nav-meta' },
-          s.assignee ? el('span', { class: 'kb-tree-who' }, TT.avatar(s.assignee, 18), el('span', { text: TT.nameOf(s.assignee) })) : el('span', { class: 'hint', text: '未指派' }),
-          s.due_at ? el('span', { class: `kb-nav-due due-${tm.due || ''}`, text: tm.dueText || fmt(s.due_at) }) : null,
-          s.estimate_minutes ? el('span', { text: `預估 ${fmtMin(s.estimate_minutes)}` }) : null),
-        c.body && c.body.trim() && c.body.trim() !== s.title ? el('p', { class: 'kb-nav-desc', text: c.body }) : null,
+        el('div', { class: 'kb-nav-kicker' }, el('span', { text: `L${level} // 子任務` }), el('span', { class: 'spacer' }), more, del),
+        title,
+        el('div', { class: 'kb-nav-strow' }, stSel,
+          tm.due && tm.due !== 'later' ? el('span', { class: `kb-nav-due due-${tm.due}`, text: tm.dueText }) : null),
+        fieldsBlock(c),
+        el('div', { class: 'kb-nav-sec', text: '說明' }), descBlock(c),
         el('div', { class: 'kb-nav-sec', text: '工時紀錄' }), timeBlock(c),
         el('div', { class: 'kb-nav-sec', text: `留言（${(c.replies || []).length}）` }), comments(c),
-        level < NAV_MAX ? el('div', { class: 'kb-nav-sec', text: `第 ${level + 1} 層子任務` }) : null,
+        level < NAV_MAX ? el('div', { class: 'kb-nav-sec', text: `下層子任務（L${level + 1}）` }) : null,
         level < NAV_MAX ? childList(c.id, level, colIndex) : null);
     }
 
