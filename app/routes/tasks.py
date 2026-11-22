@@ -149,15 +149,30 @@ async def spawn_next(db, task_id: int, today: Optional[date] = None) -> Optional
         if copied:
             await db.execute("""INSERT INTO task_images (task_id, user_id, stored, mime, name, size, kind)
                                 VALUES (?, ?, ?, ?, ?, ?, ?)""", (new_id, im["user_id"], copied, im["mime"], im["name"], im["size"], im["kind"]))
-    cur = await db.execute("""SELECT user_id, body, title, start_at, due_at, assignee_id, estimate_minutes, sort_order, priority, remind
+    cur = await db.execute("""SELECT id, task_parent_id, user_id, body, title, start_at, due_at, assignee_id, estimate_minutes,
+                                     sort_order, priority, remind
                               FROM task_comments WHERE task_id = ? AND is_task = 1 AND parent_id IS NULL
                               AND status != 'canceled' ORDER BY COALESCE(sort_order, id), id""", (task_id,))
-    for c in await cur.fetchall():
-        await db.execute("""INSERT INTO task_comments (task_id, user_id, body, is_task, title, status, start_at, due_at,
-                                                       assignee_id, estimate_minutes, sort_order, priority, remind)
-                            VALUES (?, ?, ?, 1, ?, 'new', ?, ?, ?, ?, ?, ?, ?)""",
-                         (new_id, c["user_id"], c["body"], c["title"], _shift(c["start_at"], delta), _shift(c["due_at"], delta),
-                          c["assignee_id"], c["estimate_minutes"], c["sort_order"], c["priority"], c["remind"]))
+    subs = await cur.fetchall()
+    copied_ids = {}                                       # the whole subtask tree, parents before children
+    pending = list(subs)
+    while pending:
+        rest = []
+        for c in pending:
+            if c["task_parent_id"] and c["task_parent_id"] not in copied_ids:
+                if any(x["id"] == c["task_parent_id"] for x in subs):
+                    rest.append(c)
+                continue                                  # its parent was canceled: not copied
+            cur2 = await db.execute("""INSERT INTO task_comments (task_id, user_id, body, is_task, title, status, start_at, due_at,
+                                                           assignee_id, estimate_minutes, sort_order, priority, remind, task_parent_id)
+                                VALUES (?, ?, ?, 1, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?)""",
+                             (new_id, c["user_id"], c["body"], c["title"], _shift(c["start_at"], delta), _shift(c["due_at"], delta),
+                              c["assignee_id"], c["estimate_minutes"], c["sort_order"], c["priority"], c["remind"],
+                              copied_ids.get(c["task_parent_id"])))
+            copied_ids[c["id"]] = cur2.lastrowid
+        if len(rest) == len(pending):
+            break
+        pending = rest
     await db.execute("UPDATE tasks SET next_id = ? WHERE id = ?", (new_id, task_id))
     return new_id
 
@@ -600,7 +615,7 @@ async def _rollup(db, ids: List[int], me) -> dict:
                (SELECT COALESCE(SUM(minutes), 0) FROM task_time tt WHERE tt.comment_id = c.id) AS spent,
                u.username AS a_username, u.display_name AS a_name, u.department AS a_department
         FROM task_comments c LEFT JOIN users u ON u.id = c.assignee_id
-        WHERE c.task_id IN ({marks}) AND c.is_task = 1 AND c.parent_id IS NULL
+        WHERE c.task_id IN ({marks}) AND c.is_task = 1 AND c.parent_id IS NULL AND c.task_parent_id IS NULL
         ORDER BY COALESCE(c.sort_order, c.id), c.id""", ids)
     out = {}
     for c in await cur.fetchall():
@@ -953,6 +968,9 @@ async def _import_plan(items: List[dict], user: dict) -> List[dict]:
                     elif fields:
                         out["action"], out["_op"] = "update", ("sub_update", it["id"], fields)
                 else:
+                    if it.get("depth", 1) >= 2:
+                        out["errors"].append("下層子任務（編號三段以上）請在看板的任務視窗新增；匯入只能新增第一層子任務")
+                        continue
                     if ctx["id"] and not ctx["edit"]:
                         out["errors"].append("你沒有權限在這張卡片加子任務")
                         continue
@@ -1548,7 +1566,7 @@ async def list_comments(task_id: int, request: Request):
         for c in rows:
             item = {
                 "id": c["id"], "body": c["body"], "created_at": c["created_at"], "images": pics.get(c["id"], []),
-                "parent_id": c["parent_id"],
+                "parent_id": c["parent_id"], "task_parent_id": c["task_parent_id"],
                 "author": _person(c["user_id"], c["username"], c["display_name"]) or {"id": None, "name": "本機"},
                 "can_delete": acc_all or (c["user_id"] is not None and c["user_id"] == me) or (me is None),
                 "can_reply": True,
@@ -1688,6 +1706,8 @@ async def delete_comment(task_id: int, comment_id: int, request: Request):
         files = [r["stored"] for r in await cur.fetchall()]
         await db.execute("DELETE FROM task_comments WHERE id = ?", (comment_id,))
         await _sync_subtask_members(db, task_id)
+        if c["task_parent_id"]:
+            await rollup_subtask(db, c["task_parent_id"])
         await rollup_status(db, task_id)
         await db.commit()
         img.remove(files)
@@ -1716,6 +1736,11 @@ async def update_subtask(task_id: int, comment_id: int, body: SubtaskIn, request
             raise HTTPException(status_code=403, detail="只有能編輯這張卡片的人可以設定或指派子任務；子任務負責人可以修改其他內容")
         is_task = bool(c["is_task"]) if body.is_task is None else body.is_task
         if not is_task:
+            cur = await db.execute("SELECT 1 FROM task_comments WHERE task_parent_id = ? LIMIT 1", (comment_id,))
+            if await cur.fetchone():
+                raise HTTPException(status_code=400, detail="這個子任務底下還有子任務，請先刪除或移走它們")
+            if c["task_parent_id"]:
+                raise HTTPException(status_code=400, detail="下層子任務不能改回一般留言，可以直接刪除")
             await db.execute("UPDATE task_comments SET is_task = 0 WHERE id = ?", (comment_id,))
             await db.execute("UPDATE task_time SET ended_at = CURRENT_TIMESTAMP, minutes = MAX(1, CAST(ROUND((julianday('now') - julianday(started_at)) * 1440) AS INTEGER)) WHERE comment_id = ? AND ended_at IS NULL AND started_at IS NOT NULL", (comment_id,))
             await _sync_subtask_members(db, task_id)
@@ -1769,6 +1794,8 @@ async def update_subtask(task_id: int, comment_id: int, body: SubtaskIn, request
         if fields.get("status") in CLOSED:      # closing stops running timers
             await db.execute("UPDATE task_time SET ended_at = CURRENT_TIMESTAMP, minutes = MAX(1, CAST(ROUND((julianday('now') - julianday(started_at)) * 1440) AS INTEGER)) WHERE comment_id = ? AND ended_at IS NULL AND started_at IS NOT NULL", (comment_id,))
         await _sync_subtask_members(db, task_id)
+        if c["task_parent_id"] and "status" in fields:      # a subtask of a subtask: its parents follow
+            await rollup_subtask(db, c["task_parent_id"])
         await rollup_status(db, task_id)
 
         title = fields.get("title") or c["title"] or "子任務"
@@ -1871,7 +1898,8 @@ async def order_subtasks(task_id: int, body: OrderIn, request: Request):
     try:
         await _get_visible(db, task_id, user)
         await _require_edit(db, task_id, user)
-        cur = await db.execute("SELECT id FROM task_comments WHERE task_id = ? AND is_task = 1 AND parent_id IS NULL", (task_id,))
+        cur = await db.execute("SELECT id FROM task_comments WHERE task_id = ? AND is_task = 1 AND parent_id IS NULL AND task_parent_id IS NULL",
+                               (task_id,))
         mine = {r["id"] for r in await cur.fetchall()}
         ids = [i for i in dict.fromkeys(body.ids) if i in mine]
         rest = sorted(mine - set(ids))                    # anything not sent keeps its place at the end
@@ -1892,7 +1920,8 @@ async def order_subtasks(task_id: int, body: OrderIn, request: Request):
 # until then a card whose subtasks are all done waits in Pending.
 async def _subtask_states(db, task_id: int) -> List[str]:
     cur = await db.execute("""SELECT COALESCE(status, 'new') AS s FROM task_comments
-                              WHERE task_id = ? AND is_task = 1 AND parent_id IS NULL AND COALESCE(status, 'new') != 'canceled'""", (task_id,))
+                              WHERE task_id = ? AND is_task = 1 AND parent_id IS NULL AND task_parent_id IS NULL
+                              AND COALESCE(status, 'new') != 'canceled'""", (task_id,))
     return [r["s"] for r in await cur.fetchall()]
 
 
@@ -1951,12 +1980,119 @@ async def rollup_status(db, task_id: int) -> Optional[str]:
     return want
 
 
+SUB_MAX_DEPTH = 3          # subtask levels below the card (card + 3 = 4 levels)
+
+
+async def subtask_depth(db, comment_id) -> int:
+    """1 = a subtask of the card, 2 = its subtask, …"""
+    depth, cid = 0, comment_id
+    while cid and depth < 10:
+        cur = await db.execute("SELECT task_parent_id FROM task_comments WHERE id = ?", (cid,))
+        r = await cur.fetchone()
+        if not r:
+            break
+        depth += 1
+        cid = r["task_parent_id"]
+    return depth
+
+
+async def rollup_subtask(db, comment_id: int):
+    """A subtask with subtasks of its own follows them like a card follows its subtasks (and so on up)."""
+    for _ in range(SUB_MAX_DEPTH):
+        cur = await db.execute("SELECT id, status, task_parent_id FROM task_comments WHERE id = ? AND is_task = 1", (comment_id,))
+        c = await cur.fetchone()
+        if not c or (c["status"] or "new") == "canceled":
+            return
+        cur = await db.execute("""SELECT COALESCE(status, 'new') AS s FROM task_comments
+                                  WHERE task_parent_id = ? AND is_task = 1 AND COALESCE(status, 'new') != 'canceled'""", (comment_id,))
+        states = [r["s"] for r in await cur.fetchall()]
+        if states:
+            want = derive_status(states, 0)
+            if want != (c["status"] or "new"):
+                await db.execute("""UPDATE task_comments SET status = ?,
+                                    completed_at = CASE WHEN ? = 'complete' THEN CURRENT_TIMESTAMP END WHERE id = ?""",
+                                 (want, want, comment_id))
+                if want in CLOSED:
+                    await db.execute(STOP_SQL + "comment_id = ?", (comment_id,))
+        if not c["task_parent_id"]:
+            return
+        comment_id = c["task_parent_id"]
+
+
+class SubtaskNew(BaseModel):
+    title: str
+    parent: Optional[int] = None            # a subtask's id: the new one goes below it; empty = directly on the card
+    assignee: Optional[str] = None
+    due_at: Optional[str] = None
+
+    @field_validator("title")
+    @classmethod
+    def v_title(cls, v):
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("請輸入子任務名稱")
+        return v[:200]
+
+    @field_validator("due_at")
+    @classmethod
+    def v_due(cls, v):
+        return _date(v)
+
+
+@router.post("/{task_id}/subtasks")
+async def create_subtask(task_id: int, body: SubtaskNew, request: Request):
+    """New subtask on the card, or below another subtask (card + 3 levels at most).
+    Card editors may add anywhere; a subtask's assignee may add below their own subtask."""
+    user = current_user(request)
+    me = user.get("id")
+    db = await get_db()
+    try:
+        t = await _get_visible(db, task_id, user)
+        editor = await _can_edit(db, task_id, user)
+        if body.parent:
+            p = await _comment(db, task_id, body.parent)
+            if not p["is_task"] or p["parent_id"]:
+                raise HTTPException(status_code=400, detail="只能在子任務底下新增子任務")
+            if await subtask_depth(db, body.parent) >= SUB_MAX_DEPTH:
+                raise HTTPException(status_code=400, detail="最多四層（主卡＋三層子任務）")
+            if not editor and not (me is not None and p["assignee_id"] == me):
+                raise HTTPException(status_code=403, detail="只有能編輯卡片的人或這個子任務的負責人可以新增下層子任務")
+        elif not editor:
+            raise HTTPException(status_code=403, detail="只有能編輯這張卡片的人可以新增子任務")
+        assignee = None
+        if body.assignee:
+            people = await _resolve_people(db, [body.assignee])
+            if not people:
+                raise HTTPException(status_code=400, detail=f"找不到帳號 {body.assignee}")
+            assignee = people[0]
+            if assignee["id"] != me:
+                await _check_subtask_assignee(db, user, t, assignee)
+        cur = await db.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM task_comments WHERE task_id = ? AND is_task = 1 AND task_parent_id IS ?",
+                               (task_id, body.parent))
+        order = (await cur.fetchone())["n"]
+        cur = await db.execute("""INSERT INTO task_comments (task_id, user_id, body, is_task, title, status, due_at, assignee_id, sort_order, task_parent_id)
+                                  VALUES (?, ?, '', 1, ?, 'new', ?, ?, ?, ?)""",
+                               (task_id, me, body.title, body.due_at, assignee["id"] if assignee else None, order, body.parent))
+        new_id = cur.lastrowid
+        await _sync_subtask_members(db, task_id)
+        if body.parent:
+            await rollup_subtask(db, body.parent)
+        await rollup_status(db, task_id)
+        if assignee and me is not None and assignee["id"] != me:
+            await notify(db, {assignee["id"]}, task_id, user, "assigned", f"{_who(user)} 指派子任務「{body.title}」給你（卡片「{t['title']}」）")
+        await db.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))
+        await db.commit()
+        return {"id": new_id}
+    finally:
+        await db.close()
+
+
 async def rollup_all() -> int:
     """Bring every summary card in line with its subtasks (run once at startup, e.g. after an upgrade)."""
     db = await get_db()
     try:
         cur = await db.execute("""SELECT DISTINCT c.task_id FROM task_comments c JOIN tasks t ON t.id = c.task_id
-                                  WHERE c.is_task = 1 AND c.parent_id IS NULL AND t.status != 'canceled'""")
+                                  WHERE c.is_task = 1 AND c.parent_id IS NULL AND c.task_parent_id IS NULL AND t.status != 'canceled'""")
         ids = [r[0] for r in await cur.fetchall()]
         changed = 0
         for i in ids:

@@ -1095,8 +1095,9 @@ const TTBoard = window.TTBoard = (() => {
       const done = subs.filter(s => s.status === 'complete').length;
       const btn = el('button', { class: 'kb-tree-toggle' + (open ? ' open' : ''), type: 'button', title: open ? '收合任務樹' : '展開任務樹：子任務與協作人' },
         el('span', { text: [subs.length ? `子任務 ${done}/${subs.length}` : null, collab.length ? `協作 ${collab.filter(x => x.done).length}/${collab.filter(x => x.counts).length || collab.length}` : null].filter(Boolean).join(' · ') }),
-        el('span', { class: 'kb-tree-caret', text: open ? '▾' : '▸' }));
-      btn.addEventListener('click', e => { e.stopPropagation(); open ? expanded.delete(t.id) : expanded.add(t.id); render(); });
+        el('span', { class: 'kb-tree-caret', text: '⧉' }));
+      btn.title = '開啟任務視窗：子任務由左至右展開（工時、留言、下層子任務）';
+      btn.addEventListener('click', e => { e.stopPropagation(); openNavigator(t); });
       btn.addEventListener('mousedown', e => e.stopPropagation());
       const bar = el('div', { class: 'kb-tree-bar' }, btn);
       if (!open) return bar;
@@ -1685,6 +1686,8 @@ const TTBoard = window.TTBoard = (() => {
     const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: '取消' });
     const del = task && task.can_delete !== false ? el('button', { class: 'btn btn-danger kb-del', type: 'button', html: svg('trash') + '刪除' }) : null;
     const xlsBtn = task ? el('button', { class: 'btn btn-ghost', type: 'button', title: '把這張卡片（含子任務、留言、工時）匯出成 Excel', html: svg('download') + 'Excel' }) : null;
+    const navBtn = task ? el('button', { class: 'btn btn-ghost', type: 'button', title: '任務視窗：子任務由左至右展開，最多四層', html: svg('layout') + '任務視窗' }) : null;
+    navBtn?.addEventListener('click', () => { close(); openNavigator(task); });
     xlsBtn?.addEventListener('click', () => exportXlsx([task.id]));
     const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': '關閉', html: svg('x') });
     // --- OpenProject: which project this card is pushed to (+ sync state)
@@ -1789,7 +1792,7 @@ const TTBoard = window.TTBoard = (() => {
         paintOrder(); paint();
       });
 
-      let threads = [];
+      let threads = [], allThreads = [];
       let fetchedAt = Date.now();
       let replyTo = null;                 // { root, mention }
       let openLogs = new Set();           // subtasks whose time log is expanded
@@ -2003,6 +2006,8 @@ const TTBoard = window.TTBoard = (() => {
         const isRoot = !root;
         const actions = el('span', { class: 'kb-comment-actions' },
           linkBtn('回覆', 'message', () => { replyTo = { root: (root || c).id, mention: isRoot ? null : c.author?.username }; paint(); }),
+          c.task ? linkBtn(`任務樹${(() => { const n = allThreads.filter(x => x.task_parent_id === c.id).length; return n ? `（${n}）` : ''; })()}`, 'layout',
+            () => openNavigator(task, [c.id]), '在任務視窗展開：工時、留言與下層子任務（最多四層）') : null,
           c.can_edit_body && !c.task ? linkBtn('編輯', 'edit', () => { editing = c.id; paint(); }) : null,
           isRoot && c.can_make_task ? (c.task
             ? linkBtn('取消子任務', 'x', () => { if (confirm(`把「${c.task.title}」改回一般留言？（工時記錄會保留）`)) subPut(c, { is_task: false }); }, '改回一般留言')
@@ -2136,7 +2141,8 @@ const TTBoard = window.TTBoard = (() => {
       const loadComments = async () => {
         refreshComments = loadComments;
         try {
-          threads = await api(`/api/tasks/${task.id}/comments`);
+          allThreads = await api(`/api/tasks/${task.id}/comments`);
+          threads = allThreads.filter(c => !c.task_parent_id);          // subtasks of subtasks: in the task window
           fetchedAt = Date.now();
           paint();
         } catch (e) { listBox.replaceChildren(el('p', { class: 'hint', text: e.message })); }
@@ -2235,7 +2241,7 @@ const TTBoard = window.TTBoard = (() => {
           opBox,
           meta,
           comments),
-        el('div', { class: 'modal-foot' }, del, xlsBtn, el('span', { class: 'spacer' }), cancel, ok)));
+        el('div', { class: 'modal-foot' }, del, xlsBtn, navBtn, el('span', { class: 'spacer' }), cancel, ok)));
 
     const close = () => { stopTicker(); wrap.remove(); document.removeEventListener('keydown', onKey); document.body.classList.remove('modal-open'); };
     const onKey = e => {
@@ -2450,5 +2456,241 @@ const TTBoard = window.TTBoard = (() => {
     loadNotes();
   }
 
-  return { init, load, refresh, mount, mountBell, openEditor, openTask, exportXlsx, importXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; } };
+
+  // ------------------------------------------------------------ task window (navigator)
+  // A floating window: the card on the left, its subtasks as title-only cards to the right; clicking one
+  // opens its details (status, time log, comments, its own subtasks) in the next column. One open path:
+  // clicking another card of the same level folds the previous one back. Card + 3 levels at most.
+  const NAV_MAX = 4;
+  function openNavigator(card, startPath = []) {
+    document.querySelector('.kb-nav-modal')?.remove();
+    let threads = [];
+    let path = [...startPath];                       // selected subtask id per level (level 2, 3, 4)
+    let fetchedAt = Date.now();
+    let timeOpen = null, editEntry = null, replyOpen = null;
+    const cols = el('div', { class: 'kb-nav-cols' });
+    const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey, true); clearInterval(tick);
+      if (!document.querySelector('.modal:not([hidden])')) document.body.classList.remove('modal-open'); };
+    const onKey = e => { if (e.key === 'Escape' && !e.defaultPrevented) { e.stopPropagation(); close(); } };
+    const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': '關閉', html: svg('x') });
+    closeBtn.addEventListener('click', close);
+    const full = el('button', { class: 'btn btn-sm', type: 'button', html: svg('edit') + '完整編輯' });
+    full.addEventListener('click', () => { close(); openEditor(tasks.find(x => x.id === card.id) || card); });
+    const wrap = el('div', { class: 'modal kb-nav-modal' },
+      el('div', { class: 'modal-card kb-nav', role: 'dialog', 'aria-modal': 'true', 'aria-label': '任務視窗' },
+        el('div', { class: 'modal-head' }, el('h3', { html: svg('layout') + '任務視窗' }), el('span', { class: 'kb-nav-crumbs' }), el('span', { class: 'spacer' }), full, closeBtn),
+        cols));
+    wrap.addEventListener('mousedown', e => { if (e.target === wrap) close(); });
+    document.addEventListener('keydown', onKey, true);
+    document.body.append(wrap);
+    document.body.classList.add('modal-open');
+    const tick = setInterval(() => wrap.querySelectorAll('[data-elapsed]').forEach(x => {
+      const sec = Number(x.dataset.elapsed) + Math.floor((Date.now() - fetchedAt) / 1000);
+      x.textContent = `${Math.floor(sec / 3600)}:${String(Math.floor(sec / 60) % 60).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
+    }), 1000);
+
+    const subs = () => threads.filter(c => c.task);
+    const byId = id => threads.find(c => c.id === id);
+    const kids = pid => subs().filter(c => (c.task_parent_id || null) === pid)
+      .sort((a, b) => (a.task.sort_order ?? a.id) - (b.task.sort_order ?? b.id) || a.id - b.id);
+    const treeMinutes = id => { const c = byId(id); return (c ? c.task.spent_minutes || 0 : 0) + kids(id).reduce((n, k) => n + treeMinutes(k.id), 0); };
+    const cardNow = () => tasks.find(x => x.id === card.id) || card;
+    async function reload(board = true) {
+      try { threads = await api(`/api/tasks/${card.id}/comments`); fetchedAt = Date.now(); }
+      catch (e) { toast(e.message, true); return; }
+      path = path.filter((id, i) => { const c = byId(id); return c && (c.task_parent_id || null) === (i ? path[i - 1] : null); });
+      paint();
+      if (board) load(true).catch(() => {});
+    }
+    const call = async (url, opts) => { try { const r = await api(url, opts); await reload(); return r; } catch (e) { toast(e.message, true); return null; } };
+    const base = `/api/tasks/${card.id}/comments`;
+
+    function stChip(status) { const st = STATUS[status] || STATUS.new; return el('span', { class: 'kb-nav-st', style: { '--c': st.color }, text: st.label }); }
+
+    function childList(pid, level, colIndex) {
+      const list = kids(pid);
+      const box = el('div', { class: 'kb-nav-list' });
+      list.forEach((c, i) => {
+        const st = STATUS[c.task.status] || STATUS.new;
+        const tm = timing({ status: c.task.status, due_at: c.task.due_at });
+        const n = kids(c.id).length;
+        const on = path[colIndex] === c.id;
+        const b = el('button', { class: 'kb-nav-item' + (on ? ' on' : '') + (CLOSED.has(c.task.status) ? ' is-closed' : ''), type: 'button', style: { '--c': st.color },
+          title: `${c.task.title}（${st.zh}）` },
+          el('span', { class: 'kb-nav-item-title', text: c.task.title }),
+          el('span', { class: 'kb-nav-item-meta' },
+            c.task.assignee ? TT.avatar(c.task.assignee, 18) : null,
+            c.task.due_at ? el('span', { class: `kb-nav-due due-${tm.due || ''}`, text: tm.dueText || fmt(c.task.due_at) }) : null,
+            n ? el('span', { class: 'kb-nav-n', text: `${kids(c.id).filter(k => k.task.status === 'complete').length}/${n}` }) : null),
+          el('span', { class: 'kb-nav-go', text: on ? '◂' : '▸' }));
+        b.addEventListener('click', () => {
+          // focus: open this one, fold whatever was open at this level and below
+          path = on ? path.slice(0, colIndex) : [...path.slice(0, colIndex), c.id];
+          timeOpen = editEntry = replyOpen = null;
+          paint(true);
+        });
+        box.append(b);
+      });
+      const canAdd = level < NAV_MAX && (pid == null ? cardNow().can_edit !== false
+        : (cardNow().can_edit !== false || byId(pid)?.task.assignee?.id === meInfo.user?.id));
+      if (canAdd) {
+        const input = el('input', { class: 'input input-sm', maxlength: '200', placeholder: pid == null ? '＋ 新增子任務（Enter）' : `＋ 新增第 ${level + 1} 層子任務（Enter）` });
+        input.addEventListener('keydown', async e => {
+          if (e.key !== 'Enter' || e.isComposing || !input.value.trim()) return;
+          e.preventDefault(); input.disabled = true;
+          const r = await call(`/api/tasks/${card.id}/subtasks`, { method: 'POST', body: { title: input.value.trim(), parent: pid } });
+          if (!r) input.disabled = false;
+        });
+        box.append(input);
+      } else if (!list.length) box.append(el('p', { class: 'hint', text: level >= NAV_MAX ? '已是第四層' : '沒有子任務' }));
+      return box;
+    }
+
+    function cardColumn() {
+      const t = cardNow();
+      const sub = t.subtasks;
+      const pr = sub && sub.total ? Math.round(sub.done / Math.max(1, sub.total - (sub.canceled || 0)) * 100) : null;
+      return el('section', { class: 'kb-nav-col is-card' },
+        el('div', { class: 'kb-nav-kicker', text: 'L1 // 主卡' }),
+        el('div', { class: 'kb-nav-head' }, stChip(t.status), el('h4', { class: 'kb-nav-title', text: t.title })),
+        t.tags?.length ? el('div', { class: 'kb-tags' }, t.tags.map(x => tagChip(x))) : null,
+        el('div', { class: 'kb-nav-meta' },
+          t.start_at ? el('span', { text: `開始 ${fmt(t.start_at)}` }) : null,
+          t.due_at ? el('span', { text: `到期 ${fmt(t.due_at)}` }) : null,
+          el('span', { text: `工時 ${fmtMin(subs().reduce((n, c) => n + (c.task.spent_minutes || 0), 0))}` })),
+        pr != null ? el('div', { class: 'kb-progress' }, el('span', { class: 'kb-progress-bar' }, el('span', { style: { width: pr + '%' } })), el('span', { class: 'kb-progress-text', text: `${pr}%` })) : null,
+        t.description ? el('p', { class: 'kb-nav-desc', text: t.description }) : null,
+        el('div', { class: 'kb-nav-sec', text: '子任務' }),
+        childList(null, 1, 0));
+    }
+
+    function timeBlock(c) {
+      const s = c.task;
+      const running = s.my_timer;
+      const below = treeMinutes(c.id) - (s.spent_minutes || 0);
+      const box = el('div', { class: 'kb-nav-time' });
+      const head = el('div', { class: 'kb-nav-time-head' },
+        el('span', { html: svg('clock') + `<b>${fmtMin(s.spent_minutes)}</b>` + (below ? `<span class="hint">　含下層 ${fmtMin(treeMinutes(c.id))}</span>` : '') }),
+        el('span', { class: 'spacer' }),
+        running ? el('span', { class: 'kb-timer-clock', dataset: { elapsed: running.elapsed } }) : null);
+      if (s.can_update && (running || !CLOSED.has(s.status))) {
+        const tb = el('button', { class: 'btn btn-sm' + (running ? ' btn-danger' : ''), type: 'button', html: running ? '■ 停止' : '▶ 計時' });
+        tb.addEventListener('click', async () => {
+          tb.disabled = true;
+          const r = await call(`${base}/${c.id}/timer`, { method: 'POST', body: { action: running ? 'stop' : 'start', work_date: isoDay(now()) } });
+          if (running && r && r.entry) { editEntry = { cid: c.id, entry: r.entry, prompt: true }; paint(); }
+        });
+        const add = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', html: svg('plus') + '記錄' });
+        add.addEventListener('click', () => { timeOpen = timeOpen === c.id ? null : c.id; editEntry = null; paint(); });
+        head.append(tb, add);
+      }
+      box.append(head);
+      if (timeOpen === c.id) box.append(timeForm(c, null, false));
+      if (editEntry && editEntry.cid === c.id) box.append(timeForm(c, editEntry.entry, editEntry.prompt));
+      const log = el('div', { class: 'kb-nav-log' });
+      (s.entries || []).forEach(e => {
+        const ed = e.can_delete && !e.running ? el('button', { class: 'kb-comment-del', type: 'button', title: '修改', html: svg('edit') }) : null;
+        const del = e.can_delete && !e.running ? el('button', { class: 'kb-comment-del', type: 'button', title: '刪除', html: svg('trash') }) : null;
+        ed?.addEventListener('click', () => { editEntry = { cid: c.id, entry: e }; timeOpen = null; paint(); });
+        del?.addEventListener('click', () => confirm('刪除這筆工時？') && call(`${base}/${c.id}/time/${e.id}`, { method: 'DELETE' }));
+        log.append(el('div', { class: 'kb-time-row' },
+          el('span', { class: 'kb-time-date', text: e.work_date ? e.work_date.slice(5).replace('-', '/') : '' }),
+          el('b', { text: e.running ? '計時中…' : fmtMin(e.minutes) }),
+          el('span', { class: 'kb-time-note' + (e.note ? '' : ' is-empty'), text: e.note || (e.running ? '' : '（沒有說明）') }),
+          meInfo.people && e.user ? el('span', { class: 'kb-time-user', text: TT.nameOf(e.user) }) : null, ed, del));
+      });
+      if (!(s.entries || []).length) log.append(el('p', { class: 'hint', text: '還沒有工時紀錄' }));
+      box.append(log);
+      return box;
+    }
+
+    function timeForm(c, entry, prompt) {
+      const mins = entry ? entry.minutes || 0 : 60;
+      const h = el('input', { class: 'input input-sm', type: 'number', min: '0', max: '24', value: String(Math.floor(mins / 60)), 'aria-label': '小時' });
+      const m = el('input', { class: 'input input-sm', type: 'number', min: '0', max: '59', step: '5', value: String(mins % 60), 'aria-label': '分鐘' });
+      const day = el('input', { class: 'input input-sm', type: 'date', value: entry?.work_date || isoDay(now()) });
+      const note = el('input', { class: 'input input-sm kb-time-note-in', maxlength: '200', value: entry?.note || '', placeholder: '這段時間做了什麼？' });
+      const ok = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: entry ? '儲存' : '記錄' });
+      const skip = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: prompt ? '略過' : '取消' });
+      skip.addEventListener('click', () => { timeOpen = editEntry = null; paint(); });
+      ok.addEventListener('click', async () => {
+        const minutes = (parseInt(h.value, 10) || 0) * 60 + (parseInt(m.value, 10) || 0);
+        if (minutes < 1) { toast('請輸入工時', true); return; }
+        ok.disabled = true;
+        timeOpen = editEntry = null;
+        await call(entry ? `${base}/${c.id}/time/${entry.id}` : `${base}/${c.id}/time`,
+          { method: entry ? 'PUT' : 'POST', body: { minutes, note: note.value, work_date: day.value || null } });
+      });
+      note.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); ok.click(); } });
+      setTimeout(() => note.isConnected && (entry || timeOpen) && note.focus(), 40);
+      return el('div', { class: 'kb-time-form is-edit' },
+        entry ? el('div', { class: 'kb-time-form-head', text: prompt ? `計時已停止：${fmtMin(entry.minutes)}。這段時間做了什麼？` : '修改這筆工時' }) : null,
+        h, el('span', { text: '時' }), m, el('span', { text: '分' }), day, note, skip, ok);
+    }
+
+    function comments(c) {
+      const box = el('div', { class: 'kb-nav-comments' });
+      (c.replies || []).forEach(r => box.append(el('div', { class: 'kb-nav-cmt' },
+        el('div', { class: 'kb-nav-cmt-head' }, TT.avatar(r.author, 18), el('strong', { text: TT.nameOf(r.author) }), el('small', { text: (r.created_at || '').slice(5, 16) })),
+        el('div', { class: 'kb-nav-cmt-body', text: r.body }))));
+      if (!(c.replies || []).length) box.append(el('p', { class: 'hint', text: '還沒有留言' }));
+      const input = el('textarea', { class: 'textarea kb-nav-reply', rows: '2', placeholder: meInfo.people ? '留言…（@ 提到同事）' : '留言…' });
+      if (meInfo.people) TT.mentionInput(input);
+      const send = el('button', { class: 'btn btn-sm', type: 'button', text: '送出' });
+      send.addEventListener('click', async () => {
+        if (!input.value.trim()) return;
+        send.disabled = true;
+        const r = await call(base, { method: 'POST', body: { body: input.value, parent_id: c.id } });
+        if (!r) send.disabled = false;
+      });
+      input.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send.click(); } });
+      box.append(el('div', { class: 'kb-nav-reply-row' }, input, send));
+      return box;
+    }
+
+    function detailColumn(c, level, colIndex) {
+      const s = c.task;
+      const stSel = el('select', { class: 'select kb-nav-status', disabled: !s.can_update, title: '狀態' },
+        ...STATUSES.filter(x => !['recurring', 'overdue'].includes(x.key)).map(x => el('option', { value: x.key, text: `${x.label}（${x.zh}）`, selected: x.key === s.status })));
+      stSel.addEventListener('change', () => {
+        if (stSel.value === 'complete' && kids(c.id).some(k => !CLOSED.has(k.task.status)) && !confirm('底下還有子任務沒完成，仍要改成 Complete？')) { stSel.value = s.status; return; }
+        call(`${base}/${c.id}/task`, { method: 'PUT', body: { status: stSel.value } });
+      });
+      const tm = timing({ status: s.status, due_at: s.due_at });
+      const del = c.can_delete ? el('button', { class: 'kb-comment-del', type: 'button', title: '刪除這個子任務（含下層子任務、工時與留言）', html: svg('trash') }) : null;
+      del?.addEventListener('click', () => {
+        const n = kids(c.id).length;
+        if (confirm(`刪除「${s.title}」？` + (n ? `\n底下 ${n} 個子任務也會一起刪除。` : ''))) { path = path.slice(0, colIndex - 1); call(`${base}/${c.id}`, { method: 'DELETE' }); }
+      });
+      return el('section', { class: 'kb-nav-col', style: { '--c': (STATUS[s.status] || STATUS.new).color } },
+        el('div', { class: 'kb-nav-kicker' }, el('span', { text: `L${level} // 子任務` }), el('span', { class: 'spacer' }), del),
+        el('h4', { class: 'kb-nav-title', text: s.title }),
+        stSel,
+        el('div', { class: 'kb-nav-meta' },
+          s.assignee ? el('span', { class: 'kb-tree-who' }, TT.avatar(s.assignee, 18), el('span', { text: TT.nameOf(s.assignee) })) : el('span', { class: 'hint', text: '未指派' }),
+          s.due_at ? el('span', { class: `kb-nav-due due-${tm.due || ''}`, text: tm.dueText || fmt(s.due_at) }) : null,
+          s.estimate_minutes ? el('span', { text: `預估 ${fmtMin(s.estimate_minutes)}` }) : null),
+        c.body && c.body.trim() && c.body.trim() !== s.title ? el('p', { class: 'kb-nav-desc', text: c.body }) : null,
+        el('div', { class: 'kb-nav-sec', text: '工時紀錄' }), timeBlock(c),
+        el('div', { class: 'kb-nav-sec', text: `留言（${(c.replies || []).length}）` }), comments(c),
+        level < NAV_MAX ? el('div', { class: 'kb-nav-sec', text: `第 ${level + 1} 層子任務` }) : null,
+        level < NAV_MAX ? childList(c.id, level, colIndex) : null);
+    }
+
+    function paint(scroll = false) {
+      const keep = cols.scrollLeft;
+      const list = [cardColumn()];
+      path.forEach((id, i) => { const c = byId(id); if (c) list.push(detailColumn(c, i + 2, i + 1)); });
+      cols.replaceChildren(...list);
+      const crumbs = wrap.querySelector('.kb-nav-crumbs');
+      crumbs.replaceChildren(...[cardNow().title, ...path.map(id => byId(id)?.task.title)].filter(Boolean)
+        .flatMap((x, i) => [i ? el('span', { class: 'sep', text: '›' }) : null, el('span', { text: x })]).filter(Boolean));
+      cols.scrollLeft = keep;
+      if (scroll) requestAnimationFrame(() => cols.scrollTo({ left: cols.scrollWidth, behavior: 'smooth' }));
+    }
+    paint();
+    reload(false).then(() => { if (path.length) paint(true); });
+  }
+
+  return { init, load, refresh, openNavigator, mount, mountBell, openEditor, openTask, exportXlsx, importXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; } };
 })();

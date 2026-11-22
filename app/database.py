@@ -195,10 +195,13 @@ async def init_db():
                          ("start_at", "TEXT"), ("due_at", "TEXT"),
                          ("assignee_id", "INTEGER REFERENCES users(id) ON DELETE SET NULL"),
                          ("estimate_minutes", "INTEGER"), ("completed_at", "TIMESTAMP"), ("sort_order", "INTEGER"),
-                         ("priority", "TEXT"), ("remind", "INTEGER"), ("edited_at", "TIMESTAMP")):
+                         ("priority", "TEXT"), ("remind", "INTEGER"), ("edited_at", "TIMESTAMP"),
+                         # a subtask of a subtask (card → subtask → … at most 4 levels including the card)
+                         ("task_parent_id", "INTEGER REFERENCES task_comments(id) ON DELETE CASCADE")):
             if col not in comment_cols:
                 await db.execute(f"ALTER TABLE task_comments ADD COLUMN {col} {ddl}")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_comments_parent ON task_comments(parent_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_comments_task_parent ON task_comments(task_parent_id)")
         await db.execute("""
             CREATE TABLE IF NOT EXISTS task_time (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

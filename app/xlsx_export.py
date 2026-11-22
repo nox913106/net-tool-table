@@ -154,7 +154,8 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
     for n, t in enumerate(cards, start=1):
         subs = subtasks.get(t["id"], [])
         lead, collab = lead_and_collaborators(t, subs)
-        counted = [s for s in subs if (s["status"] or "new") != "canceled"]
+        top = [s for s in subs if not (s["task_parent_id"] if "task_parent_id" in s.keys() else None)]
+        counted = [s for s in top if (s["status"] or "new") != "canceled"]
         done = sum(1 for s in counted if s["status"] == "complete") + sum(1 for c in collab if c.get("done"))
         total = len(counted) + len(collab)
         pct = (done / total) if total else (1.0 if t["status"] == "complete" else None)
@@ -176,28 +177,47 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
             _txt(lead["name"]) if lead else None, STATUS_ZH.get(t["status"], t["status"]),
             PRIORITY.get(t["priority"], t["priority"]), _dt(t["start_at"]), due, pct, _hours(est), _hours(spent),
             _txt(_blocked_text(t) or _latest(cmts, names, None) or (_one_line(t["description"]) or None)), None, f"T{t['id']}"], t["status"], late))
-        m = 0
+        kids = {}
         for s in subs:
-            m += 1
+            kids.setdefault(s["task_parent_id"] if "task_parent_id" in s.keys() else None, []).append(s)
+
+        def own_minutes(sid):
+            return sum(e["minutes"] or 0 for e in card_times if e["comment_id"] == sid)
+
+        def tree_minutes(sid):
+            return own_minutes(sid) + sum(tree_minutes(k["id"]) for k in kids.get(sid, []))
+
+        def emit(s, num, level):
+            """A subtask row, its work log, then its own subtasks (outline levels follow the tree)."""
+            nonlocal hours_all
             st = s["status"] or "new"
             desc = s["body"] if s["body"] and s["body"].strip() != (s["title"] or "").strip() else None
             sdue = _dt(s["due_at"])
-            rows.append((1, [
-                f"{n}.{m}", KIND["sub"], _txt("└ " + (s["title"] or "子任務")), None, _txt(names.get(s["assignee_id"])) if s["assignee_id"] else None,
+            children = kids.get(s["id"], [])
+            rows.append((level, [
+                num, KIND["sub"], _txt("　" * (level - 1) + "└ " + (s["title"] or "子任務")), None,
+                _txt(names.get(s["assignee_id"])) if s["assignee_id"] else None,
                 STATUS_ZH.get(st, st), PRIORITY.get(s["priority"] or "normal"), _dt(s["start_at"]), sdue,
                 1.0 if st == "complete" else 0.0 if st != "canceled" else None, _hours(s["estimate_minutes"]),
-                _hours(sum(e["minutes"] or 0 for e in card_times if e["comment_id"] == s["id"])),
+                _hours(tree_minutes(s["id"]) if children else own_minutes(s["id"])),
                 _txt(_latest(cmts, names, s["id"]) or (_one_line(desc) or None)), None, f"S{s['id']}"], st, _is_late(sdue, st, today)))
             # the work log of this subtask: one row per entry (date, hours, who, what) — ignored on import
             logs = sorted((e for e in card_times if e["comment_id"] == s["id"]),
                           key=lambda e: (e["work_date"] or str(e["created_at"] or ""), e["id"]))
-            for k, e in enumerate(logs, start=1):
+            for e in logs:
                 day = _dt(e["work_date"]) if e["work_date"] else None
                 label = (f"{day:%m/%d} " if day else "") + (_one_line(e["note"]) or "工時")
-                rows.append((2, [
-                    f"{n}.{m}.{k}", KIND["time"], _txt("　　· " + label), None, _txt(names.get(e["user_id"])) if e["user_id"] else None,
+                rows.append((min(level + 1, 7), [
+                    None, KIND["time"], _txt("　" * level + "· " + label), None, _txt(names.get(e["user_id"])) if e["user_id"] else None,
                     None, None, day, None, None, None, _hours(e["minutes"]), _txt(e["note"]) or None, None, None], None, False))
                 hours_all += (e["minutes"] or 0)
+            for k, child in enumerate(children, start=1):
+                emit(child, f"{num}.{k}", level + 1)
+
+        m = 0
+        for s in kids.get(None, []):
+            m += 1
+            emit(s, f"{n}.{m}", 1)
         for c in collab:
             m += 1
             rows.append((1, [
@@ -362,6 +382,7 @@ def parse(data: bytes) -> List[dict]:
         if prefix and {"T": "card", "S": "sub", "C": "collab"}[prefix] != kind:
             item["errors"].append(f"類型「{kind_txt}」和系統ID「{sid}」不一致")
         item["kind"] = kind
+        item["depth"] = num.count(".") if re.fullmatch(r"\d+(\.\d+)*", num) else 1   # 1.2 → 1, 1.2.1 → 2 (a subtask's subtask)
         person = str(get(r, "負責人") or "").strip()
         item["person"] = person or None
         if kind == "card" and "標籤" in cols:                  # "#a #b", "a、b" or "a, b"

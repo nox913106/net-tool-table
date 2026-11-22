@@ -44,8 +44,8 @@ TABLES: Dict[str, dict] = {
     "task_comments": {
         "fields": ("task_id", "parent_id", "user_id", "body", "created_at", "is_task", "title", "status", "start_at",
                    "due_at", "assignee_id", "estimate_minutes", "completed_at", "sort_order", "priority", "remind",
-                   "edited_at"),
-        "refs": {"task_id": "tasks", "parent_id": "task_comments"}, "people": ("user_id", "assignee_id"),
+                   "edited_at", "task_parent_id"),
+        "refs": {"task_id": "tasks", "parent_id": "task_comments", "task_parent_id": "task_comments"}, "people": ("user_id", "assignee_id"),
         "card": "task_id", "required": ("task_id",),
     },
     "task_members": {
