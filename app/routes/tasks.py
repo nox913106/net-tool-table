@@ -32,6 +32,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, field_validator
 
 from .. import images as img
+from .. import config as C
 from .. import ldapauth
 from ..auth import current_user, is_admin
 from ..roles import board_access
@@ -678,6 +679,14 @@ async def _resolve_people(db, usernames: List[str]) -> List[dict]:
             if info:
                 from .auth import upsert_ldap_user
                 row = await upsert_ldap_user(db, info)
+        if row is None and not C.AUTH:                # linked copy: ask the server's directory (AD) while online
+            from .. import syncclient
+            hit = next((p for p in await syncclient.remote_people(name) if (p.get("username") or "").lower() == name), None)
+            if hit:
+                cur = await db.execute("INSERT INTO users (username, source, display_name, department, role, active) "
+                                       "VALUES (?, 'ldap', ?, ?, 'user', 1)", (hit["username"], hit.get("display_name"), hit.get("department")))
+                cur = await db.execute("SELECT id, username, display_name, active, source FROM users WHERE id = ?", (cur.lastrowid,))
+                row = await cur.fetchone()
         if row and row["active"] and row["source"] == "ldap":
             out.append(dict(row))
     return out
@@ -2475,10 +2484,10 @@ async def read_notifications(body: ReadIn, request: Request):
     db = await get_db()
     try:
         if body.ids:
-            await db.execute(f"UPDATE notifications SET read = 1 WHERE user_id = ? AND id IN ({','.join('?' * len(body.ids))})",
+            await db.execute(f"UPDATE notifications SET read = 1, synced = 0 WHERE read = 0 AND user_id = ? AND id IN ({','.join('?' * len(body.ids))})",
                              (user["id"], *body.ids))
         else:
-            await db.execute("UPDATE notifications SET read = 1 WHERE user_id = ?", (user["id"],))
+            await db.execute("UPDATE notifications SET read = 1, synced = 0 WHERE read = 0 AND user_id = ?", (user["id"],))
         await db.execute("DELETE FROM notifications WHERE user_id = ? AND read = 1 AND id NOT IN "
                          "(SELECT id FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 200)", (user["id"], user["id"]))
         await db.commit()

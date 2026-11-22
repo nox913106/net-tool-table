@@ -260,8 +260,65 @@ def _guard(db, user: dict):
     return guard
 
 
-async def _after(db, rep: sync.Report, user: dict):
-    """What the board's endpoints do besides writing: subtask viewers, summary status, notifications."""
+NOTE_KINDS = {"assigned", "mention", "comment", "subtask", "blocked", "overdue", "reminder"}
+
+
+async def _notes_in(db, notes: dict, user: dict):
+    """Notifications the copy made for other people (exactly what the server would have sent for the same
+    action), and which of the account's own notifications were read there."""
+    from .tasks import _resolve_people
+    for n in (notes.get("new") or [])[:500]:
+        if not isinstance(n, dict) or not isinstance(n.get("uid"), str) or not n.get("user"):
+            continue
+        people = await _resolve_people(db, [str(n["user"])])
+        if not people or people[0]["id"] == user["id"]:
+            continue
+        task_id = None
+        if n.get("task"):
+            cur = await db.execute("SELECT id FROM tasks WHERE uid = ?", (str(n["task"]),))
+            r = await cur.fetchone()
+            if not r:
+                continue                                  # its card did not make it here
+            task_id = r[0]
+        kind = n.get("kind") if n.get("kind") in NOTE_KINDS else "comment"
+        await db.execute("""INSERT OR IGNORE INTO notifications (uid, user_id, task_id, actor_id, kind, text, created_at, synced)
+                            VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), 1)""",
+                         (n["uid"][:40], people[0]["id"], task_id, user["id"], kind, str(n.get("text") or "")[:300],
+                          str(n["created_at"])[:19] if n.get("created_at") else None))
+    read = [u for u in (notes.get("read") or []) if isinstance(u, str)][:1000]
+    for i in range(0, len(read), 400):
+        part = read[i:i + 400]
+        await db.execute(f"UPDATE notifications SET read = 1 WHERE user_id = ? AND uid IN ({','.join('?' * len(part))})",
+                         (user["id"], *part))
+
+
+async def _notes_out(db, user: dict) -> list:
+    """The account's own notifications for its copies' 🔔."""
+    await db.execute("UPDATE notifications SET uid = lower(hex(randomblob(12))) WHERE uid IS NULL AND user_id = ?", (user["id"],))
+    cur = await db.execute("""SELECT n.uid, n.kind, n.text, n.read, n.created_at, t.uid AS task, a.username AS actor
+                              FROM notifications n LEFT JOIN tasks t ON t.id = n.task_id LEFT JOIN users a ON a.id = n.actor_id
+                              WHERE n.user_id = ? ORDER BY n.id DESC LIMIT 200""", (user["id"],))
+    return [dict(r) for r in await cur.fetchall()]
+
+
+async def _known_accounts(db, names):
+    """People the copy assigned or @mentioned who never signed in here: add them from the AD directory,
+    the way the board does when someone picks them on the server."""
+    from .tasks import _resolve_people
+    names = [n for n in names if isinstance(n, str)][:200]
+    missing = []
+    for i in range(0, len(names), 400):
+        part = names[i:i + 400]
+        cur = await db.execute(f"SELECT username FROM users WHERE username IN ({','.join('?' * len(part))})", part)
+        have = {r[0] for r in await cur.fetchall()}
+        missing += [n for n in part if n not in have]
+    for i in range(0, len(missing), 20):
+        await _resolve_people(db, missing[i:i + 20])
+
+
+async def _after(db, rep: sync.Report, user: dict, notes: bool = True):
+    """What the board's endpoints do besides writing: subtask viewers, summary status, notifications
+    (a copy that sends its own notifications — notes=False — is not guessed for)."""
     from .tasks import _members, _sync_subtask_members, _who, notify, rollup_status
     cards = {c for c in rep.cards if c}
     for card in cards:
@@ -269,6 +326,8 @@ async def _after(db, rep: sync.Report, user: dict):
         if await cur.fetchone():
             await _sync_subtask_members(db, card)
             await rollup_status(db, card)
+    if not notes:
+        return
     for table, uid, rowid in rep.inserted:
         if table == "task_comments":
             cur = await db.execute("""SELECT c.body, c.task_id, t.title, t.owner_id FROM task_comments c
@@ -299,11 +358,16 @@ async def push(request: Request):
             cur = await db.execute("SELECT stored, mime, kind, size FROM sync_blobs WHERE uid = ?", (uid,))
             r = await cur.fetchone()
             return tuple(r) if r else None
+        if isinstance(payload.get("users"), dict):
+            await _known_accounts(db, list(payload["users"]))
         rep = await sync.merge(db, payload, server=True, guard=_guard(db, user), blob_for=staged)
         for table, uid, _ in rep.inserted:
             if table == "task_images":
                 await db.execute("DELETE FROM sync_blobs WHERE uid = ?", (uid,))
-        await _after(db, rep, user)
+        notes = payload.get("notes")
+        await _after(db, rep, user, notes=not isinstance(notes, dict))
+        if isinstance(notes, dict):
+            await _notes_in(db, notes, user)
         await db.commit()
         img.remove(rep.files_removed)
 
@@ -358,10 +422,21 @@ async def push(request: Request):
 
 
 async def _directory(db) -> dict:
-    """Active accounts, so a standalone copy can show names and assign people while offline."""
-    cur = await db.execute("""SELECT username, display_name, email, department FROM users
-                              WHERE active = 1 AND source = 'ldap' ORDER BY id LIMIT 5000""")
-    return {r[0]: {"display_name": r[1], "email": r[2], "department": r[3]} for r in await cur.fetchall()}
+    """Active accounts, so a standalone copy can show names and assign or @mention anyone while offline."""
+    cur = await db.execute("""SELECT u.username, u.display_name, u.email, u.department, m.username FROM users u
+                              LEFT JOIN users m ON m.id = u.manager_id
+                              WHERE u.active = 1 AND u.source = 'ldap' ORDER BY u.id LIMIT 5000""")
+    return {r[0]: {"display_name": r[1], "email": r[2], "department": r[3], "manager": r[4], "directory": True}
+            for r in await cur.fetchall()}
+
+
+@router.get("/people")
+async def people_search(request: Request, q: str = ""):
+    """The same people search as the board's pickers (known accounts, then AD) for a linked copy."""
+    _server_only()
+    user = _signed_in(request)
+    from .auth import people
+    return [{k: p.get(k) for k in ("username", "display_name", "department", "relation")} for p in await people(q, user)]
 
 
 @router.post("/pull")
@@ -420,8 +495,10 @@ async def pull(request: Request):
         from .settings import read_settings
         site = await read_settings(db)
         board = {k: site.get(k) for k in BOARD_SETTINGS}
+        notes = await _notes_out(db, user)
+        await db.commit()
         return {"rows": rows, "tombs": tombs, "visible": list(vis), "seq": seq, "users": people, "me": me, "now": _now_ms(),
-                "settings": board}
+                "settings": board, "notes": notes}
     finally:
         await db.close()
 

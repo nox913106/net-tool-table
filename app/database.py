@@ -272,6 +272,14 @@ async def init_db():
                                  f"WHEN {linked.format(c=c)} BEGIN {enqueue.format(c=c)}; END")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_time_user_running ON task_time(user_id, ended_at)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_notes_user ON notifications(user_id, read)")
+        # notifications travel between a standalone copy and the server (uid; synced = 0: not sent yet)
+        cursor = await db.execute("PRAGMA table_info(notifications)")
+        note_cols = {row[1] for row in await cursor.fetchall()}
+        if "uid" not in note_cols:
+            await db.execute("ALTER TABLE notifications ADD COLUMN uid TEXT")
+        if "synced" not in note_cols:
+            await db.execute("ALTER TABLE notifications ADD COLUMN synced INTEGER NOT NULL DEFAULT 0")
+        await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_notes_uid ON notifications(uid) WHERE uid IS NOT NULL")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)")
 
         # Lightweight schema migration for columns added later

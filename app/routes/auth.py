@@ -326,6 +326,14 @@ async def people(q: str = "", user: dict = Depends(current_user)):
         out.sort(key=lambda p: order.get(p["relation"], 3))      # my own reporting line first
     finally:
         await db.close()
+    if text and not C.AUTH:                       # linked copy: the server's search (AD included) while online
+        from .. import syncclient
+        seen = {p["username"] for p in out}
+        for p in await syncclient.remote_people(text):
+            if isinstance(p, dict) and p.get("username") and p["username"] not in seen:
+                out.append({"id": None, "username": p["username"], "display_name": p.get("display_name"),
+                            "department": p.get("department"), "relation": p.get("relation"), "known": False})
+                seen.add(p["username"])
     if text and ldapauth.directory_enabled():
         seen = {p["username"] for p in out}
         found = await asyncio.get_running_loop().run_in_executor(None, ldapauth.search_directory, text)

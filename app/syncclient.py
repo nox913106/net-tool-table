@@ -15,6 +15,7 @@ Windows DPAPI on the portable edition, so a copied data folder cannot be used el
 """
 import asyncio
 import base64
+import secrets
 import json
 import os
 import socket
@@ -339,6 +340,8 @@ async def _pull(cfg):
         db = await get_db()
         try:
             await _offset(db, res.get("now"), sent)
+            if isinstance(res.get("users"), dict):
+                await _directory_in(db, res["users"])
             rep = await sync.merge(db, res, server=False, log=True)
             await _after_merge(db, rep)
             removed = await _reconcile(db, set(res.get("visible") or []))
@@ -365,6 +368,7 @@ async def _pull(cfg):
                 await sync.set_state(db, "user", json.dumps(res["me"], ensure_ascii=False))
                 uid = await _local_account(db, res["me"])
                 LOCAL_USER = await _as_local_user(db, uid, res["me"])
+            await _notes_in(db, res.get("notes"))
             await db.commit()
         finally:
             await db.close()
@@ -380,6 +384,101 @@ async def _pull(cfg):
         if not missing or missing == want:
             break
         want = missing
+
+
+async def _directory_in(db, people: dict):
+    """Mirror the server's account list (names, departments, reporting lines) for pickers and @mentions."""
+    rows = [(u, p) for u, p in people.items() if isinstance(u, str) and isinstance(p, dict) and p.get("directory")]
+    if not rows:
+        return
+    cur = await db.execute("SELECT id, username FROM users")
+    have = {r[1]: r[0] for r in await cur.fetchall()}
+    for u, p in rows:
+        if u in have:
+            await db.execute("UPDATE users SET display_name = ?, email = ?, department = ?, active = 1 WHERE id = ?",
+                             (p.get("display_name"), p.get("email"), p.get("department"), have[u]))
+        else:
+            cur = await db.execute("INSERT INTO users (username, source, display_name, email, department, role, active) "
+                                   "VALUES (?, 'ldap', ?, ?, ?, 'user', 1)", (u, p.get("display_name"), p.get("email"), p.get("department")))
+            have[u] = cur.lastrowid
+    for u, p in rows:
+        if "manager" in p:
+            await db.execute("UPDATE users SET manager_id = ? WHERE id = ?", (have.get(p.get("manager")) if p.get("manager") else None, have[u]))
+
+
+async def _notes_in(db, notes: list):
+    """The account's notifications from the server: new ones appear in 🔔, read there = read here."""
+    if LOCAL_USER is None or not isinstance(notes, list):
+        return
+    me = LOCAL_USER["id"]
+    for n in notes[:500]:
+        if not isinstance(n, dict) or not isinstance(n.get("uid"), str):
+            continue
+        cur = await db.execute("SELECT id, read FROM notifications WHERE uid = ?", (n["uid"],))
+        r = await cur.fetchone()
+        if r:
+            if n.get("read") and not r[1]:
+                await db.execute("UPDATE notifications SET read = 1, synced = 1 WHERE id = ?", (r[0],))
+            continue
+        task_id = actor = None
+        if n.get("task"):
+            cur = await db.execute("SELECT id FROM tasks WHERE uid = ?", (n["task"],))
+            t = await cur.fetchone()
+            task_id = t[0] if t else None
+        if n.get("actor"):
+            cur = await db.execute("SELECT id FROM users WHERE username = ?", (n["actor"],))
+            a = await cur.fetchone()
+            actor = a[0] if a else None
+        await db.execute("""INSERT INTO notifications (uid, user_id, task_id, actor_id, kind, text, read, created_at, synced)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), 1)""",
+                         (n["uid"], me, task_id, actor, n.get("kind") or "comment", n.get("text") or "",
+                          1 if n.get("read") else 0, n.get("created_at")))
+
+
+async def _notes_out(db) -> tuple:
+    """What this copy owes the server: notifications its user's actions made for other people, and which of
+    the user's own notifications were read here. Returns (payload or None, ids sent)."""
+    if LOCAL_USER is None:
+        return None, []
+    me = LOCAL_USER["id"]
+    cur = await db.execute("""SELECT n.id, n.uid, n.user_id, n.actor_id, n.kind, n.text, n.read, n.created_at,
+                                     u.username, t.uid AS task FROM notifications n
+                              LEFT JOIN users u ON u.id = n.user_id LEFT JOIN tasks t ON t.id = n.task_id
+                              WHERE n.synced = 0 ORDER BY n.id LIMIT 500""")
+    rows = await cur.fetchall()
+    new, read, ids = [], [], []
+    for r in rows:
+        uid = r["uid"]
+        if not uid:
+            uid = secrets.token_hex(12)
+            await db.execute("UPDATE notifications SET uid = ? WHERE id = ?", (uid, r["id"]))
+        ids.append(r["id"])
+        if r["user_id"] == me:
+            if r["read"]:
+                read.append(uid)
+        elif r["actor_id"] == me and r["username"]:
+            new.append({"uid": uid, "user": r["username"], "task": r["task"], "kind": r["kind"], "text": r["text"],
+                        "created_at": r["created_at"]})
+    await db.commit()
+    if not new and not read:
+        return None, ids
+    return {"new": new, "read": read}, ids
+
+
+async def remote_people(q: str) -> list:
+    """People search on the server (AD directory included) while it is reachable; [] otherwise."""
+    db = await get_db()
+    try:
+        cfg = await _cfg(db)
+    finally:
+        await db.close()
+    if not _linked(cfg) or not _status.get("online"):
+        return []
+    try:
+        res = await _call(cfg, "GET", f"/api/sync/people?q={urllib.parse.quote(q)}", timeout=5)
+        return res if isinstance(res, list) else []
+    except Exception:
+        return []
 
 
 async def _reconcile(db, visible: set) -> list:
@@ -484,7 +583,15 @@ async def _push(cfg):
     db = await get_db()
     try:
         payload = await sync.dirty_payload(db)
-        if not payload["rows"] and not payload["tombs"]:
+        notes, note_ids = await _notes_out(db)
+        if notes:
+            payload["notes"] = notes
+        elif payload["rows"] or payload["tombs"]:
+            payload["notes"] = {"new": [], "read": []}     # this copy sends its own notifications
+        if not payload["rows"] and not payload["tombs"] and not notes:
+            if note_ids:
+                await db.execute(f"UPDATE notifications SET synced = 1 WHERE id IN ({','.join('?' * len(note_ids))})", note_ids)
+                await db.commit()
             return
         uploads = []
         new_images = [r["uid"] for r in payload["rows"] if r["t"] == "task_images"]
@@ -518,6 +625,10 @@ async def _push(cfg):
                                server=False, log=True, force=frozenset(res.get("force") or []), reasons=res.get("reasons") or {})
         keep = {(t, u) for t, u in res.get("deferred") or []}
         await sync.clear_sent(db, payload, keep)
+        if note_ids:                                     # sent: the server has them now (others' copies are not kept here)
+            marks = ','.join('?' * len(note_ids))
+            await db.execute(f"DELETE FROM notifications WHERE id IN ({marks}) AND user_id != ?", (*note_ids, LOCAL_USER["id"]))
+            await db.execute(f"UPDATE notifications SET synced = 1 WHERE id IN ({marks})", note_ids)
         await _after_merge(db, rep)
         await db.commit()
     finally:
