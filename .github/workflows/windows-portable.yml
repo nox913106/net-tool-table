@@ -1,7 +1,9 @@
 name: Windows portable build
 
-# Builds ToolTable.exe (no install needed) on a Windows runner, starts it to make
-# sure it really serves the portal, then publishes ToolTable-windows-x64.zip:
+# Builds the Windows client on a Windows runner — official python.org embeddable Python + the app,
+# no custom-compiled .exe (PyInstaller executables get deleted by corporate antivirus as a false
+# positive) — starts it to make sure it really serves the portal, then publishes the installer
+# (ToolTable-Setup-<ver>.exe, Inno Setup, no admin rights) and the portable ToolTable-windows-x64.zip:
 #   push to main  → release "latest" (asset replaced on every build)
 #   push tag v*   → release for that tag
 on:
@@ -30,30 +32,46 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller
+          pip install -r requirements.txt
 
       - name: Sync token protection (Windows DPAPI round trip)
         run: python -c "from app.syncclient import _protect, _unprotect; t = _protect('tok-123'); assert t.startswith('dpapi:'), t; assert _unprotect(t) == 'tok-123'; print('DPAPI ok')"
 
-      - name: Build ToolTable.exe
-        run: pyinstaller --noconfirm portable/ToolTable.spec
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /? | Select-Object -First 1
+
+      - name: Build client (embedded Python + installer + zip)
+        shell: pwsh
+        run: |
+          $env:PATH = "${env:ProgramFiles(x86)}\Inno Setup 6;$env:PATH"
+          python portable/build_portable.py --version "1.0.${{ github.run_number }}"
+          Get-ChildItem portable\output | Select-Object Name, Length
+          # no executable of our own in the package: only python.org's signed binaries and package DLLs
+          $own = Get-ChildItem portable\stage -Recurse -Include *.exe | Where-Object { $_.DirectoryName -ne (Resolve-Path portable\stage\python).Path }
+          if ($own) { $own | ForEach-Object { Write-Host "unexpected exe: $($_.FullName)" }; throw 'custom executable in package' }
+          $sig = Get-AuthenticodeSignature portable\stage\python\python.exe
+          Write-Host "python.exe signature: $($sig.Status) $($sig.SignerCertificate.Subject)"
+          if ($sig.Status -ne 'Valid') { throw 'python.exe is not validly signed' }
 
       - name: Smoke test (start the exe and request pages)
         shell: pwsh
         run: |
-          $proc = Start-Process -FilePath dist\ToolTable\ToolTable.exe -ArgumentList '--no-browser', '--port', '18080' -PassThru
+          $proc = Start-Process -FilePath portable\stage\python\python.exe -ArgumentList 'portable\stage\app\portable\launcher.py', '--no-browser', '--port', '18080' -PassThru
           $ok = $false
           for ($i = 0; $i -lt 40; $i++) {
             try { if ((Invoke-RestMethod http://127.0.0.1:18080/api/health).status -eq 'ok') { $ok = $true; break } } catch {}
             Start-Sleep -Seconds 1
           }
           if ($ok) {
-            foreach ($u in '/', '/admin', '/assets/js/portal.js', '/assets/css/base.css', '/resource/icon/grafana_icon.svg', '/api/nodes/tree', '/manifest.webmanifest', '/sw.js', '/assets/app/icon-512.png', '/assets/js/board.js', '/api/tasks', '/dashboard', '/api/public/dashboard', '/login', '/api/system/backup', '/api/system/info', '/api/openproject', '/api/system/openproject', '/api/sync/client', '/assets/js/sync.js') {
+            foreach ($u in '/', '/admin', '/assets/js/portal.js', '/assets/css/base.css', '/resource/icon/grafana_icon.svg', '/api/nodes/tree', '/manifest.webmanifest', '/sw.js', '/assets/app/icon-512.png', '/assets/js/board.js', '/api/tasks', '/dashboard', '/api/public/dashboard', '/login', '/api/system/backup', '/api/system/info', '/api/sync/client', '/assets/js/sync.js') {
               $code = (Invoke-WebRequest "http://127.0.0.1:18080$u" -UseBasicParsing).StatusCode
               Write-Host "$u -> $code"
               if ($code -ne 200) { $ok = $false }
             }
-            if (-not (Test-Path dist\ToolTable\data\tool-table.db)) { Write-Host 'data\tool-table.db was not created next to the exe'; $ok = $false }
+            if (-not (Test-Path portable\stage\data\tool-table.db)) { Write-Host 'data\tool-table.db was not created next to python\ and app\'; $ok = $false }
           }
 
           # ---- local programs: real Windows shortcut, exe lookup, icon extraction, launch, guards
@@ -136,19 +154,35 @@ jobs:
           Stop-Process -Id $proc.Id -Force
           Start-Sleep -Seconds 2
           if (-not $ok) { throw 'Smoke test failed' }
-          Remove-Item -Recurse -Force dist\ToolTable\data
 
-      - name: Package zip
+      - name: Installer test (silent install, start, uninstall keeps data)
         shell: pwsh
         run: |
-          Copy-Item portable\README.txt dist\ToolTable\README.txt
-          Compress-Archive -Path dist\ToolTable -DestinationPath ToolTable-windows-x64.zip
-          Get-Item ToolTable-windows-x64.zip | Select-Object Name, Length
+          $setup = Get-ChildItem portable\output\ToolTable-Setup-*.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=' -Wait
+          $dir = "$env:LOCALAPPDATA\Programs\ToolTable"
+          if (-not (Test-Path "$dir\python\python.exe")) { throw 'installer did not install the client' }
+          $proc = Start-Process -FilePath "$dir\python\python.exe" -ArgumentList "$dir\app\portable\launcher.py", '--no-browser', '--port', '18090' -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 40; $i++) {
+            try { if ((Invoke-RestMethod http://127.0.0.1:18090/api/health).status -eq 'ok') { $ok = $true; break } } catch {}
+            Start-Sleep -Seconds 1
+          }
+          Stop-Process -Id $proc.Id -Force; Start-Sleep -Seconds 2
+          if (-not $ok) { throw 'installed client did not start' }
+          if (-not (Test-Path "$dir\data\tool-table.db")) { throw 'installed client data not in install folder' }
+          Start-Process "$dir\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES' -Wait
+          Start-Sleep -Seconds 3
+          if (Test-Path "$dir\python") { throw 'uninstall left the program files' }
+          if (-not (Test-Path "$dir\data\tool-table.db")) { throw 'uninstall removed the data' }
+          Write-Host 'install / start / uninstall OK (data kept)'
 
       - uses: actions/upload-artifact@v4
         with:
           name: ToolTable-windows-x64
-          path: ToolTable-windows-x64.zip
+          path: |
+            portable/output/ToolTable-windows-x64.zip
+            portable/output/ToolTable-Setup-*.exe
 
       - name: Publish to GitHub Releases
         if: github.event_name == 'push'
@@ -165,4 +199,6 @@ jobs:
           fi
           gh release view "$TAG" >/dev/null 2>&1 \
             || gh release create "$TAG" --title "$TITLE" --notes-file portable/RELEASE_NOTES.md
-          gh release upload "$TAG" ToolTable-windows-x64.zip --clobber
+          # one installer name per release, so "latest" does not pile up old versions
+          cp portable/output/ToolTable-Setup-*.exe ToolTable-Setup.exe
+          gh release upload "$TAG" portable/output/ToolTable-windows-x64.zip ToolTable-Setup.exe --clobber

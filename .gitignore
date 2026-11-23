@@ -24,3 +24,6 @@ Thumbs.db
 # PyInstaller build output
 /build/
 /dist/
+portable/stage/
+portable/cache/
+portable/output/

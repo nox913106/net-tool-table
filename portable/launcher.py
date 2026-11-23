@@ -1,12 +1,12 @@
 """
-Tool Table — portable launcher (Windows ToolTable.exe, also works from source)
+Tool Table — client launcher (Windows: started by ToolTable.cmd / the installed shortcut; also works from source)
 
 Double-click → starts the portal on http://127.0.0.1:8080 (or the next free port),
 opens it in its own app window (Chrome or Edge "--app" mode, no address bar / tabs;
 falls back to the default browser), keeps running until this window is closed.
 
-Data lives next to the exe in .\\data (database + icons), so the whole folder can be
-copied to another PC or a USB drive. If that folder is not writable (e.g. under
+Data lives in .\\data next to the python\\ and app\\ folders (database + icons), so the whole folder
+can be copied to another PC or a USB drive. If that folder is not writable (e.g. under
 Program Files) it falls back to %LOCALAPPDATA%\\ToolTable.
 
 Options:
@@ -29,10 +29,13 @@ from pathlib import Path
 
 APP_NAME = "Tool Table"
 FROZEN = getattr(sys, "frozen", False)
-# Where the bundled files are (PyInstaller unpack dir, or the repository root)
+# Where the program files are: <install>\app (installed / portable zip) or the repository root
 BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
-# Where the user put the program (folder of ToolTable.exe, or the repository root)
-HOME_DIR = Path(sys.executable).resolve().parent if FROZEN else BUNDLE_DIR
+# Installed client / portable zip: <install>\python\python.exe (official python.org build) + <install>\app;
+# its data goes to <install>\data, next to them, so upgrades (which replace python\ and app\) keep it.
+_PY = Path(sys.executable).resolve().parent
+EMBEDDED = _PY.name.lower() == "python" and (_PY.parent / "app").is_dir() and BUNDLE_DIR == _PY.parent / "app"
+HOME_DIR = _PY.parent if EMBEDDED else Path(sys.executable).resolve().parent if FROZEN else BUNDLE_DIR
 
 
 def setup_console():
@@ -232,6 +235,6 @@ if __name__ == "__main__":
         main()
     except Exception as exc:   # keep the window open so the user can read the error
         print(f"\n啟動失敗：{exc!r}")
-        if FROZEN and os.name == "nt":
+        if (FROZEN or EMBEDDED) and os.name == "nt":
             input("按 Enter 關閉…")
         raise SystemExit(1)
