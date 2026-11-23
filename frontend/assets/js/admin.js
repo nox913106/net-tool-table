@@ -69,7 +69,7 @@
     };
     themeBtn.addEventListener('click', () => { TT.cycleTheme(state.settings); paintTheme(); });
     paintTheme();
-    $('open-portal').innerHTML = svg('external') + '<span>開啟入口</span>';
+    $('open-portal').innerHTML = svg('arrow-left') + '<span>返回入口</span>';
 
     await Promise.all([loadTree(), loadIcons()]);
     setupLinkDrop();
@@ -1505,122 +1505,6 @@
   }
 
 
-  // ---------------------------------------------------------------- OpenProject
-  async function renderOpenProject(grid) {
-    let O;
-    try { O = await api('/api/system/openproject'); } catch (e) { grid.append(sysCard('external', 'OpenProject 同步', esc(e.message))); return; }
-    let meta = null;
-    const chk = w => w.querySelector('input').checked;
-    const f = {
-      enabled: switchCtl(O.enabled, '啟用同步', () => {}),
-      url: input(O.url, { placeholder: 'https://openproject.corp.local' }),
-      api_key: input('', { type: 'password', autocomplete: 'new-password', placeholder: O.api_key_set ? '••••••••（已設定；留空 = 不變）' : 'OpenProject API 金鑰' }),
-      tls_verify: switchCtl(O.tls_verify, '驗證 OpenProject 的 HTTPS 憑證（建議）', () => {}),
-      ca_pem: el('textarea', { class: 'textarea mono', rows: '3', placeholder: '-----BEGIN CERTIFICATE-----\n（內部 CA 簽發時貼上）' }),
-      timeout: input(O.timeout, { type: 'number', min: '3', max: '120' }),
-      sync_comments: switchCtl(O.sync_comments, '留言與回覆 → 工作項目的留言', () => {}),
-      sync_time: switchCtl(O.sync_time, '子任務工時 → 時間記錄', () => {}),
-      sync_attachments: switchCtl(O.sync_attachments, '附件 → 工作項目附件', () => {}),
-      notify: switchCtl(O.notify, '讓 OpenProject 寄出它自己的通知信', () => {}),
-    };
-    f.ca_pem.value = O.ca_pem || '';
-    const sel = () => el('select', { class: 'select' });
-    const m = { default_project: sel(), card_type: sel(), subtask_type: sel(), time_activity: sel() };
-    const statusSel = Object.fromEntries(Object.keys(O.statuses_local).map(k => [k, sel()]));
-    const prioSel = { low: sel(), normal: sel(), high: sel() };
-    const fill = (s, list, value, none) => {
-      const opts = [el('option', { value: '', text: none })];
-      for (const x of list || []) opts.push(el('option', { value: x.id, text: x.name + (x.identifier ? `（${x.identifier}）` : '') }));
-      if (value && !(list || []).some(x => x.id === String(value))) opts.push(el('option', { value, text: `#${value}` }));
-      s.replaceChildren(...opts);
-      s.value = value || '';
-    };
-    function paintSelects(guess) {
-      fill(m.default_project, meta?.projects, O.default_project, '（不指定）');
-      fill(m.card_type, meta?.types, O.card_type, '專案預設類型');
-      fill(m.subtask_type, meta?.types, O.subtask_type, '專案預設類型');
-      fill(m.time_activity, meta?.activities, O.time_activity, 'OpenProject 預設活動');
-      for (const [k, s] of Object.entries(statusSel)) fill(s, meta?.statuses, O.status_map?.[k] || guess?.status_map?.[k], '（不同步狀態）');
-      for (const [k, s] of Object.entries(prioSel)) fill(s, meta?.priorities, O.priority_map?.[k] || guess?.priority_map?.[k], '（不同步）');
-    }
-    paintSelects();
-    let clearKey = false;
-    const clearBtn = O.api_key_set ? el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '清除已存的金鑰' }) : null;
-    clearBtn?.addEventListener('click', () => { clearKey = true; f.api_key.placeholder = '（儲存後清除）'; toast('儲存後會清除 API 金鑰'); });
-    const values = () => ({
-      enabled: chk(f.enabled), url: f.url.value.trim(), api_key: f.api_key.value ? f.api_key.value : (clearKey ? '' : null),
-      tls_verify: chk(f.tls_verify), ca_pem: f.ca_pem.value, timeout: Number(f.timeout.value) || 15,
-      default_project: m.default_project.value, card_type: m.card_type.value, subtask_type: m.subtask_type.value, time_activity: m.time_activity.value,
-      status_map: Object.fromEntries(Object.entries(statusSel).map(([k, s]) => [k, s.value])),
-      priority_map: Object.fromEntries(Object.entries(prioSel).map(([k, s]) => [k, s.value])),
-      sync_comments: chk(f.sync_comments), sync_time: chk(f.sync_time), sync_attachments: chk(f.sync_attachments), notify: chk(f.notify),
-    });
-    const res = resultBox();
-    const testBtn = el('button', { class: 'btn', type: 'button', html: svg('zap') + '測試連線並讀取專案' });
-    const saveBtn = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + '儲存 OpenProject 設定' });
-    const requeue = el('button', { class: 'btn btn-ghost', type: 'button', html: svg('refresh') + '全部重新同步' });
-    async function test(quiet = false) {
-      testBtn.disabled = true;
-      if (!quiet) { res.hidden = false; res.replaceChildren(el('div', { class: 'sys-step is-info', html: svg('refresh') + '<span>連線中…</span>' })); }
-      try {
-        const r = await api('/api/system/openproject/test', { method: 'POST', body: values() });
-        if (!quiet || !r.ok) showSteps(res, r);
-        if (r.meta) { meta = r.meta; Object.assign(O, values(), { api_key: undefined }); paintSelects(r.guess); }
-      } catch (e) { showSteps(res, { steps: [{ status: 'fail', text: e.message }] }); }
-      testBtn.disabled = false;
-    }
-    testBtn.addEventListener('click', () => test());
-    saveBtn.addEventListener('click', async () => {
-      try {
-        O = await api('/api/system/openproject', { method: 'PUT', body: values() });
-        f.api_key.value = ''; clearKey = false;
-        f.api_key.placeholder = O.api_key_set ? '••••••••（已設定；留空 = 不變）' : 'OpenProject API 金鑰';
-        paintOverview();
-        toast(O.enabled ? 'OpenProject 同步已啟用' : 'OpenProject 設定已儲存（未啟用）');
-      } catch (e) { toast(e.message, true); }
-    });
-    requeue.addEventListener('click', async () => {
-      try { const r = await api('/api/system/openproject/requeue', { method: 'POST' }); toast(`已排入 ${r.queued} 張卡片，背景同步中`); }
-      catch (e) { toast(e.message, true); }
-    });
-    const overview = el('div', { class: 'op-overview' });
-    function paintOverview() {
-      const v = O.overview || {};
-      overview.replaceChildren(
-        el('div', { class: 'op-stats' },
-          el('span', {}, el('b', { text: String(v.linked ?? 0) }), ' 張卡片同步中'),
-          el('span', {}, el('b', { text: String(v.queued ?? 0) }), ' 張排隊'),
-          el('span', { text: v.last_ok ? `最近成功：${v.last_ok.slice(0, 16)} UTC` : '還沒有同步過' })),
-        ...(v.errors?.length ? [el('div', { class: 'op-errors' }, el('strong', { text: '同步失敗的卡片（會自動重試）' }),
-          ...v.errors.map(e => el('div', { class: 'op-error' }, el('span', { text: `#${e.card_id} ${e.title || '（已刪除）'}` }), el('small', { text: e.error })))) ] : []));
-    }
-    paintOverview();
-    const statusRows = el('div', { class: 'op-map' }, ...Object.entries(statusSel).map(([k, s]) => el('label', { class: 'op-map-row' }, el('span', { text: O.statuses_local[k] }), el('span', { class: 'op-arrow', text: '→' }), s)));
-    const prioRows = el('div', { class: 'op-map' }, ...[['low', '低'], ['normal', '一般'], ['high', '高']].map(([k, l]) => el('label', { class: 'op-map-row' }, el('span', { text: `優先：${l}` }), el('span', { class: 'op-arrow', text: '→' }), prioSel[k])));
-    grid.append(sysCard('external', 'OpenProject 同步',
-      '在 Tool Table 寫，自動回寫到 OpenProject：卡片＝工作項目、子任務＝子工作項目（含狀態、負責人、日期、預估），留言、工時、附件一併同步。<br>' +
-      '只同步在卡片上選了「OpenProject 同步」專案的卡片；單向同步，在 OpenProject 的修改不會回寫。API 金鑰在 OpenProject「我的帳戶 → 存取權杖 → API」產生，加密保存。',
-      f.enabled,
-      el('div', { class: 'sys-form' },
-        field('OpenProject 網址', f.url, '例如 https://openproject.corp.local（不用加 /api/v3）'),
-        el('div', { class: 'field' }, el('span', { class: 'field-label', text: 'API 金鑰' }), f.api_key, clearBtn),
-        el('details', { class: 'sys-advanced span-all' }, el('summary', { text: '進階：HTTPS 憑證、逾時' }),
-          el('div', { class: 'sys-form' }, el('div', { class: 'field span-all' }, f.tls_verify),
-            el('div', { class: 'span-all' }, field('內部 CA 憑證（PEM）', f.ca_pem)), field('逾時（秒）', f.timeout)))),
-      el('div', { class: 'sys-actions sys-actions-left' }, testBtn), res,
-      el('h4', { class: 'op-sub', text: '對應' }),
-      el('div', { class: 'sys-form' },
-        field('預設專案', m.default_project, '卡片的專案選單會把它標成「預設」'),
-        field('時間記錄活動', m.time_activity),
-        field('卡片的類型', m.card_type, '例如 Summary task / Phase'),
-        field('子任務的類型', m.subtask_type, '例如 Task')),
-      el('div', { class: 'op-maps' }, statusRows, prioRows),
-      el('h4', { class: 'op-sub', text: '同步內容' }),
-      el('div', { class: 'op-switches' }, f.sync_comments, f.sync_time, f.sync_attachments, f.notify),
-      el('h4', { class: 'op-sub', text: '狀態' }), overview,
-      el('div', { class: 'sys-actions' }, requeue, saveBtn)));
-    if (O.enabled && O.url && O.api_key_set) test(true);      // fill the dropdowns with the real names
-  }
 
   // ======================================================================
   // System settings (AD, sign-in security, HTTPS certificate, ports)
@@ -1753,9 +1637,6 @@
           field('同一來源 IP 最多錯幾次', sf.ip_attempts)),
         el('div', { class: 'sys-actions' }, secSave)));
     }
-
-    // ---------------- OpenProject sync (both editions)
-    await renderOpenProject(grid);
 
     // ---------------- HTTPS certificate
     let T;

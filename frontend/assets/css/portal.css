@@ -1090,16 +1090,6 @@ body.link-dragging .drop-overlay { display: grid; }
 .kb-comment.kb-flash > div { animation: kb-flash 1.2s ease; }
 @keyframes kb-flash { 0%, 40% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent); } 100% { box-shadow: none; } }
 
-/* ---- OpenProject ---- */
-.kb-op-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.kb-op-row .select { width: auto; min-width: 180px; }
-.kb-op-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
-.kb-op-status a { display: inline-flex; align-items: center; gap: 4px; color: var(--accent-text); font-weight: 650; }
-.kb-op-status svg { width: 13px; height: 13px; }
-.kb-op-ok { display: inline-flex; align-items: center; gap: 4px; color: var(--success); }
-.kb-op-err { display: inline-flex; align-items: center; gap: 4px; color: var(--danger); font-weight: 600; }
-.kb-chip-op { font-size: 10.5px; letter-spacing: .02em; color: var(--accent-text); }
-.kb-chip-op.is-error { color: #fff; background: var(--danger); border-color: transparent; }
 .kb-sub-edit { flex: none; }
 .kb-sub-row .kb-flag { color: var(--danger); display: grid; }
 .kb-sub-row .kb-flag svg { width: 14px; height: 14px; }

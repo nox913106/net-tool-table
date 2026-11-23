@@ -217,59 +217,16 @@ async def init_db():
             )
         """)
         await db.execute("CREATE INDEX IF NOT EXISTS idx_time_comment ON task_time(comment_id)")
-        # OpenProject sync (app/openproject.py): which card goes to which project, what was pushed,
-        # and a queue filled by triggers whenever anything on a linked card changes
         cursor = await db.execute("PRAGMA table_info(task_members)")
         if "done_at" not in {row[1] for row in await cursor.fetchall()}:     # a collaborator marked their part done
             await db.execute("ALTER TABLE task_members ADD COLUMN done_at TIMESTAMP")
-        cursor = await db.execute("PRAGMA table_info(tasks)")
-        if "op_project" not in {row[1] for row in await cursor.fetchall()}:
-            await db.execute("ALTER TABLE tasks ADD COLUMN op_project TEXT")
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS op_links (
-                kind TEXT NOT NULL,                           -- card | subtask | comment | time | attachment
-                local_id INTEGER NOT NULL,
-                remote_id TEXT NOT NULL,
-                card_id INTEGER,
-                hash TEXT,                                    -- what was last pushed (skip unchanged)
-                synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (kind, local_id)
-            )
-        """)
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_op_links_card ON op_links(card_id)")
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS op_queue (
-                card_id INTEGER PRIMARY KEY,
-                queued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                attempts INTEGER NOT NULL DEFAULT 0,
-                next_try TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS op_state (
-                card_id INTEGER PRIMARY KEY,
-                ok_at TIMESTAMP,
-                error TEXT,
-                error_at TIMESTAMP
-            )
-        """)
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS op_users (
-                username TEXT PRIMARY KEY,
-                remote_id TEXT,                               -- NULL = not found in OpenProject
-                checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        linked = ("(SELECT op_project FROM tasks WHERE id = {c}) IS NOT NULL "
-                  "OR EXISTS (SELECT 1 FROM op_links WHERE kind = 'card' AND local_id = {c})")
-        enqueue = ("INSERT INTO op_queue (card_id) VALUES ({c}) ON CONFLICT(card_id) DO UPDATE SET "
-                   "queued_at = CURRENT_TIMESTAMP, attempts = 0, next_try = CURRENT_TIMESTAMP")
-        for table, card in (("tasks", "id"), ("task_comments", "task_id"), ("task_time", "task_id"), ("task_images", "task_id")):
-            for ev, row in (("INSERT", "NEW"), ("UPDATE", "NEW"), ("DELETE", "OLD")):
-                c = f"{row}.{card}"
-                await db.execute(f"DROP TRIGGER IF EXISTS op_q_{table}_{ev.lower()}")
-                await db.execute(f"CREATE TRIGGER op_q_{table}_{ev.lower()} AFTER {ev} ON {table} "
-                                 f"WHEN {linked.format(c=c)} BEGIN {enqueue.format(c=c)}; END")
+        # the OpenProject sync was removed: drop its queue triggers and tables (tasks.op_project is left unused)
+        for table in ("tasks", "task_comments", "task_time", "task_images"):
+            for ev in ("insert", "update", "delete"):
+                await db.execute(f"DROP TRIGGER IF EXISTS op_q_{table}_{ev}")
+        for table in ("op_links", "op_queue", "op_state", "op_users"):
+            await db.execute(f"DROP TABLE IF EXISTS {table}")
+        await db.execute("DELETE FROM settings WHERE key = '_sys_openproject'")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_time_user_running ON task_time(user_id, ended_at)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_notes_user ON notifications(user_id, read)")
         # notifications travel between a standalone copy and the server (uid; synced = 0: not sent yet)

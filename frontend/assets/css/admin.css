@@ -457,22 +457,6 @@ body.link-dragging .quick-admin { outline: 2px dashed var(--accent-line); outlin
 .role-table th { font-size: 12px; color: var(--text-3); font-weight: 700; }
 .role-table td:first-child { font-weight: 650; white-space: nowrap; }
 
-/* ---- OpenProject ---- */
-.sys-actions-left { justify-content: flex-start; }
-.op-sub { font-size: 13px; margin: 14px 0 6px; color: var(--text-2); }
-.op-maps { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px 24px; }
-.op-map { display: flex; flex-direction: column; gap: 6px; }
-.op-map-row { display: grid; grid-template-columns: 150px 16px 1fr; align-items: center; gap: 6px; font-size: 13px; }
-.op-arrow { color: var(--text-3); text-align: center; }
-.op-switches { display: flex; flex-wrap: wrap; gap: 8px 24px; }
-.op-stats { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--text-2); }
-.op-stats b { color: var(--text); font-size: 15px; }
-.op-errors { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 10px;
-  background: color-mix(in srgb, var(--danger) 8%, transparent); border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent); font-size: 12.5px; }
-.op-errors strong { color: var(--danger); }
-.op-error { display: flex; flex-direction: column; }
-.op-error small { color: var(--text-3); word-break: break-word; }
-@media (max-width: 560px) { .op-map-row { grid-template-columns: 1fr; } .op-arrow { display: none; } }
 .sys-advanced:not([open]) > :not(summary) { display: none; }      /* a switch's track would otherwise still paint in Chrome */
 .boss-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
 .boss-cell .input-sm { height: 30px; font-size: 12.5px; padding: 0 8px; width: 100%; }
