@@ -47,7 +47,9 @@ jobs:
         shell: pwsh
         run: |
           $env:PATH = "${env:ProgramFiles(x86)}\Inno Setup 6;$env:PATH"
+          $env:PYTHONUTF8 = '1'
           python portable/build_portable.py --version "1.0.${{ github.run_number }}"
+          if ($LASTEXITCODE) { throw 'build failed' }
           Get-ChildItem portable\output | Select-Object Name, Length
           # no executable of our own in the package: only python.org's signed binaries and package DLLs
           $own = Get-ChildItem portable\stage -Recurse -Include *.exe | Where-Object { $_.DirectoryName -ne (Resolve-Path portable\stage\python).Path }
