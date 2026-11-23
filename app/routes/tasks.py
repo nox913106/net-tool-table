@@ -614,6 +614,20 @@ async def _rollup(db, ids: List[int], me) -> dict:
         if me is not None and c["assignee_id"] == me and c["status"] not in CLOSED:
             s["mine"].append({"id": c["id"], "title": c["title"], "status": c["status"], "priority": c["priority"],
                               "start_at": c["start_at"], "due_at": c["due_at"], "remind": c["remind"]})
+    # subtasks below subtasks (L3, L4): for the radar / overdue counts and my reminders
+    cur = await db.execute(f"""SELECT c.id, c.task_id, c.task_parent_id, c.title, c.status, c.start_at, c.due_at, c.assignee_id,
+                                      c.priority, c.remind
+                               FROM task_comments c WHERE c.task_id IN ({marks}) AND c.is_task = 1 AND c.task_parent_id IS NOT NULL
+                               ORDER BY COALESCE(c.sort_order, c.id), c.id""", ids)
+    for c in await cur.fetchall():
+        s = out.get(c["task_id"])
+        if s is None:
+            continue
+        s.setdefault("below", []).append({"id": c["id"], "parent": c["task_parent_id"], "title": c["title"],
+                                          "status": c["status"] or "new", "due_at": c["due_at"]})
+        if me is not None and c["assignee_id"] == me and (c["status"] or "new") not in CLOSED:
+            s["mine"].append({"id": c["id"], "title": c["title"], "status": c["status"], "priority": c["priority"],
+                              "start_at": c["start_at"], "due_at": c["due_at"], "remind": c["remind"]})
     # my running timer (standalone edition: the timer's user is NULL)
     if True:
         cur = await db.execute(f"""SELECT t.task_id, t.comment_id, c.title,

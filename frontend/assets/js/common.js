@@ -110,6 +110,7 @@ const TT = (() => {
     'chevron-right': '<path d="m9 6 6 6-6 6"/>',
     'chevron-down': '<path d="m6 9 6 6 6-6"/>',
     'chevron-up': '<path d="m6 15 6-6 6 6"/>',
+    'chevron-left': '<path d="m15 6-6 6 6 6"/>',
     menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
     x: '<path d="M18 6 6 18M6 6l12 12"/>',
     home: '<path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',

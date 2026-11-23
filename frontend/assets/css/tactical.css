@@ -392,7 +392,7 @@ body { font-family: var(--font); background: var(--bg); }
 .radar-title { font-family: var(--hud); font-weight: 700; letter-spacing: .08em; font-size: 13px; }
 .radar-sub { font-family: var(--mono); font-size: 9.5px; letter-spacing: .14em; color: var(--text-3); }
 .radar-body { display: flex; align-items: center; gap: 14px; }
-.radar-scope { position: relative; width: 172px; flex: none; aspect-ratio: 1; }
+.radar-scope { position: relative; width: 236px; flex: none; aspect-ratio: 1; }
 .radar-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .radar-ring { fill: none; stroke: color-mix(in srgb, var(--accent) 50%, var(--border)); stroke-width: .7; }
 .radar-ring.dash { stroke-dasharray: 3 2.5; }
@@ -427,6 +427,22 @@ body { font-family: var(--font); background: var(--bg); }
 }
 .radar-pulse { fill: none; stroke: var(--c); stroke-width: .8; transform-box: fill-box; transform-origin: center; animation: radar-ping 1.6s ease-out infinite; }
 @keyframes radar-ping { from { opacity: .9; transform: scale(1); } to { opacity: 0; transform: scale(3.2); } }
+.radar-quad { stroke: none; }
+.radar-quad.q1 { fill: color-mix(in srgb, var(--danger) 7%, transparent); }
+.radar-quad.q2 { fill: color-mix(in srgb, var(--accent) 5%, transparent); }
+.radar-quad.q3 { fill: transparent; }
+.radar-quad.q4 { fill: color-mix(in srgb, var(--text-3) 9%, transparent); }
+.radar-qlabel { font-family: var(--mono); font-size: 6.4px; font-weight: 700; fill: var(--text-2); letter-spacing: .04em; }
+.radar-hit { fill: transparent; stroke: none; }
+.radar-card .radar-dot { stroke: var(--surface); stroke-width: .9; }
+.radar-kid .radar-dot { opacity: .75; }
+.radar-tether { stroke: var(--c); stroke-width: .5; opacity: .35; stroke-dasharray: 1 1.2; }
+.radar-blip:hover .radar-dot, .radar-blip:focus .radar-dot { opacity: 1; stroke: var(--text); stroke-width: 1.1; }
+.radar-blip:hover .radar-dot { transform: scale(1.35); }
+.radar-card.is-canceled .radar-dot { fill: none; stroke: var(--text-3); stroke-dasharray: 1.5 1; }
+.radar-key-sep { height: 2px; }
+.radar-key.is-quad { font-size: 10.5px; color: var(--text-3); border-bottom-style: dotted; }
+.radar-key-help { font-size: 10px; color: var(--text-3); }
 .radar-blip.is-crit { --c: var(--danger); }
 .radar-blip.is-warn { --c: var(--warning); }
 .radar-blip.is-ok { --c: var(--success); }
@@ -444,7 +460,7 @@ body { font-family: var(--font); background: var(--bg); }
 .radar-key b { color: var(--text); }
 .radar-key.is-crit { --c: var(--danger); } .radar-key.is-warn { --c: var(--warning); }
 .radar-key.is-ok { --c: var(--success); } .radar-key.is-idle { --c: var(--text-3); }
-@media (max-width: 720px) { .radar-float { right: 12px; bottom: 12px; } }
+@media (max-width: 720px) { .radar-float { right: 12px; bottom: 12px; } .radar-scope { width: 190px; } .radar-legend { min-width: 84px; } }
 @media (max-width: 380px) { .radar-scope { width: 150px; } }
 [data-perf="low"] .radar-sweep, [data-perf="low"] .radar-mini-sweep { display: none; }
 

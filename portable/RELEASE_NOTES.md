@@ -1,12 +1,12 @@
-## Tool Table Windows 免安裝單機版
+Tool Table 的 Windows 用戶端，可離線使用，連線後與伺服器雙向同步。
 
-1. 下載下方的 **ToolTable-windows-x64.zip**
-2. 解壓縮到任何位置（桌面、隨身碟都可以）
-3. 點兩下 `ToolTable.exe`，瀏覽器會自動開啟
+**安裝版（建議）**：下載 `ToolTable-Setup.exe` 執行。不需要系統管理員權限，會建立開始功能表與桌面捷徑。升級時直接執行新版；升級或解除安裝都會保留資料。
 
-- 不需要安裝 Python 或任何軟體
-- 資料存在 `ToolTable\data\`，整個資料夾複製走就能換電腦
-- 第一次執行若出現「Windows 已保護您的電腦」，按「其他資訊 → 仍要執行」
-- 詳細說明見壓縮檔內的 `README.txt`
+**免安裝版**：
+1. 下載 `ToolTable-windows-x64.zip`，解壓縮到任何地方
+2. 點兩下 `ToolTable.cmd`，瀏覽器會自動開啟
+3. 管理後台：入口右上角「後台」
 
-需要多人、長期使用請改用 Linux 正式部署：[docs/INSTALL.md](https://github.com/nox913106/net-tool-table/blob/main/docs/INSTALL.md)
+不需要安裝 Python。程式以 python.org 官方簽章的 `python.exe` 執行，套件裡沒有任何自製的執行檔，因此不會被公司防毒誤判刪除。
+
+新版會自動更新到這裡。

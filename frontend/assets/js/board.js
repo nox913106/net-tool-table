@@ -774,6 +774,7 @@ const TTBoard = window.TTBoard = (() => {
     let drag = null;                                           // { id, from }
     let lanes = !!opts.lanes;                                  // 依人員: one row per person
     let focusId = null;                                        // focus mode: one person's work + what they are part of
+    const opened = new Set();                                  // empty columns the user unfolded (until the page reloads)
     // created on first paint: on a direct page load the board can render before /me has answered
     let peopleBar = null;
     const placeholder = el('div', { class: 'kb-placeholder' });
@@ -785,11 +786,33 @@ const TTBoard = window.TTBoard = (() => {
       root.style.setProperty('--kb-cols', cols.length);
       root.classList.toggle('kb-lanes', lanes);
       root.classList.toggle('kb-focus', focusId != null && !lanes);
-      // focus: empty columns shrink to a slim strip so the cards get the width
-      const empty = s => focusId != null && !lanes && !colItems(s.key).length;
-      root.style.gridTemplateColumns = focusId != null && !lanes ? cols.map(s => empty(s) ? '52px' : 'minmax(0, 1fr)').join(' ') : '';
+      // a column without cards folds into a slim strip so the others get the width; click it to unfold
+      // (it stays unfolded until the page is reloaded; in focus mode empty columns always fold)
+      const empty = s => !lanes && !colItems(s.key).length && (focusId != null || !opened.has(s.key));
+      const anyEmpty = !lanes && cols.some(empty);
+      root.style.gridTemplateColumns = anyEmpty ? cols.map(s => empty(s) ? '52px' : 'minmax(var(--kb-col-min), 1fr)').join(' ') : '';
+      root.classList.toggle('kb-has-folded', anyEmpty);
       if (lanes) renderLanes(cols);
-      else root.replaceChildren(...cols.map(s => { const c = column(s); if (empty(s)) { c.classList.add('kb-col-empty'); c.title = `${s.label}（${s.zh}）：沒有卡片`; } return c; }));
+      else root.replaceChildren(...cols.map(s => {
+        const c = column(s);
+        if (empty(s)) {
+          c.classList.add('kb-col-empty');
+          c.title = `${s.label}（${s.zh}）：沒有卡片，點一下展開`;
+          c.tabIndex = 0;
+          const unfold = () => { opened.add(s.key); render(); };
+          c.addEventListener('click', unfold);
+          c.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); unfold(); } });
+          // a card can still be dropped on the folded strip
+          c.addEventListener('dragover', e => { if (!drag) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; c.classList.add('drop-over'); });
+          c.addEventListener('dragleave', e => { if (!c.contains(e.relatedTarget)) c.classList.remove('drop-over'); });
+          c.addEventListener('drop', e => { if (!drag) return; e.preventDefault(); const id = drag.id; drag = null; moveTo(id, s.key, 0); });
+        } else if (opened.has(s.key) && !colItems(s.key).length && focusId == null) {
+          const fold = el('button', { class: 'kb-col-fold', type: 'button', title: '收合這一欄', 'aria-label': '收合這一欄', html: svg('chevron-left') });
+          fold.addEventListener('click', e => { e.stopPropagation(); opened.delete(s.key); render(); });
+          c.querySelector('.kb-col-head').append(fold);
+        }
+        return c;
+      }));
       paintPeople();
       paintTagBar();
       root.classList.toggle('is-selecting', selecting);
