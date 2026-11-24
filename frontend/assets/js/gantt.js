@@ -202,9 +202,13 @@
         const base = bs != null ? `<span class="g-base" style="left:${(bs - lo) * dw}px;width:${(be - bs + 1) * dw}px"></span>` : '';
         const sa = dayNum(x.started_at);
         const started = sa != null ? _t("<span class=\"g-start\" style=\"left:{0}px\" title=\"實際開始 {1}\"></span>", (sa - lo) * dw, md(x.started_at)) : '';
-        const caret = x.kids.length ? `<button class="g-caret" type="button" data-toggle="${x.key}" aria-expanded="${open.has(x.key)}" aria-label="${open.has(x.key) ? _t('收合') : _t('展開')}">${open.has(x.key) ? '▾' : '▸'}</button>` : '<span class="g-caret"></span>';
+        // the whole left part (indent, arrow, level) is one large target for folding
+        const lv = `<span class="g-caret" aria-hidden="true">${x.kids.length ? (open.has(x.key) ? '▾' : '▸') : ''}</span><span class="g-lv">L${x.depth}</span>`;
+        const caret = x.kids.length
+          ? `<button class="g-tog" type="button" data-toggle="${x.key}" aria-expanded="${open.has(x.key)}" title="${open.has(x.key) ? _t('收合') : _t('展開')}" aria-label="${open.has(x.key) ? _t('收合') : _t('展開')}">${lv}</button>`
+          : `<span class="g-tog">${lv}</span>`;
         return `<div class="g-row g-l${x.depth}${hot && (hot === x.key) ? ' is-hot' : ''}" data-key="${x.key}">
-          <div class="g-cell" style="--ind:${x.depth - 1}">${caret}<span class="g-lv">L${x.depth}</span>
+          <div class="g-cell" style="--ind:${x.depth - 1}">${caret}
             <button class="g-name" type="button" data-open="${x.key}" title="${esc(x.title)}">${x.milestone ? '◆ ' : ''}${esc(x.title)}</button>
             <span class="g-who">${esc(x.who || '')}</span>
             <span class="g-st" style="--c:${lt ? 'var(--danger)' : st.color}">${lt ? _t('逾期') : x.milestone ? _t('里程碑') : esc(st.zh || '')}</span></div>

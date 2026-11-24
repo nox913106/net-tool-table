@@ -1509,10 +1509,17 @@ body.nav-collapsed .sidebar:not(.peek) .nav-empty, body.nav-collapsed .sidebar:n
 .g-row { display: flex; height: 30px; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
 .g-row:hover .g-cell, .g-row.is-hot .g-cell, .g-row:hover .g-track { background-color: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
 .g-row.is-linked .g-cell { box-shadow: inset 3px 0 0 var(--accent); background-color: var(--accent-soft); }
-.g-cell { position: sticky; left: 0; z-index: 3; flex: none; width: var(--g-lw); display: grid; grid-template-columns: 16px auto minmax(0, 1fr) 70px 58px;
-  align-items: center; gap: 4px 6px; padding: 0 10px 0 calc(6px + var(--ind) * 14px); background: var(--surface-solid, var(--surface));
+.g-cell { position: sticky; left: 0; z-index: 3; flex: none; width: var(--g-lw); display: grid; grid-template-columns: auto minmax(0, 1fr) 70px 58px;
+  align-items: center; gap: 4px 6px; padding: 0 10px 0 0; background: var(--surface-solid, var(--surface));
   border-right: 1px solid var(--border-strong, var(--border)); }
-.g-caret { width: 16px; height: 16px; padding: 0; border: 0; background: none; color: var(--text-2); cursor: pointer; font-size: 10px; }
+/* fold target: from the cell's left edge (the indent) through the arrow and the level tag, full row height */
+.g-tog { display: inline-flex; align-items: center; gap: 4px; align-self: stretch; padding: 0 6px 0 calc(6px + var(--ind) * 14px);
+  border: 0; background: none; color: inherit; font: inherit; }
+button.g-tog { cursor: pointer; }
+button.g-tog:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+button.g-tog:hover .g-caret, button.g-tog:focus-visible .g-caret { color: var(--accent-text); }
+button.g-tog:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.g-caret { display: inline-grid; place-items: center; width: 16px; color: var(--text-2); font-size: 13px; line-height: 1; }
 .g-lv { font: 600 9.5px var(--mono, monospace); color: var(--text-3); border: 1px solid var(--border); padding: 0 3px; }
 .g-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; border: 0; background: none; padding: 0;
   color: var(--text); font: inherit; cursor: pointer; }
@@ -1559,7 +1566,8 @@ body.nav-collapsed .sidebar:not(.peek) .nav-empty, body.nav-collapsed .sidebar:n
 .board-gantt-solo .kb-people-bar, .board-gantt-solo .kb-tagbar { display: none; }
 @media (max-width: 720px) {
   .gantt { --g-lw: 200px; }
-  .g-cell { grid-template-columns: 16px minmax(0, 1fr) 50px; padding-left: calc(4px + var(--ind) * 8px); }
+  .g-cell { grid-template-columns: auto minmax(0, 1fr) 50px; }
+  .g-tog { padding-left: calc(4px + var(--ind) * 8px); }
   .g-corner { grid-template-columns: minmax(0, 1fr) 50px; }
   .g-lv, .g-who { display: none; }
   .gantt-q { width: 140px; }
