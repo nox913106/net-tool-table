@@ -70,6 +70,12 @@
     themeBtn.addEventListener('click', () => { TT.cycleTheme(state.settings); paintTheme(); });
     paintTheme();
     $('open-portal').innerHTML = svg('arrow-left') + '<span>返回入口</span>';
+    // API documentation (Swagger UI): shown when this server serves it
+    const docs = $('api-docs');
+    if (docs) {
+      docs.innerHTML = svg('file');
+      fetch('/docs', { method: 'HEAD', credentials: 'same-origin', redirect: 'manual' }).then(r => { docs.hidden = !r.ok; }).catch(() => {});
+    }
 
     await Promise.all([loadTree(), loadIcons()]);
     setupLinkDrop();

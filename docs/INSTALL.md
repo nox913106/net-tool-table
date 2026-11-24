@@ -270,7 +270,7 @@ sudo bash /opt/tool-table/scripts/tool-table.sh uninstall --purge
 - 安全標頭：HSTS、CSP（只允許本站 script，不載入任何第三方 script）、X-Frame-Options、nosniff、Referrer-Policy、Permissions-Policy、COOP、CORP
 - 時鐘向本伺服器校時（`/api/time`），不依賴外部服務；離線內網也能正常運作
 - 隱藏版本：nginx `server_tokens off`，uvicorn 不送 Server 標頭
-- 正式環境關閉 `/docs`、`/redoc`、`/openapi.json`
+- API 文件（Swagger UI `/docs`、`/openapi.json`）預設只開放給管理員；`/etc/tool-table/tool-table.env` 設 `TOOL_TABLE_API_DOCS=off` 可完全關閉
 - 上傳的圖示（含 SVG）以 `sandbox` CSP 送出，無法執行 script；檔名經過驗證，無法寫出圖示目錄
 - 寫入 API 以 nginx 限速（每 IP 每分鐘 120 次）；登入每 IP 每分鐘 10 次，應用程式另外鎖定連續失敗
 - 整站需要登入（公開進度看板除外）：工作階段權杖只存雜湊值，Cookie 為 HttpOnly、Secure、SameSite=Lax；閒置 12 小時、最長 7 天失效

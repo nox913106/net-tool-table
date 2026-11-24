@@ -298,7 +298,8 @@ cmd_install() {
     fi
     env_set TOOL_TABLE_DATA_DIR "$DATA_DIR_DEFAULT"
     env_set TOOL_TABLE_ICON_DIR "$DATA_DIR_DEFAULT/icons"
-    env_set TOOL_TABLE_ENABLE_DOCS false
+    sed -i '/^TOOL_TABLE_ENABLE_DOCS=/d' "$ENV_FILE"
+    [[ -n "$(env_get TOOL_TABLE_API_DOCS)" ]] || env_set TOOL_TABLE_API_DOCS admin
     env_set TOOL_TABLE_APP_PORT "$app_port"
     env_set TOOL_TABLE_HTTPS_PORT "$https_port"
     env_set TOOL_TABLE_HTTP_PORT "$http_port"
@@ -367,6 +368,12 @@ cmd_upgrade() {
         log "新版加入帳號登入：已開啟 TOOL_TABLE_AUTH"
     fi
     ensure_local_admin
+    # API documentation (Swagger UI at /docs): replaces the old on/off switch; administrators only
+    if [[ -z "$(env_get TOOL_TABLE_API_DOCS)" ]]; then
+        sed -i '/^TOOL_TABLE_ENABLE_DOCS=/d' "$ENV_FILE"
+        env_set TOOL_TABLE_API_DOCS admin
+        log "API 文件改用 Swagger UI：https://<主機>/docs（僅管理員）"
+    fi
 
     # New bundled icons only (cp -n never overwrites)
     cp -n "$APP_DIR/resource/icon/"* "$(env_get TOOL_TABLE_ICON_DIR)/" 2>/dev/null || true

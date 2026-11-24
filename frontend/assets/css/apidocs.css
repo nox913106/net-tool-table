@@ -1,0 +1,17 @@
+/* API documentation page: a Tool Table header above the stock Swagger UI */
+:root { --ad-bg: #0B0E11; --ad-line: #26302B; --ad-ink: #E6ECE7; --ad-ink2: #A9B4AC; --ad-accent: #10B981; }
+body { margin: 0; background: #fff; }
+.ad-head { position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+  padding: 10px max(16px, env(safe-area-inset-left)); background: var(--ad-bg); border-bottom: 2px solid var(--ad-accent);
+  font: 14px system-ui, -apple-system, "Microsoft JhengHei", sans-serif; }
+.ad-brand { display: flex; align-items: center; gap: 10px; color: var(--ad-ink); text-decoration: none; font-weight: 700; letter-spacing: .06em; }
+.ad-logo { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid var(--ad-accent); color: var(--ad-accent); font: 700 12px ui-monospace, Consolas, monospace; }
+.ad-sub { color: var(--ad-ink2); font-weight: 500; letter-spacing: 0; }
+.ad-links { display: flex; gap: 14px; }
+.ad-links a { color: var(--ad-ink2); text-decoration: none; }
+.ad-links a:hover, .ad-links a:focus-visible { color: var(--ad-ink); text-decoration: underline; }
+.ad-loading { padding: 24px; color: #555; font: 14px system-ui, sans-serif; }
+.swagger-ui .topbar { display: none; }
+.swagger-ui .info .title small pre { display: inline; }
+.swagger-ui .opblock-tag { font-size: 18px; }
+.swagger-ui .opblock .opblock-summary-description { font-size: 13.5px; color: #333; }

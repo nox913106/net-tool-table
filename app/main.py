@@ -85,10 +85,12 @@ app = FastAPI(
     title="Tool Table API",
     version=VERSION,
     lifespan=lifespan,
-    docs_url="/docs" if ENABLE_DOCS else None,
-    redoc_url="/redoc" if ENABLE_DOCS else None,
+    docs_url=None,                          # our own Swagger UI page below (bundled, works offline and under the CSP)
+    redoc_url=None,
     openapi_url="/openapi.json" if ENABLE_DOCS else None,
 )
+from . import apidocs                       # noqa: E402  Chinese summaries, groups, authentication
+apidocs.install(app, VERSION)
 
 app.include_router(nodes.router)
 app.include_router(nodes.my_router)
@@ -114,7 +116,7 @@ async def harden_icons(request: Request, call_next):
     if path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
         from . import sync
         sync.poke()                         # wake live viewers (/api/sync/wait) and the sync client
-    if path in ("/", "/admin", "/login", "/dashboard") or path.startswith("/assets/"):
+    if path in ("/", "/admin", "/login", "/dashboard", "/docs") or path.startswith("/assets/"):
         response.headers.setdefault("Cache-Control", "no-cache")
     if path.startswith("/resource/icon/"):
         response.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
@@ -133,6 +135,12 @@ app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="asset
 @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
 async def serve_portal():
     return FileResponse(FRONTEND_DIR / "index.html")
+
+
+if ENABLE_DOCS:
+    @app.api_route("/docs", methods=["GET", "HEAD"], include_in_schema=False)
+    async def serve_api_docs():
+        return FileResponse(FRONTEND_DIR / "apidocs.html")
 
 
 @app.api_route("/admin", methods=["GET", "HEAD"], include_in_schema=False)

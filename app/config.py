@@ -5,7 +5,7 @@ Development: nothing to set — data lives in ./data and icons in ./resource/ico
 Production:  scripts/tool-table.sh writes /etc/tool-table/tool-table.env, e.g.
     TOOL_TABLE_DATA_DIR=/var/lib/tool-table
     TOOL_TABLE_ICON_DIR=/var/lib/tool-table/icons
-    TOOL_TABLE_ENABLE_DOCS=false
+    TOOL_TABLE_API_DOCS=admin
 """
 import os
 from pathlib import Path
@@ -26,8 +26,14 @@ DATA_DIR = Path(os.environ.get("TOOL_TABLE_DATA_DIR") or PROJECT_ROOT / "data")
 # Icon directory (uploads go here; served at /resource/icon/)
 ICON_DIR = Path(os.environ.get("TOOL_TABLE_ICON_DIR") or PROJECT_ROOT / "resource" / "icon")
 
-# Interactive API docs (/docs, /redoc, /openapi.json) — disabled in production
-ENABLE_DOCS = _bool("TOOL_TABLE_ENABLE_DOCS", True)
+# API documentation: Swagger UI at /docs and the OpenAPI document at /openapi.json
+#   admin (default) — on the server, administrators only (signed in); a standalone copy: open
+#   on              — anyone signed in
+#   off             — not served at all
+API_DOCS = (os.environ.get("TOOL_TABLE_API_DOCS") or "admin").strip().lower()
+if API_DOCS not in ("admin", "on", "off"):
+    API_DOCS = "on" if API_DOCS in ("1", "true", "yes") else "off" if API_DOCS in ("0", "false", "no") else "admin"
+ENABLE_DOCS = API_DOCS != "off"
 
 # Launch local programs / read shortcuts (Windows portable edition only;
 # portable/launcher.py sets it). Never enable this on a shared server.

@@ -263,7 +263,7 @@ async def gate(request: Request, call_next):
     request.state.user = user
     public = path in PUBLIC_EXACT or path.startswith(PUBLIC_PREFIX)
     if user is None and not public:
-        if path.startswith("/api/") or path.startswith("/docs") or path.startswith("/openapi"):
+        if path.startswith("/api/") or path.startswith("/openapi"):
             return JSONResponse({"detail": "請先登入"}, status_code=401)
         nxt = path + (("?" + request.url.query) if request.url.query else "")
         return RedirectResponse(f"/login?next={quote(nxt)}", status_code=303)
@@ -275,6 +275,8 @@ async def gate(request: Request, call_next):
     if user is not None and not is_admin(user):
         if path in ADMIN_PAGES:
             return RedirectResponse("/", status_code=303)
+        if C.API_DOCS == "admin" and path in ("/docs", "/openapi.json"):   # API documentation: administrators
+            return RedirectResponse("/", status_code=303) if path == "/docs" else JSONResponse({"detail": "需要管理員權限"}, status_code=403)
         if _starts(path, ADMIN_ANY_METHOD) or (method not in SAFE_METHODS and _starts(path, ADMIN_WRITE)):
             return JSONResponse({"detail": "需要管理員權限"}, status_code=403)
     return await call_next(request)

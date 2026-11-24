@@ -221,7 +221,8 @@ Windows 用 `run.bat`。開在 `http://127.0.0.1:8080`，後台在 `/admin`。
 ```
 app/                        後端（FastAPI + SQLite）
 ├── main.py                 路由、靜態檔、/api/time、/api/whoami
-├── config.py               環境變數（資料 / 圖示路徑、API 文件開關）
+├── config.py               環境變數（資料 / 圖示路徑、API 文件）
+├── apidocs.py              Swagger UI 的中文摘要、分組與驗證說明
 ├── database.py             資料表與自動升級
 ├── projects.py             多專案分析（健康度、問題、人員負載、共用時段）與每日專案通知
 ├── xlsx_export.py          Excel 工作進度報告（匯出／匯入）
@@ -236,6 +237,7 @@ app/                        後端（FastAPI + SQLite）
 frontend/                   前端（無框架、無建置步驟）
 ├── index.html              入口
 ├── admin.html              管理後台
+├── apidocs.html            API 文件（Swagger UI）
 └── assets/
     ├── css/base.css        設計系統（元件、版面）
     ├── css/tactical.css    軍規戰術外觀（深色黑曜軍灰／淺色北約粉筆白，最後載入）
@@ -248,7 +250,8 @@ frontend/                   前端（無框架、無建置步驟）
     ├── js/projects.js      我的工作、專案總覽、專案頁
     ├── js/radar.js         任務雷達與警示清單
     ├── js/clock.js
-    └── js/admin.js
+    ├── js/admin.js
+    └── vendor/swagger-ui/  Swagger UI（隨程式附帶，離線可用）
 resource/icon/              內建圖示
 deploy/                     nginx、systemd 範本
 scripts/                    bootstrap.sh、tool-table.sh、自簽憑證
@@ -259,64 +262,36 @@ docs/INSTALL.md             安裝與運維 SOP
 
 ## API
 
-| 方法 | 路徑 | 說明 |
-|------|------|------|
-| GET | `/api/nodes/tree` | 整棵樹（`?include_inactive=true` 含停用項目） |
-| POST | `/api/nodes` | 新增資料夾 / 連結 |
-| PUT | `/api/nodes/{id}` | 更新 |
-| PUT | `/api/nodes/{id}/move` | 移到其他資料夾（`{"new_parent_id": id 或 null}`） |
-| PUT | `/api/nodes/reorder` | 批次排序（`{"items": [{"id", "sort_order"}]}`） |
-| DELETE | `/api/nodes/{id}` | 刪除（含子項目） |
-| GET / POST / PUT / DELETE | `/api/auth-links` | 快速連結 |
-| GET / POST / PUT / DELETE | `/api/icons` | 圖示 |
-| GET / POST | `/api/tasks` | 待辦卡片列表 / 新增（`title, description, status, priority, start_at, due_at, remind, repeat, repeat_every`；repeat：`daily`、`weekdays`、`weekly:1,5`、`monthly`、`yearly`） |
-| PUT / DELETE | `/api/tasks/{id}` | 更新（只改有送的欄位）/ 刪除 |
-| POST | `/api/tasks/reorder` | 拖曳後整欄排序（`{"status": "ongoing", "ids": [...]}`）；拖進 complete 時週期卡片會排下一次 |
-| POST | `/api/tasks/sweep` | 把過期未結案的單次卡片移到 overdue（`{"now": "YYYY-MM-DDTHH:MM"}`，瀏覽器的當地時間） |
-| POST | `/api/tasks/{id}/complete` | 結案；週期卡片同時建立下一次（`{"today": "YYYY-MM-DD"}` 選填） |
-| GET / PUT | `/api/settings` | 設定（PUT `{"values": {...}}`） |
-| POST | `/api/settings/reset` | 還原預設 |
-| GET | `/api/export` | 匯出全部（含待辦卡片） |
-| POST | `/api/import` | 匯入（`{"data": ..., "replace": true}`） |
-| POST | `/api/auth/login`、`/api/auth/logout` | 登入（AD 或本機管理員）/ 登出 |
-| GET | `/api/auth/me`、`/api/people?q=` | 目前帳號；@ 與指派用的人員搜尋 |
-| GET / POST / PUT | `/api/users` | （管理員）帳號列表、預先加入 AD 帳號、設定權限與啟用 |
-| GET | `/api/tasks/search?q=` | 搜尋看得到的卡片（標題、說明、留言、人員） |
-| PUT | `/api/tasks/{id}/comments/{comment_id}` | 修改留言內容（子任務的說明） |
-| PUT | `/api/tasks/{id}/comments/{comment_id}/task` | 留言設為子任務／取消，或更新子任務欄位（title、status、priority、start_at、due_at、remind、assignee、estimate_minutes、milestone、deps（`[{key: "t:卡片id"或"s:子任務id", lag}]`）、started_at） |
-| POST | `/api/tasks/{id}/comments/{comment_id}/timer`、`.../time` | 子任務計時（`action: start|stop`）、手動記錄工時（`minutes`、`note`、`work_date`） |
-| PUT | `/api/tasks/{id}/comments/{comment_id}/time/{entry_id}` | 修改一筆工時（`note`、`minutes`、`work_date`）；停止計時的回應會帶回剛記錄的那一筆 |
-| DELETE | `/api/tasks/{id}/comments/{comment_id}/time/{entry_id}` | 刪除一筆工時 |
-| POST | `/api/tasks/export.xlsx` | 匯出工作進度報告（`ids`：卡片 id，空的＝全部看得到的） |
-| GET | `/api/tasks/tags` | 看得到的卡片上用過的標籤與次數（編輯視窗的建議）；卡片的 `tags` 欄位是字串陣列，新增／更新時一起送 |
-| POST | `/api/tasks/{id}/blocked` | 標記／解除卡住（`blocked`、`reason`；能編輯卡片的人，含上級） |
-| POST | `/api/tasks/import.xlsx` | 匯入報告（multipart `file`；`apply=false` 只預覽，`true` 套用），回傳每列的動作與變更 |
-| POST | `/api/tasks/{id}/collab/{user_id}/done` | 協作人標記自己的部分完成（`done`），計入主卡完成度 |
-| GET | `/api/tasks/gantt` | 看得到的卡片底下所有子任務（各層）與排程欄位（甘特圖用；卡片本身由 `GET /api/tasks` 提供） |
-| GET | `/api/tasks/projects/analysis` | 專案健康度、所有問題、人員負載（每人每週預估工時）與共用時段使用情形（雷達、警示清單、專案頁共用） |
-| POST | `/api/tasks/projects/order` | 專案排序（`ids` 依新順序；看板管理員與部門管理員） |
-| GET | `/api/tasks/projects/suspected` | 看起來像專案的一般卡 |
-| POST | `/api/tasks/shift` | 把多個項目一起順延 N 天（`keys`：`t:卡片` / `s:子任務`、`days`；沒有權限的略過） |
-| GET / PUT | `/api/tasks/{id}/watch` | 我在這個專案的通知模式（`mode`：all／mine／digest／off，`default` 回到預設） |
-| POST | `/api/tasks/projects/events/run` | 管理員：立刻送出今天的專案通知（平常每天自動一次） |
-| POST | `/api/tasks/{id}/baseline` | 把卡片與所有子任務目前的日期存成基準線（`{"clear": true}` 清除） |
-| POST | `/api/tasks/{id}/subtasks` | 新增子任務（`title`、`parent`＝上層子任務 ID 可省略、`assignee`、`due_at`；最多四層含卡片） |
-| POST | `/api/tasks/{id}/subtasks/order` | 子任務排序（`ids` 依新順序；`parent` 指定上層子任務時排它底下的） |
-| GET / POST | `/api/tasks/{id}/comments` | 留言串與子任務（`parent_id` 回覆；`@帳號` 會通知對方；`images` 帶入已上傳的留言附件） |
-| POST / GET / DELETE | `/api/tasks/{id}/images`、`/api/tasks/{id}/images/{attachment_id}` | 卡片／留言附件：圖片與文件（multipart `file`，`target=card|comment`；GET 加 `?download=1` 強制下載） |
-| GET / POST | `/api/notifications`、`/api/notifications/read` | 通知（被指派、被提到、新留言） |
-| POST | `/api/sync/link`、`/api/sync/unlink` | 單機版用 AD 帳號連結／解除，取得同步憑證（之後以 `Authorization: Bearer` 呼叫以下 API） |
-| POST | `/api/sync/push`、`/api/sync/pull` | 送出本機修改（逐欄位、附修改時間）／取回 `since` 之後的變更與看得到的卡片 |
-| PUT / GET | `/api/sync/blob/{uid}` | 附件檔案（先上傳檔案、再送出附件資料） |
-| GET | `/api/sync/wait?since=` | 長輪詢：有任何變更就立刻回應（≤ 25 秒）；看板用它即時刷新 |
-| GET / DELETE | `/api/sync/devices` | 我連結過的單機版 |
-| GET / POST | `/api/sync/client`、`.../connect`、`.../now`、`.../disconnect`、`.../log`、`.../resolve` | （單機版）同步狀態、連線、立即同步、中斷、衝突紀錄、選擇保留哪個版本 |
-| GET | `/api/public/dashboard` | 公開進度看板資料（不需登入；只有數量） |
-| POST / PUT / DELETE | `/api/my/nodes`、`/api/my/nodes/{id}`、`.../move`、`/api/my/nodes/reorder` | 個人區的連結與資料夾（每個登入的人，只能動自己的） |
-| GET / PUT / POST | `/api/system/*` | （管理員）AD 設定與測試、登入安全、HTTPS 憑證、連線埠、自動備份 / 還原 |
-| GET | `/api/health`、`/api/time`、`/api/whoami` | 健康檢查、伺服器時間、使用者 IP |
+完整的 API 文件用 **Swagger UI**，開啟 `https://<主機>/docs`（管理後台左下角也有「API 文件」按鈕）。
 
-開發模式可在 `/docs` 看互動式 API 文件（正式環境預設關閉）。
+![API 文件（Swagger UI）](docs/images/api-docs.png)
+
+- 所有 API 依功能分組：待辦看板、子任務與工時、專案與甘特圖、附件、Excel 報告、通知、登入與帳號、入口網站、系統設定、單機版同步等，每個操作都有中文說明、參數與回應格式，上方可以搜尋
+- 「Try it out」直接呼叫這台伺服器，**以你目前登入的身分執行**（修改資料的操作會真的改到資料）
+- 原始的 OpenAPI 文件在 `/openapi.json`，可以匯入 Postman 或產生用戶端程式
+- Swagger UI 隨程式附帶，不連外部網站，單機版離線也能看
+
+**誰看得到**（環境變數 `TOOL_TABLE_API_DOCS`）
+
+| 值 | 伺服器版 | 單機版 |
+|---|---|---|
+| `admin`（預設） | 只有管理員（需登入） | 開放 |
+| `on` | 所有登入的人 | 開放 |
+| `off` | 關閉 `/docs` 與 `/openapi.json` | 關閉 |
+
+**自己寫程式呼叫時**
+- 驗證：伺服器版用登入後的 session cookie（`POST /api/auth/login` 取得）；單機版同步用 `Authorization: Bearer <裝置權杖>`
+- 會修改資料的呼叫（POST／PUT／DELETE）都要帶 `X-Tool-Table: 1` 標頭，否則回 403（防止其他網站偽造請求）
+- 權限與網頁相同：看不到的卡片回 404，沒有權限回 403，未登入回 401
+
+```bash
+curl -c cookie.txt -H 'X-Tool-Table: 1' -H 'Content-Type: application/json' \
+     -d '{"username":"alice","password":"..."}' https://tooltable.example/api/auth/login
+```
+
+```bash
+curl -b cookie.txt https://tooltable.example/api/tasks/projects/analysis
+```
 
 ## 授權
 
