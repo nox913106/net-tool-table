@@ -367,6 +367,9 @@ async def init_db():
                                 id INTEGER PRIMARY KEY AUTOINCREMENT, at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                                 actor_id INTEGER, tbl TEXT, row_id INTEGER, card_id INTEGER, field TEXT, old TEXT, new TEXT)""")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_change_log_card ON change_log(card_id, at)")
+        # /dashboard trend lines: one row per day × department × status (counts only, this copy only)
+        await db.execute("""CREATE TABLE IF NOT EXISTS dash_snap (day TEXT NOT NULL, dept TEXT NOT NULL, status TEXT NOT NULL,
+                                n INTEGER NOT NULL, PRIMARY KEY (day, dept, status))""")
         await db.execute("""CREATE TABLE IF NOT EXISTS teams_queue (
                                 id INTEGER PRIMARY KEY AUTOINCREMENT, channel TEXT, kind TEXT, payload TEXT,
                                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, attempts INTEGER NOT NULL DEFAULT 0,

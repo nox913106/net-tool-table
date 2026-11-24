@@ -86,6 +86,10 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "board_due_soon_days": 2,           # cards due within N days are highlighted
     "board_overdue_remind_time": "09:30",  # daily reminder for one-off cards past due (viewer's local time)
     "public_dashboard": True,           # /dashboard: per department / account status counts, no login
+    "dashboard_projects": "anon",       # projects on /dashboard: off | anon (專案 A, B… — progress only) | names
+    "dashboard_load": True,             # people × weeks load heat map on /dashboard
+    "dashboard_health": False,          # system lights (storage, memory, backup, certificate …: level only) on /dashboard
+    "dashboard_rotate_seconds": 20,     # 輪播 (?rotate=1): seconds per department
     "board_supervisor": "rw",           # 上級 on cards of everyone below them: rw = full rights, ro = view + comment, off = none
     "board_wip_high": 6,                # a column with this many open cards shows 高負荷 (default: ≤5 normal, 6–8 high)
     "board_wip_over": 9,                # … and from this many 超量
@@ -106,6 +110,7 @@ ENUMS = {
     "clock_style": {"hud", "flip", "simple"},   # flip = old name of hud
     "sidebar_default": {"expanded", "collapsed"},
     "board_supervisor": {"rw", "ro", "off"},
+    "dashboard_projects": {"off", "anon", "names"},
 }
 SECTION_TYPES = {"message", "quick_links", "favorites", "recent", "roots", "folder", "board"}
 
@@ -129,6 +134,14 @@ def validate_setting(key: str, value: Any) -> Any:
             raise HTTPException(status_code=400, detail="工作量門檻必須是數字")
         if not 1 <= n <= 999:
             raise HTTPException(status_code=400, detail="工作量門檻要在 1～999 之間")
+        return n
+    if key == "dashboard_rotate_seconds":
+        try:
+            n = int(value)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="輪播秒數必須是數字")
+        if not 5 <= n <= 600:
+            raise HTTPException(status_code=400, detail="輪播秒數要在 5～600 之間")
         return n
     if key in ("board_load_hours", "board_default_estimate_hours"):
         try:

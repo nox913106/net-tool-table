@@ -25,15 +25,16 @@
         <p id="dash-sub">各部門、各帳號的卡片狀態統計（不含週期工作）</p>
       </div>
     </div>
+    <div class="dash-controls" id="dash-controls"></div>
     <div class="dash-right">
+      <span class="dash-clock" id="dash-clock"></span>
       <span class="dash-live" id="dash-live" title="每 15 秒自動更新"><span class="dot"></span><span id="dash-time">—</span></span>
+      <button class="icon-btn" id="tv-btn" type="button"></button>
       <button class="icon-btn" id="theme-btn" type="button"></button>
       <a class="btn btn-sm" href="/" id="dash-login">登入</a>
     </div>
   </header>
-  <main class="dash-main">
-    <section class="dash-totals" id="dash-totals"></section>
-    <section class="dash-grid" id="dash-grid"></section>
-  </main>
+  <div class="dash-rotor" id="dash-rotor" hidden></div>
+  <main class="dash-main" id="dash-main"></main>
 </body>
 </html>

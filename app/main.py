@@ -66,6 +66,17 @@ async def _scheduler():
                 await monitor_tick()
             except Exception:
                 logging.getLogger("tool_table").exception("monitor")
+        if tick % 60 == 7:                      # hourly: today's counts for the dashboard's trend lines
+            try:
+                from .routes.dashboard import snapshot
+                from .database import get_db
+                db = await get_db()
+                try:
+                    await snapshot(db, force=True)
+                finally:
+                    await db.close()
+            except Exception:
+                logging.getLogger("tool_table").exception("dashboard snapshot")
         if tick % 60 == 5:                      # hourly: unposted comment images, orphaned files
             try:
                 await loop.run_in_executor(None, cleanup_images, DB_PATH)
@@ -222,7 +233,8 @@ async def branding():
         s = await read_settings(db)
     finally:
         await db.close()
-    keys = ("site_title", "site_subtitle", "favicon", "theme", "language", "accent_color", "background", "density", "public_dashboard")
+    keys = ("site_title", "site_subtitle", "favicon", "theme", "language", "accent_color", "background", "density", "public_dashboard",
+            "dashboard_rotate_seconds")
     return {k: s.get(k) for k in keys}
 
 

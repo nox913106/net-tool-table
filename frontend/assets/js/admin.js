@@ -1247,6 +1247,13 @@
       { key: 'show_public_ip', label: _t('顯示對外 IP 與所在地（瀏覽器會連線 ipinfo.io）'), type: 'switch' },
       { key: 'show_admin_button', label: _t('顯示 ⚙ 後台按鈕'), type: 'switch', hint: _t('關閉時：快速點 Logo 或時鐘 5 次進入後台') },
     ] },
+    { title: _t('公開進度看板'), icon: 'monitor', fields: [
+      { key: 'public_dashboard', label: _t('公開進度看板 /dashboard（不需登入、只顯示數量）'), type: 'switch', hint: _t('依部門 → 帳號 → 狀態顯示卡片數，不含任何卡片內容與週期工作；關閉後該頁顯示「已關閉」') },
+      { key: 'dashboard_projects', label: _t('專案進度'), type: 'seg', options: [['anon', _t('只顯示進度（專案 A、B…）')], ['names', _t('顯示專案名稱')], ['off', _t('不顯示')]], hint: _t('進度、落後天數與下個里程碑日期；選「顯示專案名稱」時也會顯示里程碑名稱') },
+      { key: 'dashboard_load', label: _t('顯示人員負載（每人每週的預估工時）'), type: 'switch' },
+      { key: 'dashboard_health', label: _t('顯示系統狀態燈號（儲存空間、記憶體、備份、憑證…）'), type: 'switch', hint: _t('只顯示正常／注意／異常，不顯示數值與主機資訊') },
+      { key: 'dashboard_rotate_seconds', label: _t('輪播：每頁停留秒數'), type: 'number', hint: _t('網址：/dashboard（總覽）、/dashboard?rotate=1（總覽與各部門輪流顯示）、/dashboard?dept=部門名稱（只看一個部門）；加 &tv=1 為壁掛模式（字體放大、隱藏按鈕）') },
+    ] },
     { title: _t('待辦看板'), icon: 'kanban', fields: [
       { key: 'board_enabled', label: _t('啟用待辦看板（側邊欄入口與右上角 🔔 提醒）'), type: 'switch' },
       { key: 'board_notify', label: _t('桌面通知'), type: 'switch', hint: _t('到期、提醒時間或開始日到了會跳出系統通知；每位使用者第一次要在瀏覽器按「允許」') },
@@ -1258,7 +1265,6 @@
       { key: 'board_default_estimate_hours', label: _t('人員負載：沒填預估的項目以幾小時計'), type: 'hours', hint: _t('負載表會另外標出「未填預估」的項目數，提醒大家補填') },
       { key: 'board_windows', label: _t('共用時段（停電、維護窗口、變更凍結期）'), type: 'windows', hint: _t('工作可以在「排程」選要用哪個時段。停電／維護：超過「可容納幾個專案」就算衝突；凍結期：任何排進來的工作都算衝突。') },
       { key: 'board_tag_colors', label: _t('卡片標籤顏色'), type: 'tagcolors', hint: _t('列出卡片上用過的標籤；沒指定的標籤依名稱自動配色。也可以先為還沒用過的標籤設定顏色。') },
-      { key: 'public_dashboard', label: _t('公開進度看板 /dashboard（不需登入、只顯示數量）'), type: 'switch', hint: _t('依部門 → 帳號 → 狀態顯示卡片數，不含任何卡片內容與週期工作；關閉後該頁顯示「已關閉」') },
       { key: 'board_overdue_remind_time', label: _t('過期未結案：每天提醒時間'), type: 'text', hint: _t('格式 HH:MM（預設 09:30）。單次卡片過了到期日還沒結案，會移到「過期未結案」，每天這個時間跳出提醒直到結案') },
     ] },
     { title: _t('導覽與搜尋'), icon: 'search', fields: [

@@ -510,5 +510,8 @@
  "，{0} 項未填預估": ", {0} without an estimate",
  "，到期 {0}": ", due {0}",
  "，標記完成": ", marked done",
- "：已還原這張卡片": ": the card has been restored"
+ "：已還原這張卡片": ": the card has been restored",
+ "專案 {0}": "Project {0}",
+ "輪播秒數必須是數字": "Rotation seconds must be a number",
+ "輪播秒數要在 5～600 之間": "Rotation seconds must be between 5 and 600"
 }
