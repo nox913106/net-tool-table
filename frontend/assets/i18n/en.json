@@ -1495,5 +1495,17 @@
  "人員：{0}": "Person: {0}",
  "狀態：{0}": "Status: {0}",
  "戰情室": "War room",
- "顯示全部卡片": "Show all cards"
+ "顯示全部卡片": "Show all cards",
+ "已匯出：{0}": "Exported: {0}",
+ "搜尋姓名或帳號…": "Search name or account…",
+ "只列這些人負責的子任務（他們主責或共同負責的卡片列出全部）": "List only their subtasks (cards they lead or share are listed whole)",
+ "匯出 {0} 人的報告": "Export report for {0} people",
+ "{0} 人": "{0} people",
+ "依人員匯出": "Export by person",
+ "依人員匯出工作進度報告": "Export progress report by person",
+ "人員（勾部門＝整個部門）": "People (tick a department for all of it)",
+ "狀態（不勾＝全部）": "Statuses (none ticked = all)",
+ "選人員或部門，匯出他們參與的所有卡片": "Pick people or departments and export every card they take part in",
+ "依人員匯出…": "Export by person…",
+ "未設定部門": "No department"
 }

@@ -822,6 +822,12 @@ def _snippet(text: str, kw: str, width: int = 60) -> str:
 class ExportIn(BaseModel):
     ids: List[int] = []                    # empty = every card I can see
     layout: str = "report"                 # kept for old clients; there is one layout now
+    # by person: the cards these people (and everyone in these departments) take part in
+    people: List[int] = []
+    departments: List[str] = []
+    statuses: List[str] = []               # only these statuses (cards, and the people's subtasks)
+    kind: str = "all"                      # all | ops | project
+    only_people: bool = True               # cards they do not lead list only their subtasks (and the ones above)
 
 
 @router.post("/export.xlsx")
@@ -832,12 +838,42 @@ async def export_xlsx(body: ExportIn, request: Request):
     user = current_user(request)
     ids = list(dict.fromkeys(body.ids))[:2000]
     where, args = _visible_sql(user)
+    by_person = bool(body.people or body.departments)
+    statuses = [x for x in body.statuses if x in STATUSES]
     db = await get_db()
     try:
+        P, scope_note, full_cards = set(), None, set()
+        if by_person:
+            P = {int(i) for i in body.people[:500]}
+            depts = [d for d in body.departments[:50] if d]
+            if depts:
+                cur = await db.execute(f"SELECT id FROM users WHERE department IN ({','.join('?' * len(depts))})", depts)
+                P |= {r[0] for r in await cur.fetchall()}
+            if not P:
+                raise HTTPException(status_code=404, detail="沒有符合的人員")
+            pm = ",".join("?" * len(P))
+            # every card they take part in: creator, assignee, @mentioned, or the assignee of a subtask
+            cur = await db.execute(f"""SELECT t.id FROM tasks t WHERE {where} AND (t.owner_id IN ({pm})
+                    OR EXISTS (SELECT 1 FROM task_members m WHERE m.task_id = t.id AND m.role IN ('assignee', 'mention') AND m.user_id IN ({pm}))
+                    OR EXISTS (SELECT 1 FROM task_comments c WHERE c.task_id = t.id AND c.is_task = 1 AND c.assignee_id IN ({pm})))""",
+                                   (*args, *P, *P, *P))
+            ids = [r[0] for r in await cur.fetchall()][:2000]
+            if not ids:
+                raise HTTPException(status_code=404, detail="這些人員沒有可以匯出的卡片")
+            # cards they lead or share (assignee) are listed whole
+            cur = await db.execute(f"""SELECT DISTINCT task_id FROM task_members WHERE role = 'assignee' AND user_id IN ({pm})
+                                       AND task_id IN ({','.join('?' * len(ids))})""", (*P, *ids))
+            full_cards = {r[0] for r in await cur.fetchall()}
+            cur = await db.execute(f"SELECT id, display_name, username, department FROM users WHERE id IN ({pm}) ORDER BY department, display_name", tuple(P))
+            ppl = [dict(r) for r in await cur.fetchall()]
+            label = "、".join(depts) if depts and len(ppl) > 4 else "、".join(u["display_name"] or u["username"] for u in ppl[:6]) + ("…" if len(ppl) > 6 else "")
+            scope_note = (label, [ZH.get(x, x) for x in statuses], body.kind)
         q = f"SELECT {COLUMNS} FROM tasks t WHERE {where}"
         if ids:
             q += f" AND t.id IN ({','.join('?' * len(ids))})"
-        cur = await db.execute(q, (*args, *ids))
+        if body.kind in ("ops", "project"):
+            q += " AND COALESCE(t.kind, 'ops') = ?"
+        cur = await db.execute(q, (*args, *ids, *((body.kind,) if body.kind in ("ops", "project") else ())))
         rows = [row_dict(r) for r in await cur.fetchall()]
         if not rows:
             raise HTTPException(status_code=404, detail="沒有可以匯出的卡片")
@@ -853,6 +889,32 @@ async def export_xlsx(body: ExportIn, request: Request):
                 subtasks.setdefault(c["task_id"], []).append(c)
         for lst in subtasks.values():
             lst.sort(key=lambda c: (c["sort_order"] if c["sort_order"] is not None else c["id"], c["id"]))
+        if by_person:
+            # cards they only take part in: their subtasks (in the chosen statuses) and the ones above them
+            keep_cards = []
+            for c in cards:
+                subs = subtasks.get(c["id"], [])
+                mine = [x for x in subs if x["assignee_id"] in P and (not statuses or (x["status"] or "new") in statuses)]
+                if body.only_people and c["id"] not in full_cards:
+                    by_id = {x["id"]: x for x in subs}
+                    keep = set()
+                    for x in mine:
+                        cid = x["id"]
+                        while cid and cid not in keep:
+                            keep.add(cid)
+                            cid = by_id[cid]["task_parent_id"] if cid in by_id else None
+                    subtasks[c["id"]] = [x for x in subs if x["id"] in keep]
+                if statuses and c["status"] not in statuses and not mine:
+                    continue
+                if body.only_people and c["id"] not in full_cards and not mine and (c.get("owner") or {}).get("id") not in P \
+                        and not any(m["id"] in P for m in c.get("mentions") or []):
+                    continue
+                keep_cards.append(c)
+            cards = keep_cards
+            if not cards:
+                raise HTTPException(status_code=404, detail="這些人員沒有符合條件的卡片")
+            found = [c["id"] for c in cards]
+            marks = ",".join("?" * len(found))
         all_subs = [c for lst in subtasks.values() for c in lst]
         dep_map = await deps_out(db, [c["deps"] for c in all_subs])
         sub_deps = {c["id"]: dep_map[c["deps"]] for c in all_subs if c["deps"] and dep_map.get(c["deps"])}
@@ -877,11 +939,14 @@ async def export_xlsx(body: ExportIn, request: Request):
     ctx = contextvars.copy_context()                   # the worker thread keeps the request's language
     data = await asyncio.get_running_loop().run_in_executor(
         None, lambda: ctx.run(xlsx_export.build_report, cards, subtasks, comments, times, names, author, sub_deps=sub_deps,
-                              analysis=analysis, project_titles=project_titles))
+                              analysis=analysis, project_titles=project_titles, scope_note=scope_note))
     from .. import i18n
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
     safe = re.sub(r'[\\/:*?"<>|\s]+', "_", cards[0]["title"])[:60]
     name = i18n.tr("工作進度報告-{0}.xlsx", stamp) if len(cards) > 1 else f"{safe}-{stamp}.xlsx"
+    if scope_note:
+        who = re.sub(r'[\\/:*?"<>|\s]+', "_", scope_note[0])[:40]
+        name = i18n.tr("工作進度報告-{0}-{1}.xlsx", who, stamp)
     return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={
         "Content-Disposition": f"attachment; filename=\"report-{stamp}.xlsx\"; filename*=UTF-8''{quote(name)}",
         "Cache-Control": "no-store",

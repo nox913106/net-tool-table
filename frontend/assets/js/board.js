@@ -172,6 +172,8 @@ const TTBoard = window.TTBoard = (() => {
       const none = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: _t('清除選取') });
       const xls = el('button', { class: 'btn btn-sm btn-primary', type: 'button', title: _t('工作進度報告：一個分頁，主任務 > 子任務／協作（可在 Excel 左側 +／− 折疊），可直接列印'), html: svg('download') + _t('匯出報告') });
       const imp = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', title: _t('把匯出的報告（可在 Excel 修改、新增列）匯回看板，先預覽再套用'), html: svg('upload') + _t('匯入報告…') });
+      const byPeople = el('button', { class: 'btn btn-sm', type: 'button', title: _t('選人員或部門，匯出他們參與的所有卡片'), html: svg('users') + _t('依人員匯出…') });
+      byPeople.addEventListener('click', () => exportByPeople());
       const done = el('button', { class: 'icon-btn', type: 'button', title: _t('結束選取（Esc）'), 'aria-label': _t('結束選取'), html: svg('x') });
       all.addEventListener('click', () => shownIds().forEach(i => toggleSelect(i, true)));
       none.addEventListener('click', () => [...selection].forEach(i => toggleSelect(i, false)));
@@ -184,7 +186,7 @@ const TTBoard = window.TTBoard = (() => {
       done.addEventListener('click', () => setSelecting(false));
       selBar = el('div', { class: 'kb-selbar', role: 'toolbar', 'aria-label': _t('已選取的卡片') },
         el('span', { class: 'kb-selbar-text' }, count, el('span', { class: 'hint', text: _t('點卡片或欄位標題的方框勾選') })),
-        all, none, el('span', { class: 'spacer' }), imp, xls, done);
+        all, none, el('span', { class: 'spacer' }), imp, byPeople, xls, done);
       selBar.count = count;
       document.body.append(selBar);
     }
@@ -193,9 +195,9 @@ const TTBoard = window.TTBoard = (() => {
   document.addEventListener('keydown', e => { if (selecting && e.key === 'Escape' && !document.querySelector('.modal:not([hidden])')) setSelecting(false); });
 
   /** Download the cards as a one-sheet progress report (.xlsx): 主任務 > 子任務／協作. */
-  async function exportXlsx(ids) {
+  async function exportXlsx(ids, extra = null) {
     try {
-      const res = await fetch('/api/tasks/export.xlsx', { method: 'POST', headers: { 'X-Tool-Table': '1', 'X-Lang': TT_LANG, 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
+      const res = await fetch('/api/tasks/export.xlsx', { method: 'POST', headers: { 'X-Tool-Table': '1', 'X-Lang': TT_LANG, 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, ...(extra || {}) }) });
       if (!res.ok) {
         let msg = `HTTP ${res.status}`;
         try { msg = (await res.json()).detail || msg; } catch { /* not json */ }
@@ -209,8 +211,83 @@ const TTBoard = window.TTBoard = (() => {
       const a = el('a', { href: url, download: name });
       document.body.append(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 30000);
-      toast(_t("已匯出 {0} 張卡片：{1}", ids.length, name));
+      toast(extra ? _t("已匯出：{0}", name) : _t("已匯出 {0} 張卡片：{1}", ids.length, name));
     } catch (e) { toast(_t('匯出失敗：') + e.message, true); }
+  }
+
+  /** 依人員匯出: pick people (or whole departments), statuses and the kind of work → one report of what they take part in. */
+  function exportByPeople(preset = []) {
+    if (selecting) setSelecting(false);
+    const people = new Map();
+    const add = p => { if (p && p.id != null && !people.has(p.id)) people.set(p.id, p); };
+    tasks.forEach(t => { add(t.owner); (t.assignees || []).forEach(add); (t.mentions || []).forEach(add); (t.subtasks?.items || []).forEach(x => add(x.assignee)); });
+    (meInfo.team || []).forEach(add);
+    if (meInfo.user) add(meInfo.user);
+    const noDept = _t('未設定部門');
+    const byDept = new Map();
+    [...people.values()].sort((a, b) => TT.nameOf(a).localeCompare(TT.nameOf(b), 'zh-Hant'))
+      .forEach(p => { const d = p.department || noDept; if (!byDept.has(d)) byDept.set(d, []); byDept.get(d).push(p); });
+    const depts = [...byDept.keys()].sort((a, b) => (a === noDept) - (b === noDept) || a.localeCompare(b, 'zh-Hant'));
+    const chosen = new Set(preset.filter(id => people.has(id)));
+    const pickedStatus = new Set();
+    let kind = 'all';
+    const search = el('input', { class: 'input', type: 'search', placeholder: _t('搜尋姓名或帳號…') });
+    const list = el('div', { class: 'kb-exp-people' });
+    const go = el('button', { class: 'btn btn-primary', type: 'button' });
+    const only = el('label', { class: 'switch' }, el('input', { type: 'checkbox', checked: true }), el('span', { class: 'track' }),
+      el('span', { text: _t('只列這些人負責的子任務（他們主責或共同負責的卡片列出全部）') }));
+    const paintGo = () => { go.disabled = !chosen.size; go.innerHTML = svg('download') + _t("匯出 {0} 人的報告", chosen.size); };
+    function paintList() {
+      const q = search.value.trim().toLowerCase();
+      list.replaceChildren(...depts.map(d => {
+        const ps = byDept.get(d).filter(p => !q || TT.nameOf(p).toLowerCase().includes(q) || (p.username || '').toLowerCase().includes(q));
+        if (!ps.length) return null;
+        const all = ps.every(p => chosen.has(p.id));
+        const head = el('label', { class: 'kb-exp-dept' }, el('input', { type: 'checkbox', checked: all }), el('strong', { text: d }), el('span', { class: 'hint', text: _t("{0} 人", ps.length) }));
+        head.querySelector('input').addEventListener('change', e => { ps.forEach(p => e.target.checked ? chosen.add(p.id) : chosen.delete(p.id)); paintList(); });
+        return el('div', { class: 'kb-exp-group' }, head, el('div', { class: 'kb-exp-names' }, ...ps.map(p => {
+          const box = el('input', { type: 'checkbox', checked: chosen.has(p.id) });
+          box.addEventListener('change', () => { box.checked ? chosen.add(p.id) : chosen.delete(p.id); paintList(); });
+          return el('label', { class: 'kb-exp-name' }, box, TT.avatar(p, 20), el('span', { text: TT.nameOf(p) }));
+        })));
+      }).filter(Boolean));
+      paintGo();
+    }
+    search.addEventListener('input', paintList);
+    const stBox = el('div', { class: 'kb-exp-status' }, ...STATUSES.filter(x => x.key !== 'recurring').map(x => {
+      const b = el('input', { type: 'checkbox' });
+      b.addEventListener('change', () => { b.checked ? pickedStatus.add(x.key) : pickedStatus.delete(x.key); });
+      return el('label', { class: 'kb-exp-st', style: { '--c': x.color } }, b, el('i'), el('span', { text: x.zh }));
+    }));
+    const kindSeg = el('div', { class: 'segmented', role: 'group' }, ...[['all', _t('全部')], ['ops', _t('一般')], ['project', _t('專案')]].map(([v, l]) => {
+      const b = el('button', { type: 'button', dataset: { v }, text: l, 'aria-pressed': String(v === kind) });
+      b.addEventListener('click', () => { kind = v; kindSeg.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.v === kind))); });
+      return b;
+    }));
+    const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: _t('取消') });
+    const wrap = el('div', { class: 'modal' },
+      el('div', { class: 'modal-card kb-exp', role: 'dialog', 'aria-modal': 'true', 'aria-label': _t('依人員匯出') },
+        el('div', { class: 'modal-head' }, el('h3', { html: svg('download') + _t('依人員匯出工作進度報告') })),
+        el('div', { class: 'modal-body' },
+          el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('人員（勾部門＝整個部門）') }), search, list),
+          el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('狀態（不勾＝全部）') }), stBox),
+          el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('類型') }), kindSeg),
+          only),
+        el('div', { class: 'modal-foot' }, cancel, go)));
+    const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey, true); };
+    const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+    document.addEventListener('keydown', onKey, true);
+    cancel.addEventListener('click', close);
+    go.addEventListener('click', async () => {
+      go.disabled = true;
+      try {
+        await exportXlsx([], { people: [...chosen], statuses: [...pickedStatus], kind, only_people: only.querySelector('input').checked });
+        close();
+      } finally { paintGo(); }
+    });
+    paintList();
+    document.body.append(wrap);
+    search.focus();
   }
 
   /** Import a report (same layout as the export): pick a file → preview what changes → apply. */
@@ -3060,5 +3137,5 @@ const TTBoard = window.TTBoard = (() => {
     reload(false).then(() => { if (path.length) paint(true); });
   }
 
-  return { init, load, refresh, openNavigator, ganttRows, baselineText, save, projectAnalysis, isProject, PROBLEM_ZH, get meInfo() { return meInfo; }, mount, mountBell, openEditor, openTask, exportXlsx, importXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; } };
+  return { init, load, refresh, openNavigator, exportByPeople, ganttRows, baselineText, save, projectAnalysis, isProject, PROBLEM_ZH, get meInfo() { return meInfo; }, mount, mountBell, openEditor, openTask, exportXlsx, importXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; } };
 })();

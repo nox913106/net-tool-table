@@ -237,7 +237,7 @@ def _extra_sheets(wb, analysis: dict, today):
 def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[int, list], times: Dict[int, list],
                  names: Dict[int, str], author: str = "", now: Optional[datetime] = None,
                  sub_deps: Optional[Dict[int, list]] = None, analysis: Optional[dict] = None,
-                 project_titles: Optional[Dict[int, str]] = None) -> bytes:
+                 project_titles: Optional[Dict[int, str]] = None, scope_note=None) -> bytes:
     """cards: enriched rows (owner / assignees / mentions as dicts with id, username, name, done).
     subtasks / comments / times are keyed by card id; names maps user id → display name."""
     now = now or datetime.now()
@@ -359,7 +359,12 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
     last_col = get_column_letter(PRINT_COLS)
     ws["A1"] = "工作進度報告"
     ws["A1"].font = Font(bold=True, size=16, color="1E3A8A")
-    ws["A2"] = _txt(f"製表人：{author or '—'}　　製表時間：{now:%Y-%m-%d %H:%M}　　範圍：{len(cards)} 項主任務")
+    scope_txt = f"{len(cards)} 項主任務"
+    if scope_note:                                   # 依人員匯出: (who, statuses, kind)
+        who, sts, kind = scope_note
+        scope_txt = f"人員 {who}" + (f"（{'、'.join(sts)}）" if sts else "") + \
+            {"ops": "，一般維運", "project": "，專案"}.get(kind, "") + f"，{len(cards)} 項主任務"
+    ws["A2"] = _txt(f"製表人：{author or '—'}　　製表時間：{now:%Y-%m-%d %H:%M}　　範圍：{scope_txt}")
     ws["A2"].font = Font(color="475569")
     order = ["overdue", "ongoing", "pending", "onhold", "new", "recurring", "complete", "canceled"]
     parts = [f"{STATUS_ZH[k]} {tally[k]}" for k in order if tally.get(k)]

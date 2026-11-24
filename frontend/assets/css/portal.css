@@ -1697,3 +1697,14 @@ button.g-tog:focus-visible { outline: 2px solid var(--accent); outline-offset: -
 .board-from { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 14px; margin-bottom: 10px; border: 1px solid var(--accent-line, var(--border));
   border-left: 3px solid var(--accent); background: var(--accent-soft); font-size: 13px; }
 .board-from a { margin-left: auto; color: var(--accent-text); }
+.kb-exp { width: min(640px, 100%); }
+.kb-exp .modal-head h3 { display: flex; align-items: center; gap: 8px; }
+.kb-exp .modal-head h3 svg { width: 18px; height: 18px; color: var(--accent-text); flex: none; }
+.kb-exp .modal-body { display: flex; flex-direction: column; gap: 14px; }
+.kb-exp-people { display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow: auto; margin-top: 8px; padding: 8px; border: 1px solid var(--border); border-radius: 10px; }
+.kb-exp-dept { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.kb-exp-names { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 4px 0 2px 24px; }
+.kb-exp-name { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.kb-exp-status { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.kb-exp-st { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.kb-exp-st i { width: 9px; height: 9px; border-radius: 2px; background: var(--c); }
