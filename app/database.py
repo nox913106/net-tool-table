@@ -8,6 +8,11 @@ from pathlib import Path
 
 from .config import DATA_DIR
 
+# Gantt fields on cards and subtasks: milestone (one date), predecessors (JSON [{"u": uid, "lag": days}]),
+# baseline (planned dates saved with "設定基準線"), actual start
+GANTT_COLS = (("milestone", "INTEGER NOT NULL DEFAULT 0"), ("deps", "TEXT"), ("base_start", "TEXT"),
+              ("base_due", "TEXT"), ("started_at", "TEXT"))
+
 # Database path (TOOL_TABLE_DATA_DIR, default ./data)
 DB_DIR = DATA_DIR
 DB_PATH = DB_DIR / "tool-table.db"
@@ -197,7 +202,8 @@ async def init_db():
                          ("estimate_minutes", "INTEGER"), ("completed_at", "TIMESTAMP"), ("sort_order", "INTEGER"),
                          ("priority", "TEXT"), ("remind", "INTEGER"), ("edited_at", "TIMESTAMP"),
                          # a subtask of a subtask (card → subtask → … at most 4 levels including the card)
-                         ("task_parent_id", "INTEGER REFERENCES task_comments(id) ON DELETE CASCADE")):
+                         ("task_parent_id", "INTEGER REFERENCES task_comments(id) ON DELETE CASCADE"),
+                         *GANTT_COLS):
             if col not in comment_cols:
                 await db.execute(f"ALTER TABLE task_comments ADD COLUMN {col} {ddl}")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_comments_parent ON task_comments(parent_id)")
@@ -287,9 +293,35 @@ async def init_db():
             if cursor.rowcount == 0:
                 break
 
+        # Gantt: milestone, predecessors, baseline, actual start (also on cards)
+        cursor = await db.execute("PRAGMA table_info(tasks)")
+        task_cols = {row[1] for row in await cursor.fetchall()}
+        for col, ddl in GANTT_COLS:
+            if col not in task_cols:
+                await db.execute(f"ALTER TABLE tasks ADD COLUMN {col} {ddl}")
+
         # Sync between standalone copies and the server (app/sync.py): uids, clocks, capture triggers
         from . import sync
         await sync.install(db)
+
+        # actual start: the first time a card / subtask goes On going or gets time logged
+        # (not while a sync is applying the other side's rows: that side recorded its own)
+        today = "date('now', 'localtime')"
+        quiet = "NOT EXISTS (SELECT 1 FROM sync_ctx)"
+        for name, sql in (
+            ("tt_started_task_upd", f"AFTER UPDATE OF status ON tasks WHEN NEW.status = 'ongoing' AND NEW.started_at IS NULL AND {quiet} "
+                                    f"BEGIN UPDATE tasks SET started_at = {today} WHERE id = NEW.id; END"),
+            ("tt_started_task_ins", f"AFTER INSERT ON tasks WHEN NEW.status = 'ongoing' AND NEW.started_at IS NULL AND {quiet} "
+                                    f"BEGIN UPDATE tasks SET started_at = {today} WHERE id = NEW.id; END"),
+            ("tt_started_sub_upd", f"AFTER UPDATE OF status ON task_comments WHEN NEW.is_task = 1 AND NEW.status = 'ongoing' AND {quiet} "
+                                   f"BEGIN UPDATE task_comments SET started_at = {today} WHERE id = NEW.id AND started_at IS NULL; "
+                                   f"UPDATE tasks SET started_at = {today} WHERE id = NEW.task_id AND started_at IS NULL; END"),
+            ("tt_started_time", f"AFTER INSERT ON task_time WHEN {quiet} "
+                                f"BEGIN UPDATE task_comments SET started_at = COALESCE(NEW.work_date, {today}) WHERE id = NEW.comment_id AND started_at IS NULL; "
+                                f"UPDATE tasks SET started_at = COALESCE(NEW.work_date, {today}) WHERE id = NEW.task_id AND started_at IS NULL; END"),
+        ):
+            await db.execute(f"DROP TRIGGER IF EXISTS {name}")
+            await db.execute(f"CREATE TRIGGER {name} {sql}")
 
         await db.commit()
         print(f"Database initialized at {DB_PATH}")

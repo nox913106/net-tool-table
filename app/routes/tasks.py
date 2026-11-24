@@ -48,7 +48,7 @@ DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$")
 REPEAT_RE = re.compile(r"^(daily|weekdays|weekly(:[1-7](,[1-7]){0,6})?|monthly(:\d{1,2})?|yearly)$")
 COLUMNS = ("id, title, description, status, priority, start_at, due_at, remind, repeat, repeat_every, next_id, "
            "overdue_from, overdue_ack, owner_id, sort_order, created_at, updated_at, completed_at, "
-           "blocked_at, blocked_reason, blocked_by, tags")
+           "blocked_at, blocked_reason, blocked_by, tags, milestone, deps, base_start, base_due, started_at")
 
 
 def _repeat(v):
@@ -259,6 +259,16 @@ def _remind(v):
     return v
 
 
+class DepIn(BaseModel):
+    key: str                                       # "t:<card id>" or "s:<subtask id>"
+    lag: int = 0                                   # days between the predecessor's end and this start
+
+    @field_validator("lag")
+    @classmethod
+    def v_lag(cls, v):
+        return max(-365, min(365, int(v or 0)))
+
+
 class TaskIn(BaseModel):
     title: str
     description: Optional[str] = None
@@ -271,6 +281,14 @@ class TaskIn(BaseModel):
     repeat_every: Optional[int] = None
     assignees: Optional[List[str]] = None          # login names (admins only)
     tags: Optional[List[str]] = None               # custom labels shown on the card
+    milestone: Optional[bool] = None               # a single date (the due date), drawn as a diamond
+    deps: Optional[List[DepIn]] = None             # predecessors
+    started_at: Optional[str] = None               # actual start (set automatically; can be corrected)
+
+    @field_validator("started_at")
+    @classmethod
+    def v_started(cls, v):
+        return _date(v)
 
     @field_validator("tags")
     @classmethod
@@ -331,6 +349,14 @@ class TaskUpdate(BaseModel):
     repeat_every: Optional[int] = None
     assignees: Optional[List[str]] = None          # login names (admins only)
     tags: Optional[List[str]] = None               # custom labels shown on the card
+    milestone: Optional[bool] = None               # a single date (the due date), drawn as a diamond
+    deps: Optional[List[DepIn]] = None             # predecessors
+    started_at: Optional[str] = None               # actual start (set automatically; can be corrected)
+
+    @field_validator("started_at")
+    @classmethod
+    def v_started(cls, v):
+        return _date(v)
 
     @field_validator("tags")
     @classmethod
@@ -543,6 +569,7 @@ async def _enrich(db, rows: List[dict], user: dict) -> List[dict]:
     cur = await db.execute(f"SELECT task_id, COUNT(*) AS c FROM task_comments WHERE task_id IN ({marks}) GROUP BY task_id", ids)
     comments = {c["task_id"]: c["c"] for c in await cur.fetchall()}
     rollup = await _rollup(db, ids, user.get("id"))
+    dep_map = await deps_out(db, [r.get("deps") for r in rows])
     pics = {}
     cur = await db.execute(f"""SELECT id, task_id, name, size, kind FROM task_images
                                WHERE task_id IN ({marks}) AND comment_id IS NULL AND pending = 0 ORDER BY id""", ids)
@@ -557,6 +584,8 @@ async def _enrich(db, rows: List[dict], user: dict) -> List[dict]:
     acc = board_access(user)
     for r in rows:
         r["tags"] = tags_list(r.get("tags"))
+        r["milestone"] = bool(r.get("milestone"))
+        r["deps"] = dep_map.get(r.get("deps") or "", [])
         r["blocked"] = {"since": r["blocked_at"], "reason": r.get("blocked_reason") or "",
                         "by": blockers.get(r.get("blocked_by"))} if r.get("blocked_at") else None
         p = people.get(r["id"], {"assignee": [], "mention": [], "subtask": []})
@@ -1087,6 +1116,155 @@ async def import_xlsx(request: Request, file: UploadFile = File(...), apply: boo
             "rows": [{k: v for k, v in o.items() if not k.startswith("_")} for o in plan]}
 
 
+# ------------------------------------------------------------------ Gantt
+DEP_RE = re.compile(r"^([ts]):(\d+)$")
+
+
+async def _uid_of(db, kind: str, rid: int, user: dict):
+    """(uid, card id) of a card ("t") or subtask ("s") the user can see; 400 if there is none."""
+    if kind == "t":
+        cur = await db.execute("SELECT uid, id FROM tasks WHERE id = ?", (rid,))
+    else:
+        cur = await db.execute("SELECT uid, task_id FROM task_comments WHERE id = ? AND is_task = 1", (rid,))
+    r = await cur.fetchone()
+    if not r or not r[0]:
+        raise HTTPException(status_code=400, detail="找不到這個前置任務")
+    await _get_visible(db, r[1], user)
+    return r[0]
+
+
+async def deps_in(db, deps, me: tuple, user: dict) -> Optional[str]:
+    """Predecessors from the API ([{key, lag}]) to what is stored: uids, which mean the same row on the
+    server and every copy. Refuses itself and loops."""
+    if not deps:
+        return None
+    my_uid = await _uid_of(db, me[0], me[1], user)
+    out, seen = [], set()
+    for d in deps[:20]:
+        m = DEP_RE.match(d.key or "")
+        if not m:
+            raise HTTPException(status_code=400, detail="前置任務格式不正確")
+        uid = await _uid_of(db, m.group(1), int(m.group(2)), user)
+        if uid == my_uid:
+            raise HTTPException(status_code=400, detail="不能把自己設為前置任務")
+        if uid not in seen:
+            seen.add(uid)
+            out.append({"u": uid, "lag": d.lag})
+    # no loops: walk the predecessors of the new predecessors
+    graph = {}
+    for table in ("tasks", "task_comments"):
+        cur = await db.execute(f"SELECT uid, deps FROM {table} WHERE deps IS NOT NULL")
+        for r in await cur.fetchall():
+            try:
+                graph[r[0]] = [x["u"] for x in json.loads(r[1]) if isinstance(x, dict)]
+            except (ValueError, TypeError):
+                pass
+    graph[my_uid] = [x["u"] for x in out]
+    stack, visited = list(graph[my_uid]), set()
+    while stack:
+        u = stack.pop()
+        if u == my_uid:
+            raise HTTPException(status_code=400, detail="前置任務會形成循環（A 等 B、B 又等 A）")
+        if u not in visited:
+            visited.add(u)
+            stack.extend(graph.get(u, []))
+    return json.dumps(out) if out else None
+
+
+async def deps_out(db, raws) -> dict:
+    """Stored predecessors → [{key, lag, title, card}] for the viewer (rows that no longer exist drop out)."""
+    parsed, uids = {}, set()
+    for raw in raws:
+        if not raw or raw in parsed:
+            continue
+        try:
+            lst = [x for x in json.loads(raw) if isinstance(x, dict) and x.get("u")]
+        except (ValueError, TypeError):
+            lst = []
+        parsed[raw] = lst
+        uids |= {x["u"] for x in lst}
+    if not uids:
+        return {}
+    where = {}
+    part = list(uids)
+    for i in range(0, len(part), 400):
+        chunk = part[i:i + 400]
+        marks = ",".join("?" * len(chunk))
+        cur = await db.execute(f"SELECT uid, id, title FROM tasks WHERE uid IN ({marks})", chunk)
+        for r in await cur.fetchall():
+            where[r[0]] = {"key": f"t:{r[1]}", "title": r[2], "card": r[1]}
+        cur = await db.execute(f"SELECT uid, id, title, task_id FROM task_comments WHERE is_task = 1 AND uid IN ({marks})", chunk)
+        for r in await cur.fetchall():
+            where[r[0]] = {"key": f"s:{r[1]}", "title": r[2], "card": r[3]}
+    return {raw: [{**where[x["u"]], "lag": int(x.get("lag") or 0)} for x in lst if x["u"] in where]
+            for raw, lst in parsed.items()}
+
+
+@router.get("/gantt")
+async def gantt(request: Request):
+    """Every subtask (all levels) of the cards the viewer can see, with the Gantt fields.
+    The cards themselves come from GET /api/tasks (same fields)."""
+    user = current_user(request)
+    me = user.get("id")
+    where, args = _visible_sql(user)
+    db = await get_db()
+    try:
+        cur = await db.execute(f"""SELECT c.id, c.task_id, c.task_parent_id, c.title, c.status, c.priority, c.start_at, c.due_at,
+                                          c.milestone, c.deps, c.base_start, c.base_due, c.started_at, c.completed_at,
+                                          c.estimate_minutes, c.sort_order, c.assignee_id, u.username, u.display_name,
+                                          (SELECT COALESCE(SUM(minutes), 0) FROM task_time tt WHERE tt.comment_id = c.id) AS spent
+                                   FROM task_comments c JOIN tasks t ON t.id = c.task_id LEFT JOIN users u ON u.id = c.assignee_id
+                                   WHERE c.is_task = 1 AND c.parent_id IS NULL AND {where}
+                                   ORDER BY c.task_id, COALESCE(c.sort_order, c.id), c.id""", args)
+        rows = [dict(r) for r in await cur.fetchall()]
+        dep_map = await deps_out(db, [r["deps"] for r in rows])
+        by = {r["id"]: r for r in rows}
+
+        def owners(cid):
+            got, n = set(), 0
+            while cid in by and n < 10:
+                if by[cid]["assignee_id"] is not None:
+                    got.add(by[cid]["assignee_id"])
+                cid, n = by[cid]["task_parent_id"], n + 1
+            return got
+        return [{"id": r["id"], "card": r["task_id"], "parent": r["task_parent_id"], "title": r["title"],
+                 "status": r["status"] or "new", "priority": r["priority"] or "normal",
+                 "start_at": r["start_at"], "due_at": r["due_at"], "milestone": bool(r["milestone"]),
+                 "deps": dep_map.get(r["deps"] or "", []), "base_start": r["base_start"], "base_due": r["base_due"],
+                 "started_at": r["started_at"], "completed_at": r["completed_at"], "estimate": r["estimate_minutes"],
+                 "spent": r["spent"], "assignee": {"id": r["assignee_id"], "username": r["username"],
+                                                    "name": r["display_name"] or r["username"]} if r["assignee_id"] else None,
+                 "mine_edit": me is not None and me in owners(r["id"])} for r in rows]
+    finally:
+        await db.close()
+
+
+class BaselineIn(BaseModel):
+    clear: bool = False
+
+
+@router.post("/{task_id}/baseline")
+async def set_baseline(task_id: int, body: BaselineIn, request: Request):
+    """Save the card's and all its subtasks' current dates as the planned dates (or clear them)."""
+    user = current_user(request)
+    db = await get_db()
+    try:
+        await _get_visible(db, task_id, user)
+        await _require_edit(db, task_id, user)
+        if body.clear:
+            await db.execute("UPDATE tasks SET base_start = NULL, base_due = NULL WHERE id = ?", (task_id,))
+            await db.execute("UPDATE task_comments SET base_start = NULL, base_due = NULL WHERE task_id = ? AND is_task = 1", (task_id,))
+        else:
+            await db.execute("UPDATE tasks SET base_start = COALESCE(start_at, due_at), base_due = due_at WHERE id = ?", (task_id,))
+            await db.execute("""UPDATE task_comments SET base_start = COALESCE(start_at, due_at), base_due = due_at
+                                WHERE task_id = ? AND is_task = 1""", (task_id,))
+        await db.execute("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (task_id,))
+        await db.commit()
+        return await _one(db, task_id, user)
+    finally:
+        await db.close()
+
+
 @router.get("/tags")
 async def list_tags(request: Request):
     """Labels used on cards the viewer can see (most used first) — suggestions in the editor."""
@@ -1172,6 +1350,15 @@ async def create_task(t: TaskIn, request: Request):
             (t.title, t.description, t.status, t.priority, t.start_at, t.due_at, t.remind, repeat, t.repeat_every or 1,
              order, user.get("id"), t.status, tags_json(t.tags)))
         task_id = cur.lastrowid
+        extra = {}
+        if t.milestone:
+            extra.update(milestone=1, start_at=None)
+        if t.deps:
+            extra["deps"] = await deps_in(db, t.deps, ("t", task_id), user)
+        if t.started_at:
+            extra["started_at"] = t.started_at
+        if extra:
+            await db.execute(f"UPDATE tasks SET {', '.join(k + ' = ?' for k in extra)} WHERE id = ?", (*extra.values(), task_id))
         if user.get("id") is not None:
             acc_c = board_access(user)
             if t.assignees is not None and (acc_c["edit"] in ("all", "dept") or acc_c["team_edit"]):
@@ -1196,6 +1383,12 @@ async def update_task(task_id: int, t: TaskUpdate, request: Request):
         await _require_edit(db, task_id, user)
         changes = {k: getattr(t, k) for k in t.model_fields_set if k != "assignees"}
         assignees = t.assignees if "assignees" in t.model_fields_set else None
+        if "deps" in changes:
+            changes["deps"] = await deps_in(db, t.deps, ("t", task_id), user)
+        if "milestone" in changes:
+            changes["milestone"] = 1 if changes["milestone"] else 0
+        if changes.get("milestone") or (cur_task.get("milestone") and "start_at" in changes):
+            changes["start_at"] = None                 # a milestone is one date: its due date
         if assignees is not None:
             acc = board_access(user)
             if acc["edit"] != "all":
@@ -1414,6 +1607,14 @@ class SubtaskIn(BaseModel):
     estimate_minutes: Optional[int] = None  # 0 / null = none
     priority: Optional[str] = None          # low | normal | high
     remind: Optional[int] = None            # minutes before due; null = none
+    milestone: Optional[bool] = None        # a single date (the due date)
+    deps: Optional[List[DepIn]] = None      # predecessors
+    started_at: Optional[str] = None        # actual start (set automatically; can be corrected)
+
+    @field_validator("started_at")
+    @classmethod
+    def v_started(cls, v):
+        return _date(v)
 
     @field_validator("priority")
     @classmethod
@@ -1576,6 +1777,7 @@ async def list_comments(task_id: int, request: Request):
         for e in await cur.fetchall():
             times.setdefault(e["comment_id"], []).append(e)
         row_by = {c["id"]: c for c in rows}
+        dep_map = await deps_out(db, [c["deps"] for c in rows if c["is_task"]])
 
         def owners(cid, above_only=False):
             got, n = set(), 0
@@ -1622,6 +1824,8 @@ async def list_comments(task_id: int, request: Request):
                                     for e in entries],
                         "my_timer": next(({"id": e["id"], "elapsed": e["elapsed"]} for e in entries
                                           if e["ended_at"] is None and e["started_at"] is not None and e["user_id"] == me), None),
+                        "milestone": bool(c["milestone"]), "base_start": c["base_start"], "base_due": c["base_due"],
+                        "started_at": c["started_at"], "deps": dep_map.get(c["deps"] or "", []),
                         "can_edit": editor or mine,             # every field but the assignee
                         "can_assign": editor or above,
                         "can_update": editor or mine,           # status + time log
@@ -1788,9 +1992,15 @@ async def update_subtask(task_id: int, comment_id: int, body: SubtaskIn, request
             if not c["title"] and "title" not in sent:
                 first = next((ln.strip() for ln in (c["body"] or "").splitlines() if ln.strip()), "")
                 fields["title"] = (first[:120] or "子任務")
-        for k in ("title", "status", "start_at", "due_at", "estimate_minutes", "priority", "remind"):
+        for k in ("title", "status", "start_at", "due_at", "estimate_minutes", "priority", "remind", "started_at"):
             if k in sent:
                 fields[k] = getattr(body, k)
+        if "milestone" in sent:
+            fields["milestone"] = 1 if body.milestone else 0
+        if fields.get("milestone") or (c["milestone"] and "start_at" in fields):
+            fields["start_at"] = None
+        if "deps" in sent:
+            fields["deps"] = await deps_in(db, body.deps, ("s", comment_id), user)
         if "title" in sent and not body.title:
             raise HTTPException(status_code=400, detail="請輸入子任務名稱")
         start = fields.get("start_at", c["start_at"])

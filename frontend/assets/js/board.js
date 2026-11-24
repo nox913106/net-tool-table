@@ -817,6 +817,7 @@ const TTBoard = window.TTBoard = (() => {
       paintTagBar();
       root.classList.toggle('is-selecting', selecting);
       if (selecting) root.querySelectorAll('.kb-col').forEach(paintColCheck);
+      root.dispatchEvent(new CustomEvent('kb:view'));               // a linked Gantt follows
     };
 
     function column(s) {
@@ -1184,6 +1185,19 @@ const TTBoard = window.TTBoard = (() => {
       setLanes(v) { lanes = v; render(); },
       setFocus,
       render,
+      root,
+      /** The cards this board shows right now (filter, focus, tag, hidden closed): the Gantt follows them when linked. */
+      cards() {
+        return STATUSES.filter(s => !(hideClosed && CLOSED.has(s.key))).flatMap(s => byStatus(s.key).filter(t => pass(t) && inFocus(t)));
+      },
+      /** Bring a card into view and flash it (the Gantt's "show on the board"). */
+      flash(id) {
+        const c = root.querySelector(`.kb-card[data-id="${id}"]`);
+        if (!c) return false;
+        c.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        c.classList.add('kb-flash'); setTimeout(() => c.classList.remove('kb-flash'), 1400);
+        return true;
+      },
     };
   }
 
@@ -1302,6 +1316,111 @@ const TTBoard = window.TTBoard = (() => {
   // --------------------------------------------------------- subtask editor
   /** Everything a card has, for one subtask: title, description, attachments, status, priority,
    *  start / due (date + time), reminder, assignee, estimate. The comment's text is the description. */
+  // ----------------------------------------------------------------- schedule (Gantt fields)
+  // every subtask of the visible cards, for the predecessor picker and the Gantt view (short cache)
+  let ganttCache = { at: 0, rows: null, wait: null };
+  async function ganttRows(force = false) {
+    if (!force && ganttCache.rows && Date.now() - ganttCache.at < 15000) return ganttCache.rows;
+    if (!ganttCache.wait) ganttCache.wait = api('/api/tasks/gantt').then(r => { ganttCache = { at: Date.now(), rows: r, wait: null }; return r; })
+      .catch(e => { ganttCache.wait = null; throw e; });
+    return ganttCache.wait;
+  }
+  const dayNum = v => { if (!v) return null; const [y, m, d] = v.slice(0, 10).split('-').map(Number); return Date.UTC(y, m - 1, d) / 864e5; };
+  /** "原定 12/1–12/31，延誤 3 天" from the planned (baseline) and the current dates. */
+  function baselineText(x) {
+    if (!x.base_due && !x.base_start) return '';
+    const md = v => v ? `${+v.slice(5, 7)}/${+v.slice(8, 10)}` : '—';
+    const slip = x.base_due && x.due_at ? dayNum(x.due_at) - dayNum(x.base_due) : null;
+    return `原定 ${x.milestone || x.base_start === x.base_due ? md(x.base_due) : `${md(x.base_start)}–${md(x.base_due)}`}`
+      + (slip == null ? '' : slip > 0 ? `，延誤 ${slip} 天` : slip < 0 ? `，提前 ${-slip} 天` : '，準時');
+  }
+  /** Milestone, predecessors, actual start and baseline of a card ("t:id") or subtask ("s:id").
+   *  opts: { key, item, editable, card (for the baseline buttons), onChange(body) → saves at once; omitted → value() } */
+  function scheduleBlock(opts) {
+    const { key, item, editable } = opts;
+    let milestone = !!item.milestone;
+    let deps = (item.deps || []).map(d => ({ key: d.key, lag: d.lag || 0, title: d.title }));
+    let started = item.started_at || '';
+    const changed = {};
+    const emit = part => { Object.assign(changed, part); opts.onChange?.(part); };
+    const box = el('div', { class: 'kb-sched' });
+    const ms = el('label', { class: 'kb-sched-ms' }, el('input', { type: 'checkbox', checked: milestone, disabled: !editable }),
+      el('span', { html: svg('flag') + '里程碑' }), el('small', { class: 'hint', text: '只看到期日，甘特圖畫成菱形' }));
+    ms.querySelector('input').addEventListener('change', e => { milestone = e.target.checked; emit({ milestone }); });
+    const chips = el('div', { class: 'kb-dep-chips' });
+    const paintChips = () => {
+      chips.replaceChildren(...deps.map((d, i) => {
+        const lag = el('input', { class: 'input input-sm kb-dep-lag', type: 'number', min: '-365', max: '365', value: String(d.lag || 0), disabled: !editable,
+          title: '前置完成後間隔幾天才開始（0 = 隔天就開始；可為負數）' });
+        lag.addEventListener('change', () => { deps[i].lag = parseInt(lag.value, 10) || 0; emit({ deps: deps.map(({ key: k, lag: l }) => ({ key: k, lag: l })) }); });
+        const x = editable ? el('button', { class: 'kb-person-x', type: 'button', 'aria-label': '移除前置任務', html: svg('x') }) : null;
+        x?.addEventListener('click', () => { deps.splice(i, 1); paintChips(); emit({ deps: deps.map(({ key: k, lag: l }) => ({ key: k, lag: l })) }); });
+        return el('span', { class: 'kb-dep-chip' }, el('span', { class: 'kb-dep-kind', text: d.key.startsWith('t:') ? '卡' : '子' }),
+          el('span', { class: 'kb-dep-title', text: d.title || d.key }), el('span', { class: 'hint', text: '+' }), lag, el('span', { class: 'hint', text: '天' }), x);
+      }));
+      if (!deps.length) chips.append(el('span', { class: 'hint', text: '沒有前置任務' }));
+    };
+    paintChips();
+    const find = editable ? el('input', { class: 'input input-sm kb-dep-find', placeholder: '＋ 前置任務：輸入名稱搜尋卡片或子任務' }) : null;
+    const sug = el('div', { class: 'kb-dep-sug', hidden: true });
+    let pool = null;
+    async function candidates() {
+      if (pool) return pool;
+      const rows = await ganttRows().catch(() => []);
+      const byCard = new Map(tasks.map(t => [t.id, t]));
+      pool = [...tasks.map(t => ({ key: `t:${t.id}`, title: t.title, where: '卡片' })),
+        ...rows.map(r => ({ key: `s:${r.id}`, title: r.title, where: `「${byCard.get(r.card)?.title || '卡片'}」的子任務` }))]
+        .filter(x => x.key !== key);
+      return pool;
+    }
+    find?.addEventListener('input', async () => {
+      const q = find.value.trim().toLowerCase();
+      const list = (await candidates()).filter(x => !deps.some(d => d.key === x.key) && (!q || x.title.toLowerCase().includes(q))).slice(0, 8);
+      sug.replaceChildren(...list.map(x => {
+        const b = el('button', { type: 'button', class: 'kb-dep-opt' }, el('span', { text: x.title }), el('small', { class: 'hint', text: x.where }));
+        b.addEventListener('mousedown', e => {
+          e.preventDefault();
+          deps.push({ key: x.key, lag: 0, title: x.title });
+          find.value = ''; sug.hidden = true; paintChips();
+          emit({ deps: deps.map(({ key: k, lag: l }) => ({ key: k, lag: l })) });
+        });
+        return b;
+      }));
+      sug.hidden = !list.length;
+    });
+    find?.addEventListener('focus', () => find.dispatchEvent(new Event('input')));
+    find?.addEventListener('blur', () => setTimeout(() => { sug.hidden = true; }, 150));
+    find?.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); sug.hidden = true; } });
+    const st = el('input', { class: 'input input-sm', type: 'date', value: started.slice(0, 10), disabled: !editable, title: '第一次改成進行中或第一次記工時時自動記錄，也可以修正' });
+    st.addEventListener('change', () => { started = st.value; emit({ started_at: started || null }); });
+    const base = el('span', { class: 'kb-sched-base', text: baselineText(item) || '還沒有設定基準線' });
+    let baseBtns = null;
+    if (opts.card && editable) {
+      const set = el('button', { class: 'kb-link-btn', type: 'button', html: svg('flag') + `<span>${item.base_due || item.base_start ? '重設基準線' : '設定基準線'}</span>`,
+        title: '把這張卡片與所有子任務目前的開始／到期日存成原定日期，之後可以看延誤天數' });
+      const clear = item.base_due || item.base_start ? el('button', { class: 'kb-link-btn', type: 'button', html: svg('x') + '<span>清除</span>' }) : null;
+      const run = async clearIt => {
+        if (!clearIt && (item.base_due || item.base_start) && !confirm('用目前的日期取代原本的基準線？')) return;
+        try {
+          const fresh = await api(`/api/tasks/${opts.card.id}/baseline`, { method: 'POST', body: { clear: !!clearIt } });
+          Object.assign(item, { base_start: fresh.base_start, base_due: fresh.base_due });
+          base.textContent = baselineText(fresh) || '還沒有設定基準線';
+          ganttCache.at = 0; load(true).catch(() => {}); opts.onBaseline?.();
+          toast(clearIt ? '已清除基準線' : '已設定基準線（卡片與所有子任務）');
+        } catch (e) { toast(e.message, true); }
+      };
+      set.addEventListener('click', () => run(false));
+      clear?.addEventListener('click', () => run(true));
+      baseBtns = el('span', { class: 'kb-sched-btns' }, set, clear);
+    }
+    box.append(
+      el('div', { class: 'kb-sched-row' }, ms),
+      el('div', { class: 'kb-sched-row' }, el('span', { class: 'kb-sched-label', html: svg('link') + '前置任務' }), el('div', { class: 'kb-dep-box' }, chips, find, sug)),
+      el('div', { class: 'kb-sched-row' }, el('span', { class: 'kb-sched-label', html: svg('play') + '實際開始' }), st,
+        el('span', { class: 'kb-sched-label', html: svg('calendar') + '基準線' }), base, baseBtns));
+    return { el: box, value: () => ({ ...changed }) };
+  }
+
   function openSubtaskEditor(card, c, onSaved) {
     const s = c.task;
     const edit = s.can_edit;
@@ -1387,6 +1506,7 @@ const TTBoard = window.TTBoard = (() => {
     let changed = false;
 
     const field = (label, ...ctl) => el('label', { class: 'field' }, el('span', { class: 'field-label', text: label }), ...ctl);
+    const sched = scheduleBlock({ key: `s:${c.id}`, item: { ...s, deps: s.deps || [] }, editable: !!edit });
     const ok = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + '儲存' });
     const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: edit || c.can_edit_body ? '取消' : '關閉' });
     const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': '關閉', html: svg('x') });
@@ -1406,6 +1526,7 @@ const TTBoard = window.TTBoard = (() => {
             el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('play') + '開始日' }), el('div', { class: 'kb-dt' }, startD, startT)),
             el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('clock') + '到期日' }), el('div', { class: 'kb-dt' }, dueD, dueT))),
           el('div', { class: 'kb-row' }, field('提醒', remind), field('預估工時（小時）', est)),
+          el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('calendar') + '排程（甘特圖）' }), sched.el),
           hint,
           el('p', { class: 'hint', text: `已記錄工時 ${fmtMin(spent)}${s.estimate_minutes ? ` / 預估 ${fmtMin(s.estimate_minutes)}` : ''}（計時與明細在卡片的子任務區）` })),
         el('div', { class: 'modal-foot' }, el('span', { class: 'spacer' }), cancel, edit || c.can_edit_body || s.can_update ? ok : null)));
@@ -1454,6 +1575,9 @@ const TTBoard = window.TTBoard = (() => {
         const h = parseFloat(est.value);
         const m = Number.isFinite(h) && h > 0 ? Math.round(h * 60) : null;
         if (m !== (s.estimate_minutes || null)) body.estimate_minutes = m;
+        Object.assign(body, sched.value());
+        if (body.milestone ?? s.milestone) delete body.start_at;
+        if ((body.milestone ?? s.milestone) && !(body.due_at ?? s.due_at)) { toast('里程碑需要到期日', true); return; }
       }
       if (s.can_assign && (assignee?.username || '') !== (s.assignee?.username || '')) body.assignee = assignee?.username || '';
       const oldDesc = c.body && c.body.trim() !== (s.title || '').trim() ? c.body : '';
@@ -1689,6 +1813,7 @@ const TTBoard = window.TTBoard = (() => {
     paintRepeat();
 
     const field = (label, ...ctl) => el('label', { class: 'field' }, el('span', { class: 'field-label', text: label }), ...ctl);
+    const sched = scheduleBlock({ key: task ? `t:${task.id}` : null, item: { ...t, deps: t.deps || [] }, editable: !readOnly, card: task || null });
     const ok = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + (task ? '儲存' : '新增') });
     const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: '取消' });
     const del = task && task.can_delete !== false ? el('button', { class: 'btn btn-danger kb-del', type: 'button', html: svg('trash') + '刪除' }) : null;
@@ -2244,6 +2369,7 @@ const TTBoard = window.TTBoard = (() => {
           el('div', { class: 'kb-row' },
             el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('play') + '開始日' }), el('div', { class: 'kb-dt' }, startD, startT), startChips),
             el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('clock') + '到期日' }), el('div', { class: 'kb-dt' }, dueD, dueT), dueChips)),
+          el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('calendar') + '排程（甘特圖）' }), sched.el),
           el('div', { class: 'kb-row' },
             field('提醒', remind),
             el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('repeat') + '重複' }),
@@ -2319,6 +2445,8 @@ const TTBoard = window.TTBoard = (() => {
       };
       if (tagInput.value.trim()) { addTag(tagInput.value); tagInput.value = ''; }
       body.tags = tagList;
+      if (!readOnly) Object.assign(body, sched.value());
+      if (body.milestone ?? t.milestone) { body.start_at = null; if (!body.due_at) { toast('里程碑需要到期日', true); dueD.focus(); return; } }
       if (canAssign) body.assignees = assignees.map(p => p.username);
       if (body.start_at && body.due_at && body.start_at.slice(0, 10) > body.due_at.slice(0, 10)) { toast('開始日不能晚於到期日', true); return; }
       if (body.repeat && !body.due_at) { toast('重複的卡片需要設定到期日', true); dueD.focus(); return; }
@@ -2745,6 +2873,9 @@ const TTBoard = window.TTBoard = (() => {
         value: s.estimate_minutes ? String(+(s.estimate_minutes / 60).toFixed(2)) : '' });
       est.addEventListener('change', () => { const h = parseFloat(est.value); put({ estimate_minutes: Number.isFinite(h) && h > 0 ? Math.round(h * 60) : null }); });
       box.append(row('預估（時）', est));
+      const sched = scheduleBlock({ key: `s:${c.id}`, item: { ...s, deps: s.deps || [] }, editable: !!s.can_edit,
+        onChange: body => { if (body.milestone && !s.due_at) { toast('里程碑需要到期日', true); return; } put(body); } });
+      box.append(el('div', { class: 'kb-nav-field is-wide' }, el('span', { text: '排程' }), sched.el));
       return box;
     }
 
@@ -2823,5 +2954,5 @@ const TTBoard = window.TTBoard = (() => {
     reload(false).then(() => { if (path.length) paint(true); });
   }
 
-  return { init, load, refresh, openNavigator, mount, mountBell, openEditor, openTask, exportXlsx, importXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; } };
+  return { init, load, refresh, openNavigator, ganttRows, baselineText, save, mount, mountBell, openEditor, openTask, exportXlsx, importXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; } };
 })();

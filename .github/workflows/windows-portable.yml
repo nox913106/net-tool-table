@@ -68,7 +68,7 @@ jobs:
             Start-Sleep -Seconds 1
           }
           if ($ok) {
-            foreach ($u in '/', '/admin', '/assets/js/portal.js', '/assets/css/base.css', '/resource/icon/grafana_icon.svg', '/api/nodes/tree', '/manifest.webmanifest', '/sw.js', '/assets/app/icon-512.png', '/assets/js/board.js', '/api/tasks', '/dashboard', '/api/public/dashboard', '/login', '/api/system/backup', '/api/system/info', '/api/sync/client', '/assets/js/sync.js') {
+            foreach ($u in '/', '/admin', '/assets/js/portal.js', '/assets/css/base.css', '/resource/icon/grafana_icon.svg', '/api/nodes/tree', '/manifest.webmanifest', '/sw.js', '/assets/app/icon-512.png', '/assets/js/board.js', '/api/tasks', '/dashboard', '/api/public/dashboard', '/login', '/api/system/backup', '/api/system/info', '/api/sync/client', '/assets/js/sync.js', '/assets/js/gantt.js', '/api/tasks/gantt') {
               $code = (Invoke-WebRequest "http://127.0.0.1:18080$u" -UseBasicParsing).StatusCode
               Write-Host "$u -> $code"
               if ($code -ne 200) { $ok = $false }

@@ -670,14 +670,18 @@
     // 依人員: one row per person (me, then everyone below me), columns by status — only with accounts
     // (server, or a standalone copy linked to one); a single-person board has nobody to lay out
     const auth = state.me?.people;
-    let lanes = !!auth && !!store.get('board-lanes', false);
+    // 看板 | 依人員 (accounts only) | 甘特圖 | 看板＋甘特圖 (the Gantt below the board, linked or not)
+    const MODES = [['cols', '看板', 'kanban'], ...(auth ? [['lanes', '依人員', 'users']] : []), ['gantt', '甘特圖', 'calendar'], ['split', '看板＋甘特', 'layout']];
+    let mode = store.get('board-layout', store.get('board-lanes', false) ? 'lanes' : 'cols');
+    if (!MODES.some(m => m[0] === mode)) mode = 'cols';
+    const lanes = mode === 'lanes';
     const layout = el('div', { class: 'segmented board-layout', role: 'group', title: '看板版面' },
-      ...[['cols', '看板', 'kanban'], ['lanes', '依人員', 'users']].map(([v, l, icon]) => {
+      ...MODES.map(([v, l, icon]) => {
         const b = el('button', { type: 'button', dataset: { v }, html: svg(icon) + `<span>${l}</span>` });
-        b.addEventListener('click', () => { lanes = v === 'lanes'; store.set('board-lanes', lanes); paintLayout(); board.setLanes(lanes); });
+        b.addEventListener('click', () => { mode = v; store.set('board-layout', v); applyMode(); });
         return b;
       }));
-    const paintLayout = () => layout.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.v === 'lanes') === lanes)));
+    const paintLayout = () => layout.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === mode)));
     paintLayout();
     pick.addEventListener('click', () => TTBoard.setSelecting(!TTBoard.selecting));
     // whose cards: everyone I can see / mine / (admins) one person
@@ -705,13 +709,30 @@
       title: '待辦看板',
       desc: '拖曳卡片換狀態；設定開始日與到期日，時間到會在右上角 🔔 提醒。',
       meta: ' ',
-      tools: el('div', { class: 'board-tools' }, auth ? who : null, auth ? layout : null, toggle, pick, add),
+      tools: el('div', { class: 'board-tools' }, auth ? who : null, layout, toggle, pick, add),
     }));
     const box = el('div');
     const board = TTBoard.mount(box, { hideClosed, full: true, filter, lanes });
     toggle.querySelector('input').addEventListener('change', e => { hideClosed = e.target.checked; store.set('board-hide-closed', hideClosed); board.setHideClosed(hideClosed); });
-    frag.append(box);
-    $('view').replaceChildren(frag);
+    const gbox = el('div', { class: 'board-gantt' });
+    let gantt = null;
+    const page = el('div', { class: 'board-page' }, frag, box, gbox);
+    function applyMode() {
+      paintLayout();
+      const showGantt = mode === 'gantt' || mode === 'split';
+      box.hidden = mode === 'gantt';
+      gbox.hidden = !showGantt;
+      page.classList.toggle('board-split', mode === 'split');
+      board.setLanes(mode === 'lanes');
+      if (showGantt && !gantt && window.TTGantt) {
+        gantt = TTGantt.mount(gbox, { board, onLinked: on => page.classList.toggle('board-gantt-solo', mode === 'gantt' && !on) });
+      }
+      page.classList.toggle('board-gantt-solo', mode === 'gantt' && !!gantt && !gantt.linked);
+      // the board's own tools (who / hide closed / select) only matter where the board is shown or linked
+      pick.hidden = mode === 'gantt';
+    }
+    applyMode();
+    $('view').replaceChildren(page);
     const metaEl = $('view').querySelector('.page-meta');
     const paintMeta = () => { if (metaEl.isConnected) metaEl.textContent = TTBoard.summary(); };
     TTBoard.load().then(() => { paintMeta(); if (auth) { paintWho(); board.setFilter(who.value); } }).catch(() => {});

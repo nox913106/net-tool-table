@@ -38,13 +38,13 @@ TABLES: Dict[str, dict] = {
     "tasks": {
         "fields": ("title", "description", "status", "priority", "start_at", "due_at", "remind", "repeat", "repeat_every",
                    "next_id", "overdue_from", "overdue_ack", "owner_id", "sort_order", "created_at", "updated_at",
-                   "completed_at", "blocked_at", "blocked_reason", "blocked_by", "tags"),
+                   "completed_at", "blocked_at", "blocked_reason", "blocked_by", "tags", "milestone", "deps", "base_start", "base_due", "started_at"),
         "refs": {"next_id": "tasks"}, "people": ("owner_id", "blocked_by"), "card": "id",
     },
     "task_comments": {
         "fields": ("task_id", "parent_id", "user_id", "body", "created_at", "is_task", "title", "status", "start_at",
                    "due_at", "assignee_id", "estimate_minutes", "completed_at", "sort_order", "priority", "remind",
-                   "edited_at", "task_parent_id"),
+                   "edited_at", "task_parent_id", "milestone", "deps", "base_start", "base_due", "started_at"),
         "refs": {"task_id": "tasks", "parent_id": "task_comments", "task_parent_id": "task_comments"}, "people": ("user_id", "assignee_id"),
         "card": "task_id", "required": ("task_id",),
     },
