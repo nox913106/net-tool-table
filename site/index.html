@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tool Table</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="部門入口網站、待辦看板與多專案管理，一套系統。伺服器版 AD 登入共用，Windows 單機版離線可用、連線自動同步。">
+<meta property="og:title" content="Tool Table">
+<meta property="og:description" content="部門入口網站、待辦看板與多專案管理，一套系統。">
+<meta property="og:image" content="img/hero.jpg">
+<link rel="icon" href="favicon.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=JetBrains+Mono:wght@500;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<style>
+/* Layout: a field manual — a dark operations screen up top, then numbered-free briefing sections,
+   each a claim on the left and the real screen on the right; the product's own tactical palette */
+:root {
+  --bg: #0B0E11; --bg-2: #11161A; --panel: #151B20; --line: #25302A; --line-2: #34423A;
+  --ink: #E8EEE9; --ink-2: #A8B4AC; --ink-3: #6E7B73;
+  --accent: #10B981; --accent-2: #34D399; --on-accent: #04130C; --hot: #F0524A; --warn: #E3A23B;
+  --display: "Chakra Petch", "Noto Sans TC", system-ui, sans-serif;
+  --body: "Noto Sans TC", system-ui, -apple-system, "Microsoft JhengHei", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) {
+  --bg: #ECEEE9; --bg-2: #E3E6DF; --panel: #F6F7F3; --line: #CDD2C7; --line-2: #B9C0B3;
+  --ink: #18201A; --ink-2: #47524A; --ink-3: #76817A;
+  --accent: #2B6A50; --accent-2: #2B6A50; --on-accent: #F6F7F3; --hot: #B4372F; --warn: #9A6A12; color-scheme: light } }
+:root[data-theme="light"] {
+  --bg: #ECEEE9; --bg-2: #E3E6DF; --panel: #F6F7F3; --line: #CDD2C7; --line-2: #B9C0B3;
+  --ink: #18201A; --ink-2: #47524A; --ink-3: #76817A;
+  --accent: #2B6A50; --accent-2: #2B6A50; --on-accent: #F6F7F3; --hot: #B4372F; --warn: #9A6A12; color-scheme: light }
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.75 var(--body); -webkit-font-smoothing: antialiased; }
+img { max-width: 100%; height: auto; display: block; }
+a { color: inherit; }
+.w { max-width: 1200px; margin: 0 auto; padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); }
+.mono { font-family: var(--mono); }
+.label { font: 700 11.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--accent-2); }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+h2 { font: 700 clamp(26px, 3.4vw, 38px)/1.25 var(--body); letter-spacing: .01em; }
+h3 { font: 700 19px/1.4 var(--body); }
+p { margin: 0; }
+
+/* nav */
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--bg); }
+.nav { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+.nav .w { display: flex; align-items: center; gap: 22px; height: 60px; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font: 700 15px var(--display); letter-spacing: .1em; }
+.logo { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid var(--accent); color: var(--accent-2); font: 700 12px var(--mono); }
+.nav nav { display: flex; gap: 20px; margin-left: auto; font-size: 14px; }
+.nav nav a { text-decoration: none; color: var(--ink-2); }
+.nav nav a:hover { color: var(--ink); }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 18px; font: 700 14px var(--body); text-decoration: none; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); transition: border-color .15s, background .15s; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.btn.primary:hover { background: var(--accent-2); }
+.btn:focus-visible, .nav a:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+.btn svg { width: 16px; height: 16px; }
+.nav .btn { padding: 7px 14px; font-size: 13px; }
+
+/* hero */
+.hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--line); padding-block: 72px 0;
+  background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 32px 32px; background-position: -1px -1px; }
+.hero::before { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 0%, transparent 0%, var(--bg) 72%); pointer-events: none; }
+.hero .w { position: relative; }
+.hero .label { display: flex; gap: 10px; align-items: center; }
+.hero .label::before { content: ""; width: 8px; height: 8px; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+.hero h1 { margin-top: 18px; font: 900 clamp(36px, 6.2vw, 74px)/1.12 var(--body); letter-spacing: -.01em; }
+.hero h1 em { font-style: normal; color: var(--accent-2); }
+.hero .lede { margin-top: 20px; max-width: 58ch; font-size: clamp(16px, 1.6vw, 18.5px); color: var(--ink-2); }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+.facts { display: flex; flex-wrap: wrap; gap: 8px 28px; margin-top: 30px; font: 500 13px var(--mono); color: var(--ink-3); }
+.facts b { color: var(--ink); font-weight: 700; }
+.shot-wrap { position: relative; margin-top: 52px; }
+.frame { position: relative; border: 1px solid var(--line-2); background: var(--panel); padding: 8px; }
+.frame::before, .frame::after { content: ""; position: absolute; width: 16px; height: 16px; pointer-events: none; }
+.frame::before { top: -1px; left: -1px; border-top: 2px solid var(--accent); border-left: 2px solid var(--accent); }
+.frame::after { bottom: -1px; right: -1px; border-bottom: 2px solid var(--accent); border-right: 2px solid var(--accent); }
+.frame img { border: 1px solid var(--line); }
+.hero .frame { border-bottom: 0; box-shadow: 0 -30px 80px -40px color-mix(in srgb, var(--accent) 45%, transparent); }
+.hero .frame::after { display: none; }
+.tag { position: absolute; font: 700 11px var(--mono); letter-spacing: .08em; padding: 4px 8px; background: var(--bg); border: 1px solid var(--accent); color: var(--accent-2); white-space: nowrap; }
+.tag.t1 { right: 14%; bottom: 46%; }
+.tag.t2 { left: 29%; top: 31%; }
+@media (prefers-reduced-motion: no-preference) {
+  .hero h1, .hero .lede, .hero .cta, .hero .facts { animation: rise .7s cubic-bezier(.2, .7, .2, 1) both; }
+  .hero .lede { animation-delay: .06s; } .hero .cta { animation-delay: .12s; } .hero .facts { animation-delay: .18s; }
+  .hero .frame { animation: rise 1s .15s cubic-bezier(.2, .7, .2, 1) both; }
+  @keyframes rise { from { transform: translateY(14px); } to { transform: none; } }
+}
+
+/* sections */
+section.s { padding-block: 96px; border-bottom: 1px solid var(--line); }
+section.s.alt { background: var(--bg-2); }
+.head { display: grid; gap: 14px; max-width: 760px; margin-bottom: 44px; }
+.head p { color: var(--ink-2); font-size: 17px; }
+.split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 48px; align-items: center; }
+.split.rev { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+.split.rev > .copy { order: 2; }
+.copy { display: grid; gap: 16px; min-width: 0; }
+.copy > p { color: var(--ink-2); }
+.points { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 12px; }
+.points li { display: grid; grid-template-columns: 14px 1fr; gap: 12px; color: var(--ink-2); font-size: 15px; }
+.points li::before { content: ""; width: 8px; height: 8px; margin-top: 9px; border: 1.5px solid var(--accent-2); transform: rotate(45deg); }
+.points b { color: var(--ink); font-weight: 700; }
+.cap { margin-top: 10px; font: 500 12.5px var(--mono); color: var(--ink-3); }
+
+/* radar trio */
+.trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.trio figure { margin: 0; display: grid; gap: 12px; align-content: start; }
+.trio .frame { padding: 6px; }
+.trio figcaption h3 { font-size: 17px; }
+.trio figcaption p { margin-top: 4px; color: var(--ink-2); font-size: 14.5px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chip { font: 700 11px var(--mono); padding: 2px 7px; border: 1px solid currentColor; }
+.chip.hot { color: var(--hot); } .chip.warn { color: var(--warn); }
+
+/* tabs for project views */
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 18px; border-bottom: 1px solid var(--line); }
+.tabs button { all: unset; cursor: pointer; padding: 10px 16px; font: 700 14px var(--body); color: var(--ink-3); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.tabs button:hover { color: var(--ink); }
+.tabs button:focus-visible { outline: 2px solid var(--accent-2); outline-offset: -2px; }
+.pane { display: grid; grid-template-columns: minmax(0, 8fr) minmax(0, 4fr); gap: 32px; align-items: start; }
+.pane .copy h3 { font-size: 21px; }
+
+/* two up */
+.duo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; }
+.duo .card { display: grid; gap: 14px; align-content: start; }
+.duo .card p { color: var(--ink-2); font-size: 15px; }
+
+/* sync diagram */
+.sync { width: 100%; height: auto; }
+.sync text { font-family: var(--mono); fill: var(--ink-2); font-size: 13px; }
+.sync .t { fill: var(--ink); font-weight: 700; font-size: 14px; font-family: var(--body); }
+.sync .box { fill: var(--panel); stroke: var(--line-2); }
+.sync .srv { stroke: var(--accent); }
+.sync .ln { stroke: var(--accent); stroke-width: 1.5; fill: none; }
+.sync .dash { stroke-dasharray: 5 5; stroke: var(--ink-3); }
+.sync .dot { fill: var(--accent); }
+
+/* install */
+.install { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.box { border: 1px solid var(--line-2); background: var(--panel); padding: 26px; display: grid; gap: 14px; align-content: start; min-width: 0; }
+.box p { color: var(--ink-2); font-size: 15px; }
+pre { margin: 0; padding: 14px 16px; background: var(--bg); border: 1px solid var(--line); overflow-x: auto; font: 500 13px/1.6 var(--mono); color: var(--ink); }
+pre .c { color: var(--ink-3); }
+.copybtn { justify-self: start; font: 700 12px var(--mono); padding: 5px 10px; border: 1px solid var(--line-2); background: transparent; color: var(--ink-2); cursor: pointer; }
+.copybtn:hover { color: var(--ink); border-color: var(--accent); }
+
+footer { padding-block: 40px; color: var(--ink-3); font-size: 14px; }
+footer .w { display: flex; flex-wrap: wrap; gap: 12px 28px; justify-content: space-between; align-items: center; }
+footer a { color: var(--ink-2); }
+
+@media (max-width: 900px) {
+  .nav nav { display: none; }
+  .nav .w { justify-content: space-between; }
+  .split, .split.rev, .pane, .duo, .install, .trio { grid-template-columns: minmax(0, 1fr); }
+  .split.rev > .copy { order: 0; }
+  section.s { padding-block: 64px; }
+  .tag { display: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="w">
+    <a class="brand" href="#top"><span class="logo">TT</span>TOOL TABLE</a>
+    <nav aria-label="頁面導覽">
+      <a href="#split">專案與維運</a>
+      <a href="#radar">任務雷達</a>
+      <a href="#projects">多專案</a>
+      <a href="#offline">單機版</a>
+      <a href="#install">安裝</a>
+    </nav>
+    <a class="btn" href="https://github.com/nox913106/net-tool-table">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5A11.5 11.5 0 0 0 .5 12a11.5 11.5 0 0 0 7.86 10.92c.58.1.79-.25.79-.56v-2c-3.2.7-3.87-1.37-3.87-1.37-.53-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.7 5.38-5.26 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5Z"/></svg>
+      GitHub</a>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <div class="w">
+      <div class="label">部門入口 · 待辦看板 · 多專案管理</div>
+      <h1>維運工作和每個專案，<br><em>一個畫面</em>看完。</h1>
+      <p class="lede">Tool Table 把部門的連結入口、每天的維運待辦、跨好幾個月的專案放在同一套系統。專案和維運分開管理，但落後、卡住、互相搶時段的地方，一打開就看得到。</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/nox913106/net-tool-table/releases/download/latest/ToolTable-Setup.exe">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"/></svg>
+          下載 Windows 版</a>
+        <a class="btn" href="#install">在伺服器安裝</a>
+      </div>
+      <div class="facts"><span><b>AD</b> 登入與權限</span><span>子任務 <b>4</b> 層</span><span>單機版<b>離線</b>可用</span><span><b>125</b> 個 API</span><span>MIT 授權</span></div>
+      <div class="shot-wrap">
+        <div class="frame"><img src="img/hero.jpg" width="1440" height="900" alt="Tool Table 首頁：待辦看板與右下角的任務雷達"></div>
+        <span class="tag t1">◆ 任務雷達：只畫有問題的項目</span>
+        <span class="tag t2">待辦看板：週期、逾期、進行中…</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="s" id="split">
+    <div class="w split">
+      <div class="copy">
+        <div class="label">專案與維運</div>
+        <h2>分開管理，不用切來切去找問題</h2>
+        <p>卡片分「一般（維運）」與「專案」。看板上方用「全部／一般／專案」切換顯示，但專案的警示永遠留在摘要列：幾個進行中、幾個落後、本週有哪些里程碑。</p>
+        <ul class="points">
+          <li><span><b>專案卡</b>顯示完成度、相對基準線落後幾天、下個里程碑與問題數，點一下開啟專案頁</span></li>
+          <li><span>專案期間的採購單、停機申請這類一般卡，可以<b>歸屬</b>到專案，一起出現在專案的甘特圖</span></li>
+          <li><span><b>我的工作</b>：所有專案與一般卡裡指派給我的項目，依逾期、今天、3 天內、本週分組</span></li>
+        </ul>
+      </div>
+      <div><div class="frame"><img src="img/board.jpg" width="1440" height="900" alt="待辦看板：上方的專案摘要列與人員專注列" loading="lazy"></div>
+        <p class="cap">待辦看板 · 專案摘要列：3 個進行中、3 個有問題、本週里程碑 採購核准 11/27</p></div>
+    </div>
+  </section>
+
+  <section class="s alt" id="radar">
+    <div class="w">
+      <div class="head">
+        <div class="label">任務雷達</div>
+        <h2>五個專案、上百項工作，雷達上只剩要處理的幾個點</h2>
+        <p>每個頁面右下角都有雷達。越靠近中心越緊急；正常的項目合成一個「N 正常」，畫面不會被光點塞滿。每個專案是一個六角形，點進去用扇區看各個階段。</p>
+      </div>
+      <div class="trio">
+        <figure>
+          <div class="frame"><img src="img/radar.jpg" width="405" height="284" alt="任務雷達：專案六角形與有問題的卡片" loading="lazy"></div>
+          <figcaption><h3>全部：專案是六角形</h3><p>位置看下個里程碑多近，顏色看健康度，數字是有問題的項目數。</p></figcaption>
+        </figure>
+        <figure>
+          <div class="frame"><img src="img/radar-project.jpg" width="419" height="307" alt="專案雷達：扇區是各個階段" loading="lazy"></div>
+          <figcaption><h3>專案雷達：扇區是階段</h3><p>右邊列出每個階段的問題數，點光點直接在任務視窗展開到那一層。</p></figcaption>
+        </figure>
+        <figure>
+          <div class="frame"><img src="img/radar-alerts.jpg" width="378" height="346" alt="警示清單：依類型篩選" loading="lazy"></div>
+          <figcaption><h3>警示清單</h3><p>依類型篩選、只看我的，人員超載也在這裡。</p>
+            <div class="chips"><span class="chip hot">逾期</span><span class="chip hot">卡住</span><span class="chip warn">排程衝突</span><span class="chip hot">跨專案前置</span><span class="chip warn">時段衝突</span><span class="chip warn">超載</span></div></figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="s" id="projects">
+    <div class="w">
+      <div class="head">
+        <div class="label">多專案並行</div>
+        <h2>專案之間會互相卡住，所以要看得到彼此</h2>
+        <p>同一批人同時跑好幾個專案，問題常常不在單一專案裡，而在專案之間：同一週被排滿、同一個停電時段被兩個專案搶、前置工作在別的專案延誤了。</p>
+      </div>
+      <div class="tabs" role="tablist" aria-label="專案總覽的畫面">
+        <button type="button" role="tab" id="tab-0" aria-selected="true" aria-controls="pane">專案總覽</button>
+        <button type="button" role="tab" id="tab-1" aria-selected="false" aria-controls="pane">人員負載</button>
+        <button type="button" role="tab" id="tab-2" aria-selected="false" aria-controls="pane">時段與跨專案</button>
+        <button type="button" role="tab" id="tab-3" aria-selected="false" aria-controls="pane">專案頁</button>
+      </div>
+      <div class="pane" id="pane" role="tabpanel">
+        <div class="frame"><img id="pane-img" src="img/projects.jpg" width="1440" height="900" alt="" loading="lazy"></div>
+        <div class="copy"><h3 id="pane-h"></h3><p id="pane-p"></p><ul class="points" id="pane-l"></ul></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="s alt">
+    <div class="w split rev">
+      <div class="copy">
+        <div class="label">甘特圖</div>
+        <h2>里程碑、前置任務、基準線</h2>
+        <p>看板可以切成甘特圖，或上面看板、下面甘特。開「與看板連動」時跟著看板的篩選；關掉就是獨立的甘特圖。</p>
+        <ul class="points">
+          <li><span><b>拖曳長條</b>改日期、拖兩端改開始或到期；有後續工作時會詢問是否一起順延</span></li>
+          <li><span><b>基準線</b>：存下原定日期，之後每一項都看得到延誤或提前幾天</span></li>
+          <li><span>有子任務的項目，日期自動等於底下的範圍；比前置任務早開始會標成排程衝突</span></li>
+        </ul>
+      </div>
+      <div><div class="frame"><img src="img/gantt.jpg" width="1440" height="900" alt="甘特圖：卡片與子任務的長條、今天線與逾期標示" loading="lazy"></div></div>
+    </div>
+  </section>
+
+  <section class="s">
+    <div class="w">
+      <div class="head">
+        <div class="label">每天的工作</div>
+        <h2>該做的事會自己找上門</h2>
+      </div>
+      <div class="duo">
+        <div class="card">
+          <div class="frame"><img src="img/mine.jpg" width="1440" height="900" alt="我的工作：依到期分組" loading="lazy"></div>
+          <h3>我的工作</h3>
+          <p>跨所有專案與一般卡，指派給我的項目依逾期、今天、3 天內、本週、之後排好。每一項標出來自哪個專案、在第幾層。</p>
+        </div>
+        <div class="card">
+          <div class="frame"><img src="img/bell.jpg" width="1440" height="900" alt="通知：每日的專案通知" loading="lazy"></div>
+          <h3>專案通知</h3>
+          <p>每個專案自己選：全部、只跟我有關、每日摘要或關閉。每天送出落後基準線、跨專案前置延誤、時段衝突、3 天內到期的里程碑；同一件事只通知一次。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="s alt" id="offline">
+    <div class="w split">
+      <div class="copy">
+        <div class="label">單機版與同步</div>
+        <h2>不在公司網路裡，照樣能用</h2>
+        <p>伺服器版給整個部門共用，用 AD 帳號登入。Windows 單機版在外面也能新增、修改、計時、附檔，連上伺服器後自動同步回去，兩邊功能完全相同。</p>
+        <ul class="points">
+          <li><span><b>逐欄位合併</b>：兩邊改了同一張卡的不同欄位，兩邊的修改都保留；改到同一欄位時以較新的為準，並列入衝突紀錄</span></li>
+          <li><span>以 python.org 官方簽章的 <b>python.exe</b> 執行，套件裡沒有自製的執行檔，不會被公司防毒誤判</span></li>
+          <li><span>只<b>讀取</b> AD 的帳號與上級資料，從不寫回 AD</span></li>
+        </ul>
+      </div>
+      <div class="frame">
+        <svg class="sync" viewBox="0 0 560 360" role="img" aria-label="伺服器與兩台單機版之間的雙向同步">
+          <rect class="box srv" x="170" y="22" width="220" height="92" />
+          <text class="t" x="280" y="56" text-anchor="middle">伺服器版</text>
+          <text x="280" y="80" text-anchor="middle">AD 登入 · 部門共用</text>
+          <text x="280" y="100" text-anchor="middle">每日專案通知</text>
+          <rect class="box" x="20" y="236" width="220" height="100" />
+          <text class="t" x="130" y="268" text-anchor="middle">單機版（筆電）</text>
+          <text x="130" y="292" text-anchor="middle">連線中 · 即時同步</text>
+          <text x="130" y="314" text-anchor="middle">約 1 秒送上伺服器</text>
+          <rect class="box" x="320" y="236" width="220" height="100" />
+          <text class="t" x="430" y="268" text-anchor="middle">單機版（機房現場）</text>
+          <text x="430" y="292" text-anchor="middle">離線 · 3 筆待同步</text>
+          <text x="430" y="314" text-anchor="middle">連上後自動送出</text>
+          <path class="ln" d="M220 114 L150 236" /><path class="ln" d="M240 114 L170 236" />
+          <path class="ln dash" d="M340 114 L410 236" /><path class="ln dash" d="M320 114 L390 236" />
+          <circle class="dot" cx="185" cy="175" r="4" /><circle class="dot" cx="205" cy="175" r="4" />
+          <text x="60" y="178">雙向</text>
+          <text x="420" y="178">排隊中</text>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <section class="s">
+    <div class="w">
+      <div class="head">
+        <div class="label">也都有</div>
+        <h2>入口網站、Excel 報告、API</h2>
+      </div>
+      <div class="duo">
+        <div class="card">
+          <div class="frame"><img src="img/admin.jpg" width="1440" height="900" alt="管理後台：資料夾與連結的編輯" loading="lazy"></div>
+          <h3>連結入口與管理後台</h3>
+          <p>資料夾、連結、首頁版面、配色都在後台調整，不用改程式。拖曳網址直接新增，自動抓網站圖示；每個人還有自己的個人區。</p>
+        </div>
+        <div class="card">
+          <div class="frame"><img src="img/api.jpg" width="1440" height="900" alt="API 文件：Swagger UI" loading="lazy"></div>
+          <h3>Excel 報告與 API</h3>
+          <p>給長官看的工作進度報告一鍵匯出，含專案總覽、人員負載、問題清單；改完可以匯入。所有功能都有 API，文件用 Swagger UI，可以直接試。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="s alt" id="install">
+    <div class="w">
+      <div class="head">
+        <div class="label">安裝</div>
+        <h2>兩種裝法，資料可以互通</h2>
+      </div>
+      <div class="install">
+        <div class="box">
+          <h3>伺服器版</h3>
+          <p>全新的 Debian 12/13 或 Ubuntu 22.04/24.04，一行指令裝好 nginx、HTTPS、systemd 服務與每日備份。</p>
+          <pre id="cmd-srv">curl -fsSL https://raw.githubusercontent.com/nox913106/net-tool-table/main/scripts/bootstrap.sh | sudo bash</pre>
+          <button class="copybtn" type="button" data-copy="cmd-srv">複製指令</button>
+          <p>裝好後用瀏覽器開 <span class="mono">https://&lt;主機&gt;:33443</span>，在後台設定 AD。詳細步驟見 <a href="https://github.com/nox913106/net-tool-table/blob/main/docs/INSTALL.md">INSTALL.md</a>。</p>
+        </div>
+        <div class="box">
+          <h3>Windows 單機版</h3>
+          <p>不需要系統管理員權限，也不需要安裝 Python。升級時直接執行新版，資料會保留。</p>
+          <a class="btn primary" href="https://github.com/nox913106/net-tool-table/releases/download/latest/ToolTable-Setup.exe" style="justify-self:start">下載 ToolTable-Setup.exe</a>
+          <p>免安裝版：下載 <a href="https://github.com/nox913106/net-tool-table/releases/download/latest/ToolTable-windows-x64.zip">ToolTable-windows-x64.zip</a>，解壓縮後點兩下 <span class="mono">ToolTable.cmd</span>。要連伺服器時，按頁首的同步標記輸入網址與 AD 帳號。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="w">
+    <span><span class="mono">TOOL TABLE</span> · MIT 授權</span>
+    <span><a href="https://github.com/nox913106/net-tool-table">GitHub</a> · <a href="https://github.com/nox913106/net-tool-table/releases">Releases</a> · <a href="https://github.com/nox913106/net-tool-table#readme">完整說明</a></span>
+  </div>
+</footer>
+
+<script>
+const PANES = [
+  { img: 'projects', h: '專案總覽', p: '依主管排序列出每個專案，一般（維運）卡不會混進來。',
+    l: ['完成度、相對基準線落後幾天、下個里程碑、各類問題數與迷你甘特', '看板管理員與部門管理員可以用 ▲▼ 調整排序', '「看起來像專案的一般卡」會被列出來，建議改成專案'] },
+  { img: 'load', h: '人員負載', p: '人 × 週的熱圖，每格是當週到期的未完成工作的預估工時合計，跨所有專案與一般卡。',
+    l: ['超過每週上限（預設 40 小時）變紅', '沒填預估的項目以預設 4 小時計，並標出數量提醒補上', '點一格就看到是哪幾個專案疊在同一週'] },
+  { img: 'links', h: '時段與跨專案', p: '停電、維護窗口、變更凍結期這類共用時段，誰在用、有沒有超過容量，一目了然。',
+    l: ['超過「可容納幾個專案」就是時段衝突', '排進變更凍結期的工作都算衝突', '前置任務在別的專案延誤時，列成跨專案前置延誤並通知後續負責人'] },
+  { img: 'project', h: '專案頁', p: '每個專案有自己的甘特圖、專案看板與 WBS 清單，以及 Excel 報告。',
+    l: ['上方是完成度、相對基準線、下個里程碑與問題數', '右上角設定這個專案的通知', '提醒你在其他地方還有幾項今天到期或逾期'] },
+];
+const tabs = [...document.querySelectorAll('.tabs button')];
+function pick(k) {
+  const d = PANES[k];
+  tabs.forEach((b, i) => { b.setAttribute('aria-selected', String(i === k)); b.tabIndex = i === k ? 0 : -1; });
+  document.getElementById('pane').setAttribute('aria-labelledby', 'tab-' + k);
+  const img = document.getElementById('pane-img'); img.src = `img/${d.img}.jpg`; img.alt = d.h;
+  document.getElementById('pane-h').textContent = d.h;
+  document.getElementById('pane-p').textContent = d.p;
+  document.getElementById('pane-l').innerHTML = d.l.map(t => `<li><span>${t}</span></li>`).join('');
+}
+tabs.forEach((b, i) => {
+  b.addEventListener('click', () => pick(i));
+  b.addEventListener('keydown', e => { if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { const n = (i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length; pick(n); tabs[n].focus(); } });
+});
+pick(0);
+document.querySelectorAll('.copybtn').forEach(b => b.addEventListener('click', async () => {
+  const text = document.getElementById(b.dataset.copy).textContent;
+  try { await navigator.clipboard.writeText(text); b.textContent = '已複製'; }
+  catch { const r = document.createRange(); r.selectNodeContents(document.getElementById(b.dataset.copy)); const s = getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = '已選取，按 Ctrl+C'; }
+  setTimeout(() => { b.textContent = '複製指令'; }, 2000);
+}));
+</script>
+</body>
+</html>

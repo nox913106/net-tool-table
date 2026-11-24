@@ -4,6 +4,8 @@
 ![Python](https://img.shields.io/badge/python-3.10+-3b82f6)
 ![License](https://img.shields.io/badge/license-MIT-22c55e)
 
+**網站：<https://nox913106.github.io/net-tool-table/>**
+
 部門的入口網站、待辦看板與多專案管理，一套系統。可以架在伺服器上大家共用（AD 登入），也有 Windows 單機版，不在公司網路裡照樣能用，連線後自動同步回伺服器，兩邊功能相同。
 
 - **入口網站**：資料夾、連結、首頁版面、配色全部在管理後台調整，不用改程式碼
@@ -254,7 +256,8 @@ resource/icon/              內建圖示
 deploy/                     nginx、systemd 範本
 scripts/                    bootstrap.sh、tool-table.sh、自簽憑證
 portable/                   Windows 用戶端（啟動程式、打包腳本 build_portable.py、Inno Setup 安裝檔設定、圖示）
-.github/workflows/          Windows 單機版自動打包
+site/                       介紹網站（GitHub Pages）
+.github/workflows/          Windows 單機版自動打包、介紹網站部署
 docs/INSTALL.md             安裝與運維 SOP
 ```
 

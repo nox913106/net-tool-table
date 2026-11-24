@@ -20,7 +20,7 @@ Tool Table 的 Windows 用戶端：部門入口網站、待辦看板與多專案
 | **專案頁（甘特圖）** | **專案雷達** |
 | ![專案頁](https://github.com/nox913106/net-tool-table/raw/main/docs/images/project-gantt.png) | ![專案雷達](https://github.com/nox913106/net-tool-table/raw/main/docs/images/radar-project.png) |
 
-完整說明見 [README](https://github.com/nox913106/net-tool-table#readme)。
+介紹網站：<https://nox913106.github.io/net-tool-table/>　完整說明見 [README](https://github.com/nox913106/net-tool-table#readme)。
 
 ## 安裝
 
