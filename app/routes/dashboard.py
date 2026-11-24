@@ -165,7 +165,7 @@ async def _projects(db, people, mode):
                     "due": p["end"] or p["due"], "next_due": nxt["due"] if nxt else None,
                     "next": (nxt["title"] if mode == "names" else None) if nxt else None,
                     "open": p["open"], "problems": p["problem_items"],
-                    "depts": sorted({_dept(people, u) for u in who.get(p["id"], set())} or {NO_DEPT})})
+                    "depts": sorted(({_dept(people, u) for u in who.get(p["id"], set())} - {NO_DEPT}) or {NO_DEPT})})
     return out, a
 
 

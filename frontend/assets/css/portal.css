@@ -1683,3 +1683,5 @@ body.nav-collapsed .sidebar:not(.peek) .nav-empty, body.nav-collapsed .sidebar:n
 .sync-alt .login-or::before, .sync-alt .login-or::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
 .sync-browser { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 10px; border: 1px dashed var(--border); }
 .sync-code { font-size: 22px; font-weight: 700; letter-spacing: .12em; }
+.kb-imp-people { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); font-size: 13px; }
+.kb-imp-people .err { color: var(--danger); }

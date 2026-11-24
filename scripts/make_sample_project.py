@@ -30,11 +30,19 @@ ref = lambda text: "、".join(f"1.{n}" + (f"（{'+' if lag > 0 else ''}{lag} 天
 P = "專案"
 title, desc, lead = demo.PROJECT
 # (編號, 項目, 負責人, 狀態, 優先, 開始, 到期, 里程碑, 前置任務, 預估(h), 備註)
-ROWS = [("1", title, demo.NAME["demo." + lead], None, "高", None, None, None, None, None, desc)]
+who_of = lambda short: f"{demo.NAME['demo.' + short]} (demo.{short})"
+ROWS = [("1", title, who_of(lead), None, "高", None, None, None, None, None, desc)]
 for num, t, who, st, start, due, ms, deps, est, extra in demo.ROWS:
     note = extra.get("blocked") and "卡住：" + extra["blocked"] or extra.get("note")
-    ROWS.append((f"1.{num}", t, demo.NAME["demo." + who], ZH.get(st) if st else None, "高" if extra.get("prio") == "high" else "一般",
+    ROWS.append((f"1.{num}", t, who_of(who), ZH.get(st) if st else None, "高" if extra.get("prio") == "high" else "一般",
                  None if ms else mv(start), mv(due), "◆" if ms else None, ref(deps), est, note))
+
+# each department's everyday cards (主任務 2, 3, …)
+TODAY = date.today()
+OPS = [(str(k), t, who_of(w), ZH[st], "高" if pr == "high" else "低" if pr == "low" else "一般", None,
+        (TODAY + timedelta(days=due)) if due is not None else None, None, None, None,
+        (ex.get("blocked") and "卡住：" + ex["blocked"]) or ex.get("note") or ("歸屬：主機房改建專案" if linked else None))
+       for k, (w, t, st, due, pr, linked, ex) in enumerate(demo.OPS, start=2)]
 
 HEAD = ["編號", "類型", "項目", "標籤", "負責人", "狀態", "優先", "開始", "到期", "里程碑", "前置任務", "預估(h)", "備註"]
 WIDTH = [9, 7, 50, 14, 10, 9, 6, 12, 12, 7, 22, 8, 30]
@@ -47,10 +55,10 @@ def main():
     ws.sheet_properties.outlinePr = Outline(summaryBelow=False)
     ws["A1"] = "主機房改建專案　匯入範例"
     ws["A1"].font = Font(size=15, bold=True)
-    ws["A2"] = ("用法：待辦看板 → 匯入 Excel → 選這個檔案 → 預覽 → 匯入。負責人是示範人員（7 個部門）：先在後台「備份與匯入 → 示範資料」建立，"
-                "或改成貴單位的帳號；找不到的人只會警告、該列不指派。「備註」不會匯入。")
-    ws["A3"] = (f"日期以 {date.today():%Y/%m/%d} 為準：啟動與設計大致完成、採購進行中，有逾期、待確認、暫緩與取消的項目。"
-                "匯入後在專案頁按「設定基準線」。後台的「示範資料」會直接建立同一個專案（含卡住、留言、工時與各部門日常卡片）。")
+    ws["A2"] = ("用法（以管理員登入）：待辦看板 → 匯入 Excel → 選這個檔案 → 預覽 → 套用。會一併建立「人員」分頁的 16 位示範人員"
+                "（7 個部門，只存在 IPMS、不能登入、不寫入 AD），再建立專案與各部門的日常卡片並指派給他們。")
+    ws["A3"] = (f"日期以 {date.today():%Y/%m/%d} 為準：啟動與設計大致完成、採購進行中，有逾期、待確認、暫緩與取消的項目。匯入後在專案頁按「設定基準線」。"
+                "要移除：後台「備份與匯入 → 示範資料 → 移除示範資料」（刪除示範人員與標籤 #示範 的卡片）。")
     for c in ("A2", "A3"):
         ws[c].font = Font(size=10, color="555555")
     hr = 5
@@ -80,10 +88,30 @@ def main():
                 ws.cell(row=i, column=j).fill = phase_fill
         if depth:
             ws.row_dimensions[i].outlineLevel = min(depth, 7)
-    ws.auto_filter.ref = f"A{hr}:{ws.cell(row=hr, column=len(HEAD)).column_letter}{hr + len(ROWS)}"
+    for i, (num, title, who, st, pr, start, due, ms, deps, est, note) in enumerate(OPS, start=hr + 1 + len(ROWS)):
+        vals = [num, "主任務", title, "#示範", who, st, pr, start, due, ms, deps, est, note]
+        for j, v in enumerate(vals, start=1):
+            c = ws.cell(row=i, column=j, value=v)
+            c.border = Border(bottom=thin)
+            if isinstance(v, date):
+                c.number_format = "yyyy/mm/dd"
+            c.alignment = Alignment(vertical="center", wrap_text=j in (3, 13))
+    ws.auto_filter.ref = f"A{hr}:{ws.cell(row=hr, column=len(HEAD)).column_letter}{hr + len(ROWS) + len(OPS)}"
+    # the people: created as demo staff by the import (administrators)
+    wp = wb.create_sheet("人員")
+    wp["A1"] = "示範人員：匯入時不存在的帳號會建立為示範人員（不能登入、不寫入 AD）；已存在的帳號不變"
+    wp["A1"].font = Font(size=10, color="555555")
+    for j, (h, w) in enumerate(zip(("帳號", "姓名", "部門", "上級"), (22, 12, 14, 22)), start=1):
+        c = wp.cell(row=3, column=j, value=h)
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor="2B4C3F")
+        wp.column_dimensions[c.column_letter].width = w
+    for i, (u, n, d, boss) in enumerate(demo.PEOPLE, start=4):
+        for j, v in enumerate((u, n, d, boss), start=1):
+            wp.cell(row=i, column=j, value=v).border = Border(bottom=thin)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     wb.save(OUT)
-    print(f"{OUT}  ({len(ROWS)} rows)")
+    print(f"{OUT}  ({len(ROWS)} project rows, {len(OPS)} cards, {len(demo.PEOPLE)} people)")
 
 
 if __name__ == "__main__":

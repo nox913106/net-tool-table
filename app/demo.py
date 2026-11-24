@@ -186,18 +186,21 @@ def parse_deps(text: Optional[str]):
 
 
 async def status(db) -> dict:
+    """Demo staff (made here or by an Excel import's 人員 sheet) and the cards tagged #示範."""
+    cur = await db.execute("SELECT COUNT(*) FROM users WHERE source = 'demo'")
+    people = (await cur.fetchone())[0]
+    cur = await db.execute("SELECT COUNT(*) FROM tasks WHERE tags LIKE ?", (f'%"{TAG}"%',))
+    tasks = (await cur.fetchone())[0]
     cur = await db.execute("SELECT value FROM settings WHERE key = ?", (STATE_KEY,))
-    r = await cur.fetchone()
-    st = json.loads(r[0]) if r else None
-    return {"loaded": bool(st), "tasks": len(st["tasks"]) if st else 0, "people": len(st["users"]) if st else 0,
-            "departments": DEPTS}
+    built = bool(await cur.fetchone())
+    return {"loaded": built or bool(people), "built": built, "tasks": tasks, "people": people, "departments": DEPTS}
 
 
 async def load(db, actor_id: Optional[int] = None, today: Optional[date] = None) -> dict:
     """Create everything (one transaction). Refuses when it is already loaded."""
     from .routes import tasks as T
     if (await status(db))["loaded"]:
-        raise ValueError("示範資料已經建立過了，要重建請先移除")
+        raise ValueError("示範資料已經建立過了（或已從 Excel 匯入示範人員），要重建請先移除")
     today = today or date.today()
     n = shift_days(today)
     # ---- people
@@ -321,14 +324,15 @@ async def load(db, actor_id: Optional[int] = None, today: Optional[date] = None)
 
 
 async def remove(db) -> dict:
-    """Delete what load() created: its cards (with their subtasks, comments, time), the demo staff, their trend rows."""
+    """Delete the demo: what load() created, cards tagged #示範 (also from the Excel sample) with their subtasks,
+    comments and time, every demo account, and the demo departments' trend rows."""
     cur = await db.execute("SELECT value FROM settings WHERE key = ?", (STATE_KEY,))
     r = await cur.fetchone()
-    if not r:
-        return {"tasks": 0, "people": 0}
-    st = json.loads(r[0])
-    tasks = [int(i) for i in st.get("tasks", [])]
-    users = [int(i) for i in st.get("users", [])]
+    st = json.loads(r[0]) if r else {}
+    cur = await db.execute("SELECT id FROM tasks WHERE tags LIKE ?", (f'%"{TAG}"%',))
+    tasks = sorted({int(i) for i in st.get("tasks", [])} | {r[0] for r in await cur.fetchall()})
+    cur = await db.execute("SELECT id FROM users WHERE source = 'demo'")
+    users = [r[0] for r in await cur.fetchall()]
     if tasks:
         await db.execute(f"DELETE FROM tasks WHERE id IN ({','.join('?' * len(tasks))})", tasks)
     gone = 0

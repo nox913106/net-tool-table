@@ -514,7 +514,9 @@
  "專案 {0}": "Project {0}",
  "輪播秒數必須是數字": "Rotation seconds must be a number",
  "輪播秒數要在 5～600 之間": "Rotation seconds must be between 5 and 600",
- "示範資料已經建立過了，要重建請先移除": "Demo data is already loaded; remove it first to load it again",
  "帳號 {0} 已經存在且不是示範帳號，無法建立示範資料": "Account {0} already exists and is not a demo account; demo data cannot be loaded",
- "示範帳號不能登入": "Demo accounts cannot sign in"
+ "示範帳號不能登入": "Demo accounts cannot sign in",
+ "示範資料已經建立過了（或已從 Excel 匯入示範人員），要重建請先移除": "Demo data is already loaded (or demo staff were imported from Excel); remove it first to load it again",
+ "只有管理員可以用匯入建立人員": "Only administrators can create people by import",
+ "帳號「{0}」只能用英數字、點、底線與連字號": "Account “{0}” may only use letters, digits, dots, underscores and hyphens"
 }

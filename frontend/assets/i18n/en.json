@@ -1464,5 +1464,10 @@
  "會刪除示範專案、日常卡片與示範人員（包含之後在這些卡片上的留言與工時）。其他資料不受影響。": "Deletes the demo project, the everyday cards and the demo staff (with any comments and time added to those cards since). Nothing else is touched.",
  "已移除 {0} 張卡片、{1} 位示範人員": "Removed {0} cards and {1} demo staff",
  "示範資料": "Demo data",
- "測試用：7 個部門的示範人員，加上一年期的主機房改建專案（設備採購、網路架構設計、施工、設定、分期驗收、總結驗收）與各部門的日常卡片，狀態有進行中、待確認、暫緩、逾期、卡住與取消。": "For testing: demo staff in 7 departments, a one-year data-centre rebuild project (procurement, network design, construction, configuration, staged and final acceptance) and everyday cards per department — on going, pending, on hold, overdue, blocked and cancelled."
+ "測試用：7 個部門的示範人員，加上一年期的主機房改建專案（設備採購、網路架構設計、施工、設定、分期驗收、總結驗收）與各部門的日常卡片，狀態有進行中、待確認、暫緩、逾期、卡住與取消。": "For testing: demo staff in 7 departments, a one-year data-centre rebuild project (procurement, network design, construction, configuration, staged and final acceptance) and everyday cards per department — on going, pending, on hold, overdue, blocked and cancelled.",
+ "人員（{0} 個部門）": "People ({0} departments)",
+ "已建立 {0} 位": "{0} created",
+ "新增 {0} 位": "{0} to create",
+ "，{0} 位已存在": ", {0} already exist",
+ "示範人員只存在這個系統，不能登入，也不會寫入 AD；可在後台「備份與匯入 → 示範資料」一鍵移除": "Demo staff exist only in this system: they cannot sign in and nothing is written to AD. Remove them in 後台 → 備份與匯入 → 示範資料."
 }

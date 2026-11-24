@@ -924,12 +924,14 @@ def _diff(label, old, new, fmt=lambda v: v or "—"):
     return f"{label}：{fmt(old)} → {fmt(new)}"
 
 
-async def _import_plan(items: List[dict], user: dict) -> List[dict]:
-    """Decide what each row would do. Returns rows for the preview, each with a private '_op' for apply."""
+async def _import_plan(items: List[dict], user: dict, extra_people: Optional[List[dict]] = None) -> List[dict]:
+    """Decide what each row would do. Returns rows for the preview, each with a private '_op' for apply.
+    extra_people: accounts the file's 人員 sheet would create (preview only)."""
     db = await get_db()
     try:
         cur = await db.execute("SELECT id, username, display_name FROM users WHERE COALESCE(active, 1) = 1")
-        people = _People([dict(r) for r in await cur.fetchall()])
+        people = _People([dict(r) for r in await cur.fetchall()] + [
+            {"id": -(k + 1), "username": p["username"], "display_name": p["name"]} for k, p in enumerate(extra_people or [])])
         acc = board_access(user)
         can_assign = user.get("id") is None or acc["edit"] in ("all", "dept") or acc["team_edit"]
         me = user.get("id")
@@ -1264,7 +1266,8 @@ async def import_xlsx(request: Request, file: UploadFile = File(...), apply: boo
     if not items:
         raise HTTPException(status_code=400, detail="檔案裡沒有任何項目")
     user = current_user(request)
-    plan = await _import_plan(items, user)
+    people = await _import_people(data, user, apply)
+    plan = await _import_plan(items, user, [p for p in people["rows"] if p["action"] == "create"] if not apply else None)
     # remember which existing card each child belongs to (apply walks the rows in order)
     for o, it in zip(plan, items):
         if it["kind"] == "card" and it.get("id"):
@@ -1274,8 +1277,51 @@ async def import_xlsx(request: Request, file: UploadFile = File(...), apply: boo
     counts = {}
     for o in plan:
         counts[o["action"]] = counts.get(o["action"], 0) + 1
-    return {"applied": apply, "counts": counts,
+    return {"applied": apply, "counts": counts, "people": people,
             "rows": [{k: v for k, v in o.items() if not k.startswith("_")} for o in plan]}
+
+
+async def _import_people(data: bytes, user: dict, apply: bool) -> dict:
+    """The file's 人員 sheet: accounts that do not exist yet are created as demo staff (this database only:
+    they cannot sign in and nothing is written to AD). Administrators only."""
+    from .. import xlsx_export
+    rows = await asyncio.get_running_loop().run_in_executor(None, xlsx_export.parse_people, data)
+    out = {"rows": [], "create": 0, "departments": sorted({p["department"] for p in rows if p["department"]})}
+    if not rows:
+        return out
+    db = await get_db()
+    try:
+        made = {}
+        for p in rows:
+            r = {"row": p["row"], "username": p["username"], "name": p["name"], "department": p["department"],
+                 "manager": p["manager"], "errors": list(p["errors"]), "action": "create"}
+            out["rows"].append(r)
+            if not is_admin(user):
+                r["errors"].append("只有管理員可以用匯入建立人員")
+            cur = await db.execute("SELECT id, source FROM users WHERE username = ?", (p["username"],))
+            ex = await cur.fetchone()
+            if ex:
+                r["action"] = "exists"
+            if r["errors"]:
+                r["action"] = "error"
+            elif r["action"] == "create":
+                out["create"] += 1
+                if apply:
+                    cur = await db.execute("""INSERT INTO users (username, source, display_name, department, role, active)
+                                              VALUES (?, 'demo', ?, ?, 'user', 1)""", (p["username"], p["name"], p["department"] or None))
+                    made[p["username"]] = cur.lastrowid
+                    r["done"] = True
+        if apply:                                         # reporting lines of the new accounts
+            for p in rows:
+                if p["username"] in made and p["manager"]:
+                    cur = await db.execute("SELECT id FROM users WHERE username = ?", (p["manager"],))
+                    m = await cur.fetchone()
+                    if m and m[0] != made[p["username"]]:
+                        await db.execute("UPDATE users SET manager_id = ?, manager_source = 'manual' WHERE id = ?", (m[0], made[p["username"]]))
+            await db.commit()
+        return out
+    finally:
+        await db.close()
 
 
 # ------------------------------------------------------------------ projects

@@ -544,6 +544,46 @@ def _clean_title(v) -> str:
     return s.lstrip("'")
 
 
+PEOPLE_SHEETS = ("人員", "People")
+
+
+def parse_people(data: bytes) -> List[dict]:
+    """The optional 人員 sheet of an import file (a test machine's demo staff): 帳號 姓名 部門 上級.
+    [{row, username, name, department, manager, errors}]; [] when the file has no such sheet."""
+    try:
+        wb = load_workbook(io.BytesIO(data), data_only=True, read_only=True)
+    except Exception:
+        return []
+    name = next((n for n in wb.sheetnames if n in PEOPLE_SHEETS), None)
+    if not name:
+        wb.close()
+        return []
+    rows = list(wb[name].iter_rows(values_only=True, max_row=600))
+    wb.close()
+    alias = {"帳號": "帳號", "account": "帳號", "username": "帳號", "姓名": "姓名", "name": "姓名",
+             "部門": "部門", "department": "部門", "上級": "上級", "manager": "上級"}
+    head, cols = None, {}
+    for i, r in enumerate(rows[:20]):
+        names = [alias.get(str(c).strip().lower(), alias.get(str(c).strip(), "")) if c is not None else "" for c in r]
+        if "帳號" in names and "部門" in names:
+            head, cols = i, {n: j for j, n in enumerate(names) if n}
+            break
+    if head is None:
+        return []
+    get = lambda r, k: (str(r[cols[k]]).strip() if k in cols and cols[k] < len(r) and r[cols[k]] is not None else "")
+    out = []
+    for i, r in enumerate(rows[head + 1:], start=head + 2):
+        user = get(r, "帳號").lower()
+        if not user and not get(r, "姓名"):
+            continue
+        item = {"row": i, "username": user, "name": get(r, "姓名") or user, "department": get(r, "部門")[:100],
+                "manager": get(r, "上級").lower() or None, "errors": []}
+        if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", user):
+            item["errors"].append(f"帳號「{user}」只能用英數字、點、底線與連字號")
+        out.append(item)
+    return out
+
+
 def parse(data: bytes) -> List[dict]:
     """Read a report back: [{row, kind: card|sub|collab, id, title, person, status, priority, start_at, due_at,
     estimate_minutes, errors: [...]}]. Raises ImportError_ when the file is not a report at all."""

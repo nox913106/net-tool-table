@@ -246,7 +246,8 @@ const TTBoard = window.TTBoard = (() => {
     }
     function paint(r) {
       const c = r.counts || {};
-      const todo = (c.create || 0) + (c.update || 0);
+      const ppl = r.people || { rows: [], create: 0, departments: [] };
+      const todo = (c.create || 0) + (c.update || 0) + (r.applied ? 0 : ppl.create || 0);
       const chips = el('div', { class: 'kb-imp-counts' }, ...Object.entries(ACT).filter(([k]) => c[k]).map(([k, [label, cls]]) =>
         el('span', { class: `kb-imp-badge is-${cls}`, text: `${label} ${c[k]}` })));
       const rows = r.rows.map(o => {
@@ -262,6 +263,13 @@ const TTBoard = window.TTBoard = (() => {
       body.replaceChildren(
         el('div', { class: 'kb-imp-sum' }, r.applied ? el('strong', { text: _t('已套用：') }) : el('strong', { text: _t('預覽：') }), chips,
           el('span', { class: 'hint', text: r.applied ? '' : (c.error ? _t('有錯誤的列不會匯入（底下的子任務一併略過），可以修正後重新選檔') : _t('確認無誤後按「套用」')) })),
+        ppl.rows.length ? el('div', { class: 'kb-imp-people' },
+          el('strong', { text: _t("人員（{0} 個部門）", ppl.departments.length) }),
+          el('span', { text: (r.applied ? _t("已建立 {0} 位", ppl.rows.filter(p => p.done).length) : _t("新增 {0} 位", ppl.create))
+            + (ppl.rows.some(p => p.action === 'exists') ? _t("，{0} 位已存在", ppl.rows.filter(p => p.action === 'exists').length) : '') + '：'
+            + ppl.departments.join('、') }),
+          ...ppl.rows.filter(p => p.errors.length).map(p => el('div', { class: 'err', text: `✕ ${p.username}：${p.errors.join('；')}` })),
+          el('span', { class: 'hint', text: _t('示範人員只存在這個系統，不能登入，也不會寫入 AD；可在後台「備份與匯入 → 示範資料」一鍵移除') })) : null,
         el('div', { class: 'kb-imp-table' }, el('table', {},
           el('thead', {}, el('tr', {}, ...[_t('列'), _t('類型'), _t('項目'), _t('動作'), _t('內容')].map(h => el('th', { text: h })))),
           el('tbody', {}, ...rows))));
