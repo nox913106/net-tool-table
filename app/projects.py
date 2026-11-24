@@ -213,3 +213,186 @@ async def analyze(db, card_ids: List[int], today: Optional[date] = None, weeks: 
     problems.sort(key=lambda p: (PROBLEM_ORDER.index(p["type"]), p["due"] or "9999"))
     return {"projects": projects, "problems": problems, "load": load, "windows": wins, "week0": week0.isoformat(),
             "load_hours": cfg["load_hours"], "default_hours": cfg["default_hours"]}
+
+
+# ---------------------------------------------------------------- daily project notifications
+WATCH_MODES = ("all", "mine", "digest", "off")
+WATCH_ZH = {"all": "全部", "mine": "只跟我有關", "digest": "每日摘要", "off": "關閉"}
+
+
+async def leads_of(db, project_id: int) -> set:
+    """Who runs a project: the card's creator and its assignees (they get every project event by default)."""
+    cur = await db.execute("SELECT owner_id FROM tasks WHERE id = ?", (project_id,))
+    r = await cur.fetchone()
+    out = {r[0]} if r and r[0] else set()
+    cur = await db.execute("SELECT user_id FROM task_members WHERE task_id = ? AND role = 'assignee'", (project_id,))
+    return out | {x[0] for x in await cur.fetchall()}
+
+
+async def watch_mode(db, project_id: int, user_id: int, leads: Optional[set] = None) -> tuple:
+    """(mode, is it the default): a set mode, else 全部 for the project's leads and 只跟我有關 for everyone else."""
+    cur = await db.execute("SELECT mode FROM task_watch WHERE task_id = ? AND user_id = ?", (project_id, user_id))
+    r = await cur.fetchone()
+    if r and r[0] in WATCH_MODES:
+        return r[0], False
+    leads = leads if leads is not None else await leads_of(db, project_id)
+    return ("all" if user_id in leads else "mine"), True
+
+
+async def _members_of(db, project_id: int, attached: List[int]) -> set:
+    """Everyone working on a project: leads, subtask assignees, the people on its attached cards."""
+    cards = [project_id, *attached]
+    marks = ",".join("?" * len(cards))
+    out = set()
+    for sql in (f"SELECT owner_id FROM tasks WHERE id IN ({marks})",
+                f"SELECT user_id FROM task_members WHERE task_id IN ({marks}) AND role = 'assignee'",
+                f"SELECT assignee_id FROM task_comments WHERE task_id IN ({marks}) AND is_task = 1 AND assignee_id IS NOT NULL"):
+        cur = await db.execute(sql, cards)
+        out |= {r[0] for r in await cur.fetchall() if r[0]}
+    return out
+
+
+async def daily_events(db, today: Optional[date] = None) -> int:
+    """Once a day: tell people what changed in their projects. Each event is sent once while it lasts
+    (it is sent again if it clears and comes back); a slip is sent again when it grows.
+      slip      the project ends later than its baseline
+      xdep      a predecessor in another project / card is late
+      window    a shared window is over-booked, or work sits in a change freeze
+      milestone the next milestone is due within 3 days
+      overload  your estimated hours this week are above the limit (to that person only)
+    Per project and person the mode decides: all — every event; mine — the events about one's own
+    items (a slip: the leads); digest — one summary a day; off — nothing."""
+    from .auth import full_user
+    from .routes.tasks import notify, _visible_sql
+    today = today or date.today()
+    cur = await db.execute("SELECT id FROM tasks")
+    ids = [r[0] for r in await cur.fetchall()]
+    a = await analyze(db, ids, today)
+    cur = await db.execute("SELECT value FROM settings WHERE key = '_proj_events'")
+    r = await cur.fetchone()
+    try:
+        state = json.loads(r[0]) if r else {}
+    except ValueError:
+        state = {}
+    sent_before, slips = state.get("sent", {}), state.get("slip", {})
+    digests = {k: v for k, v in state.get("digest", {}).items() if v == today.isoformat()}   # one summary a day
+    sent_now, events = {}, []                              # events: (project or None, key, text, involved)
+    md = lambda d: f"{int(d[5:7])}/{int(d[8:10])}" if d else ""
+    proj = {p["id"]: p for p in a["projects"]}
+    leads = {pid: await leads_of(db, pid) for pid in proj}
+    for p in a["projects"]:
+        if p["status"] in CLOSED:
+            continue
+        slip = p["slip"] or 0
+        if slip > 0 and slip > int(slips.get(str(p["id"]), 0)):
+            events.append((p["id"], f"slip:{p['id']}", f"「{p['title']}」落後基準線 {slip} 天（預計 {md(p['end'])} 完成，原定 {md(p['base_due'])}）", leads[p["id"]]))
+        slips[str(p["id"])] = max(slip, 0)
+        nx = p["next"]
+        if nx and nx["key"] != f"t:{p['id']}":
+            left = (date.fromisoformat(nx["due"]) - today).days
+            if 0 <= left <= 3:
+                who = set()
+                if nx["key"].startswith("s:"):
+                    cur = await db.execute("SELECT assignee_id FROM task_comments WHERE id = ?", (int(nx["key"][2:]),))
+                    x = await cur.fetchone()
+                    who = {x[0]} if x and x[0] else set()
+                events.append((p["id"], f"ms:{nx['key']}:{nx['due']}",
+                               f"「{p['title']}」里程碑「{nx['title']}」{md(nx['due'])} 到期（{'今天' if not left else f'還有 {left} 天'}）", who))
+    for pr in a["problems"]:
+        if pr["type"] in ("xdep", "window"):
+            where = f"「{pr['card_title']}」的" if pr["card_title"] and pr["card_title"] != pr["title"] else ""
+            events.append((pr["project"], f"{pr['type']}:{pr['key']}", f"{where}「{pr['title']}」{pr['text']}", {pr["who"]} if pr["who"] else set(), pr["card"]))
+    for row in a["load"]:
+        if row["over"]:
+            w = row["weeks"][0]
+            events.append((None, f"overload:{row['user']}:{a['week0']}",
+                           f"你本週到期的工作預估 {w['hours']} 小時，超過上限 {a['load_hours']:g} 小時"
+                           + (f"（{w['no_estimate']} 項未填預估）" if w["no_estimate"] else ""), {row["user"]}))
+    new = [e for e in events if e[1] not in sent_before]
+    for e in events:
+        sent_now[e[1]] = sent_before.get(e[1], today.isoformat())
+
+    sys = {}                                               # a system notice has no actor
+    vis_cache = {}
+
+    async def can_see(uid, pid):
+        if (uid, pid) not in vis_cache:
+            cur = await db.execute("SELECT * FROM users WHERE id = ? AND active = 1", (uid,))
+            row = await cur.fetchone()
+            ok = False
+            if row:
+                where, args = _visible_sql(await full_user(db, row))
+                cur = await db.execute(f"SELECT 1 FROM tasks t WHERE t.id = ? AND {where}", (pid, *args))
+                ok = bool(await cur.fetchone())
+            vis_cache[(uid, pid)] = ok
+        return vis_cache[(uid, pid)]
+
+    count = 0
+    by_project: Dict[Optional[int], list] = {}
+    for e in new:
+        by_project.setdefault(e[0] if e[0] in proj else None, []).append(e)
+    for e in by_project.pop(None, []):                     # not in a project: to the people involved
+        await notify(db, e[3], e[4] if len(e) > 4 else None, sys, "project" if len(e) <= 4 else "card", e[2])
+        count += len(e[3])
+    for pid, p in proj.items():
+        if p["status"] in CLOSED:
+            continue
+        evs = by_project.get(pid, [])
+        cur = await db.execute("SELECT user_id FROM task_watch WHERE task_id = ? AND mode != 'off'", (pid,))
+        people = await _members_of(db, pid, p["attached"]) | {r[0] for r in await cur.fetchall()}
+        for uid in people:
+            mode, _ = await watch_mode(db, pid, uid, leads[pid])
+            if mode == "off" or not await can_see(uid, pid):
+                continue
+            if mode == "digest":
+                if digests.get(f"{uid}:{pid}"):
+                    continue
+                digests[f"{uid}:{pid}"] = today.isoformat()
+                bits = [f"完成 {p['pct']}%"]
+                if p["slip"]:
+                    bits.append(f"落後 {p['slip']} 天" if p["slip"] > 0 else f"提前 {-p['slip']} 天")
+                bits += [f"{PROBLEM_ZH[k]} {n}" for k, n in p["problems"].items() if n and k != "overload"]
+                if p["next"]:
+                    bits.append(f"下個里程碑「{p['next']['title']}」{md(p['next']['due'])}")
+                if evs:
+                    bits.append(f"今日新事件 {len(evs)} 件")
+                await notify(db, [uid], pid, sys, "project", f"「{p['title']}」今日摘要：" + "，".join(bits))
+                count += 1
+                continue
+            for e in evs:
+                if mode == "all" or uid in e[3]:
+                    await notify(db, [uid], pid, sys, "project", e[2])
+                    count += 1
+    state = {"sent": sent_now, "slip": slips, "digest": digests}
+    await db.execute("INSERT INTO settings (key, value) VALUES ('_proj_events', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                     (json.dumps(state, ensure_ascii=False),))
+    return count
+
+
+async def run_daily_if_due(now=None) -> Optional[int]:
+    """Called every minute by the app: the project events once a day, at the board's daily reminder time.
+    A standalone copy linked to a server leaves it to the server (its notices arrive with the sync)."""
+    from datetime import datetime
+    from . import config as C
+    from .database import get_db
+    now = now or datetime.now()
+    db = await get_db()
+    try:
+        if not C.AUTH:
+            cur = await db.execute("SELECT v FROM sync_state WHERE k = 'server'")
+            r = await cur.fetchone()
+            if r and r[0]:
+                return None
+        cur = await db.execute("SELECT key, value FROM settings WHERE key IN ('board_overdue_remind_time', '_proj_events_day')")
+        got = {k: v for k, v in await cur.fetchall()}
+        at = str(got.get("board_overdue_remind_time") or "09:30").strip('"')
+        day = str(got.get("_proj_events_day") or "").strip('"')
+        if day == now.date().isoformat() or now.strftime("%H:%M") < at:
+            return None
+        await db.execute("INSERT INTO settings (key, value) VALUES ('_proj_events_day', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                         (json.dumps(now.date().isoformat()),))
+        n = await daily_events(db, now.date())
+        await db.commit()
+        return n
+    finally:
+        await db.close()

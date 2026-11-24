@@ -52,6 +52,10 @@ TABLES: Dict[str, dict] = {
         "fields": ("task_id", "user_id", "role", "created_at", "done_at"),
         "refs": {"task_id": "tasks"}, "people": ("user_id",), "card": "task_id", "required": ("task_id", "user_id"),
     },
+    "task_watch": {                          # one's notification mode for a project (one row per person and project)
+        "fields": ("task_id", "user_id", "mode", "updated_at"),
+        "refs": {"task_id": "tasks"}, "people": ("user_id",), "card": "task_id", "required": ("task_id", "user_id"),
+    },
     "task_time": {
         "fields": ("task_id", "comment_id", "user_id", "minutes", "note", "work_date", "started_at", "ended_at", "created_at"),
         "refs": {"task_id": "tasks", "comment_id": "task_comments"}, "people": ("user_id",), "card": "task_id",
@@ -71,7 +75,9 @@ TABLES: Dict[str, dict] = {
     },
 }
 ORDER = tuple(TABLES)
-BOARD = ("tasks", "task_comments", "task_members", "task_time", "task_images")
+BOARD = ("tasks", "task_comments", "task_members", "task_watch", "task_time", "task_images")
+WATCH_UID = ("(SELECT t.uid FROM tasks t WHERE t.id = {r}.task_id) || '|' || "
+             "(SELECT u.username FROM users u WHERE u.id = {r}.user_id) || '|watch'")
 MEMBER_UID = ("(SELECT t.uid FROM tasks t WHERE t.id = {r}.task_id) || '|' || "
               "(SELECT u.username FROM users u WHERE u.id = {r}.user_id) || '|' || {r}.role")
 
@@ -144,6 +150,8 @@ async def install(db):
         if table == "task_members":
             await db.execute(f"UPDATE task_members SET uid = {MEMBER_UID.format(r='task_members')} "
                              "WHERE uid IS NULL AND role != 'subtask'")
+        elif table == "task_watch":                   # the same person and project on two sides is one row
+            await db.execute(f"UPDATE task_watch SET uid = {WATCH_UID.format(r='task_watch')} WHERE uid IS NULL")
         else:
             await db.execute(f"UPDATE {table} SET uid = lower(hex(randomblob(16))) WHERE uid IS NULL")
         await db.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS ux_{table}_uid ON {table}(uid)")
@@ -158,6 +166,8 @@ def _trigger_sql(table: str, spec: dict) -> List[str]:
               "seq = excluded.seq, dirty = 1")
     if table == "task_members":
         set_uid = f"UPDATE task_members SET uid = {MEMBER_UID.format(r='NEW')} WHERE rowid = NEW.rowid AND uid IS NULL AND NEW.role != 'subtask';"
+    elif table == "task_watch":
+        set_uid = f"UPDATE task_watch SET uid = {WATCH_UID.format(r='NEW')} WHERE rowid = NEW.rowid AND uid IS NULL;"
     else:
         set_uid = f"UPDATE {table} SET uid = lower(hex(randomblob(16))) WHERE rowid = NEW.rowid AND uid IS NULL;"
     all_fields = " UNION ALL ".join(f"SELECT '{f}' AS f" for f in fields)

@@ -251,6 +251,14 @@
       xls.addEventListener('click', () => TTBoard.exportXlsx([id, ...attached().map(t => t.id)]));
       const nav = el('button', { class: 'btn', type: 'button', html: svg('layout') + '任務視窗' });
       nav.addEventListener('click', () => TTBoard.openNavigator(c));
+      // my notifications for this project: all / only mine / a daily summary / off
+      const bell = el('select', { class: 'select pj-watch', 'aria-label': '這個專案的通知', title: '每天在「每日提醒時間」送出：落後基準線、跨專案前置延誤、時段衝突、3 天內到期的里程碑' },
+        ...[['all', '通知：全部'], ['mine', '通知：只跟我有關'], ['digest', '通知：每日摘要'], ['off', '通知：關閉']].map(([v, l]) => el('option', { value: v, text: l })));
+      api(`/api/tasks/${id}/watch`).then(w => { bell.value = w.mode; bell.title += w.default ? `\n（目前是預設值：${w.lead ? '負責人預設「全部」' : '參與者預設「只跟我有關」'}）` : ''; }).catch(() => { bell.hidden = true; });
+      bell.addEventListener('change', async () => {
+        try { await api(`/api/tasks/${id}/watch`, { method: 'PUT', body: { mode: bell.value } }); toast('已更新這個專案的通知設定', 'success'); }
+        catch (e) { toast(e.message, 'error'); }
+      });
       head.replaceChildren(
         el('div', { class: 'pj-title' }, el('span', { class: 'pj-kicker', text: `L1 // 專案${p?.rank ? ` · 排序 #${p.rank}` : ''}` }),
           el('h1', { text: c.title }),
@@ -260,7 +268,7 @@
           el('div', { class: 'pj-stat' + ((p?.slip || 0) > 0 ? ' bad' : '') }, el('b', { text: p?.slip == null ? '—' : `${p.slip > 0 ? '+' : ''}${p.slip} 天` }), el('span', { text: '相對基準線' })),
           el('div', { class: 'pj-stat' }, el('b', { text: p?.next ? md(p.next.due) : '—' }), el('span', { text: p?.next ? `◆ ${p.next.title}` : '下個里程碑' })),
           el('div', { class: 'pj-stat' + (p?.problem_items ? ' bad' : '') }, el('b', { text: p?.problem_items ?? 0 }), el('span', { text: '有問題的項目' }))),
-        el('div', { class: 'pj-actions' }, nav, edit, xls));
+        el('div', { class: 'pj-actions' }, bell, nav, edit, xls));
       // what needs me elsewhere — no need to leave this page to find out
       const mine = await myItems();
       const T = todayN();

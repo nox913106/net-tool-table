@@ -22,7 +22,8 @@ VERSION = "3.0.0"
 
 
 async def _scheduler():
-    """Background jobs that need no cron: the daily backup (settings in the admin UI), image cleanup."""
+    """Background jobs that need no cron: the daily backup (settings in the admin UI), image cleanup,
+    the daily project notifications."""
     import asyncio
     from . import backup
     from .database import DB_PATH
@@ -32,6 +33,11 @@ async def _scheduler():
     while True:
         try:
             await loop.run_in_executor(None, backup.run_scheduled)
+        except Exception:
+            pass
+        try:                                    # daily project notifications (app/projects.py)
+            from .projects import run_daily_if_due
+            await run_daily_if_due()
         except Exception:
             pass
         if tick % 60 == 5:                      # hourly: unposted comment images, orphaned files

@@ -496,9 +496,10 @@ async def _reconcile(db, visible: set) -> list:
                                           (tbl = 'tasks' AND uid = ?)
                                        OR (tbl = 'task_comments' AND uid IN (SELECT uid FROM task_comments WHERE task_id = ?))
                                        OR (tbl = 'task_members' AND uid IN (SELECT uid FROM task_members WHERE task_id = ?))
+                                       OR (tbl = 'task_watch' AND uid IN (SELECT uid FROM task_watch WHERE task_id = ?))
                                        OR (tbl = 'task_time' AND uid IN (SELECT uid FROM task_time WHERE task_id = ?))
                                        OR (tbl = 'task_images' AND uid IN (SELECT uid FROM task_images WHERE task_id = ?))) LIMIT 1""",
-                                   (uid, card, card, card, card))
+                                   (uid, card, card, card, card, card))
             if await cur.fetchone():
                 continue
             cur = await db.execute("SELECT stored FROM task_images WHERE task_id = ?", (card,))
@@ -704,7 +705,7 @@ FIELD_LABELS = {
     "estimate_minutes": "預估時間", "is_task": "子任務", "done_at": "協作完成", "minutes": "工時", "note": "工時說明",
     "work_date": "工作日期", "name": "檔名", "parent_id": "所屬留言", "next_id": "下一次",
 }
-TABLE_LABELS = {"tasks": "卡片", "task_comments": "留言／子任務", "task_members": "協作人", "task_time": "工時", "task_images": "附件"}
+TABLE_LABELS = {"tasks": "卡片", "task_comments": "留言／子任務", "task_members": "協作人", "task_watch": "專案通知設定", "task_time": "工時", "task_images": "附件"}
 STATUS_ZH = {"recurring": "週期工作", "overdue": "過期未結案", "new": "新建", "ongoing": "進行中", "pending": "待確認",
              "onhold": "暫停", "complete": "完成", "canceled": "取消"}
 

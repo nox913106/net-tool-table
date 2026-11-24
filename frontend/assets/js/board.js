@@ -2592,11 +2592,12 @@ const TTBoard = window.TTBoard = (() => {
       if (!pop) return;
       const noteRows = notes.slice(0, 12).map(n => {
         const row = el('button', { class: 'bell-item bell-note' + (n.read ? ' is-read' : ''), type: 'button' },
-          el('span', { class: 'bell-kind kind-note', html: svg(n.kind === 'comment' ? 'message' : n.kind === 'assigned' ? 'user' : n.kind === 'subtask' ? 'check' : 'users') }),
+          el('span', { class: 'bell-kind kind-note', html: svg(n.kind === 'comment' ? 'message' : n.kind === 'assigned' ? 'user' : n.kind === 'subtask' ? 'check' : ['project', 'card'].includes(n.kind) ? 'flag' : 'users') }),
           el('span', { class: 'bell-text' }, el('strong', { text: n.text }), el('small', { text: (n.created_at || '').slice(5, 16) })));
         row.addEventListener('click', async () => {
           close();
           if (!n.read) { n.read = 1; api('/api/notifications/read', { method: 'POST', body: { ids: [n.id] } }).catch(() => {}); refreshAlerts(); }
+          if (n.kind === 'project') { if (n.task_id) location.hash = `#/project/${n.task_id}`; else { TT.store.set('projects-tab', 'load'); location.hash = '#/projects'; } return; }
           openTask(n.task_id);
         });
         return row;

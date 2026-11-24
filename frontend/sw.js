@@ -2,7 +2,7 @@
    Network first: the portal always shows the latest data; when the server cannot be
    reached the last copy of the pages, scripts and icons is shown instead.
    API responses are never cached. */
-const CACHE = 'tool-table-v18';
+const CACHE = 'tool-table-v19';
 const SHELL = ['/', '/admin', '/assets/css/base.css', '/assets/css/portal.css', '/assets/css/admin.css', '/assets/css/tactical.css',
   '/assets/js/common.js', '/assets/js/clock.js', '/assets/js/board.js', '/assets/js/radar.js', '/assets/js/gantt.js', '/assets/js/projects.js', '/assets/js/portal.js', '/assets/js/sync.js', '/assets/js/admin.js',
   '/assets/app/icon-192.png'];

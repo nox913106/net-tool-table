@@ -159,7 +159,7 @@ async def init_db():
                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
                 actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-                kind TEXT NOT NULL,                           -- assigned | mention | comment
+                kind TEXT NOT NULL,                           -- assigned | mention | comment | subtask | project | card
                 text TEXT,
                 read INTEGER NOT NULL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -212,6 +212,15 @@ async def init_db():
                 await db.execute(f"ALTER TABLE task_comments ADD COLUMN {col} {ddl}")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_comments_parent ON task_comments(parent_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_comments_task_parent ON task_comments(task_parent_id)")
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS task_watch (
+                task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                mode TEXT NOT NULL DEFAULT 'mine',            -- project notifications: all | mine | digest | off
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (task_id, user_id)
+            )
+        """)
         await db.execute("""
             CREATE TABLE IF NOT EXISTS task_time (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

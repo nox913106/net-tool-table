@@ -1677,3 +1677,4 @@ body.nav-collapsed .sidebar:not(.peek) .nav-empty, body.nav-collapsed .sidebar:n
 .pj-chain { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 8px 12px; border: 1px solid var(--danger); background: color-mix(in srgb, var(--danger) 6%, transparent);
   text-align: left; cursor: pointer; color: var(--text); font: inherit; font-size: 13px; }
 @media (max-width: 720px) { .pj-win { grid-template-columns: 1fr; } }
+.pj-actions .pj-watch { width: auto; flex: none; }

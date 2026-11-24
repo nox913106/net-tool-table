@@ -245,6 +245,13 @@ def _guard(db, user: dict):
             if role != "mention":
                 return "不支援的協作人類型"
             return None if op == "insert" or target == me or await _can_edit(db, card, user) else "沒有移除協作人的權限"
+        if table == "task_watch":                 # one's own notification settings only
+            if op == "insert":
+                changes["user_id"] = me
+                return None if changes.get("mode") in ("all", "mine", "digest", "off") else "不支援的通知模式"
+            if local["user_id"] != me:
+                return "只能修改自己的通知設定"
+            return None if changes.get("mode", "mine") in ("all", "mine", "digest", "off") else "不支援的通知模式"
         if table == "task_time":
             if op == "insert":
                 changes["user_id"] = me

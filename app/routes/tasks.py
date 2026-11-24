@@ -1255,6 +1255,74 @@ async def projects_analysis(request: Request):
         await db.close()
 
 
+class WatchIn(BaseModel):
+    mode: str
+
+    @field_validator("mode")
+    @classmethod
+    def v_mode(cls, v):
+        if v not in ("all", "mine", "digest", "off", "default"):
+            raise ValueError("通知模式只能是 all / mine / digest / off")
+        return v
+
+
+@router.get("/{task_id}/watch")
+async def get_watch(task_id: int, request: Request):
+    """My notification mode for a project (全部 / 只跟我有關 / 每日摘要 / 關閉) and whether it is the default."""
+    from .. import projects as pj
+    user = current_user(request)
+    db = await get_db()
+    try:
+        t = await _get_visible(db, task_id, user)
+        if (t.get("kind") or "ops") != "project":
+            raise HTTPException(status_code=400, detail="只有專案可以設定通知")
+        mode, default = await pj.watch_mode(db, task_id, user.get("id"))
+        return {"mode": mode, "default": default, "lead": user.get("id") in await pj.leads_of(db, task_id)}
+    finally:
+        await db.close()
+
+
+@router.put("/{task_id}/watch")
+async def set_watch(task_id: int, body: WatchIn, request: Request):
+    """Set (or, with "default", clear) my notification mode for a project."""
+    from .. import projects as pj
+    user = current_user(request)
+    if user.get("id") is None:
+        raise HTTPException(status_code=400, detail="請先登入")
+    db = await get_db()
+    try:
+        t = await _get_visible(db, task_id, user)
+        if (t.get("kind") or "ops") != "project":
+            raise HTTPException(status_code=400, detail="只有專案可以設定通知")
+        if body.mode == "default":
+            await db.execute("DELETE FROM task_watch WHERE task_id = ? AND user_id = ?", (task_id, user["id"]))
+        else:
+            await db.execute("""INSERT INTO task_watch (task_id, user_id, mode) VALUES (?, ?, ?)
+                                ON CONFLICT(task_id, user_id) DO UPDATE SET mode = excluded.mode, updated_at = CURRENT_TIMESTAMP""",
+                             (task_id, user["id"], body.mode))
+        await db.commit()
+        mode, default = await pj.watch_mode(db, task_id, user["id"])
+        return {"mode": mode, "default": default}
+    finally:
+        await db.close()
+
+
+@router.post("/projects/events/run")
+async def run_project_events(request: Request):
+    """Admin: send today's project notifications now (normally once a day at the daily reminder time)."""
+    from .. import projects as pj
+    user = current_user(request)
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="只有管理員可以執行")
+    db = await get_db()
+    try:
+        n = await pj.daily_events(db)
+        await db.commit()
+        return {"sent": n}
+    finally:
+        await db.close()
+
+
 @router.get("/projects/suspected")
 async def suspected_projects(request: Request):
     """Everyday cards that look like projects (baseline, predecessors, a third level of subtasks, or many subtasks)."""
