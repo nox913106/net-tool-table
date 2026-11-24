@@ -9,7 +9,9 @@ Layout (sheet 「工作報告」)
                1.1   子任務   └ subtask
                1.2   協作     └ collaborator  (co-assignee / @mentioned without a subtask of their own)
              Excel outline grouping folds a card's children (+/- on the left).
-Columns  編號 類型 項目 標籤 負責人 狀態 優先 開始 到期 完成% 預估(h) 實際(h) 最新進度／說明 備註 系統ID
+Columns  編號 類型 項目 標籤 負責人 狀態 優先 開始 到期 里程碑 前置任務 完成% 預估(h) 實際(h) 最新進度／說明 備註 系統ID
+  里程碑 (◆) can be set / cleared on import (◆／是 → set, 否 → clear, empty → unchanged); 前置任務 lists the
+  predecessors by their number in this report (or 「card › item」 when not in it) and is ignored on import.
   系統ID (T12 / S45 / C7) lets the same file be imported back to update those items; rows without
   one are created. 備註 is free space for the reader and is ignored on import.
   Under each subtask its work log follows (類型 工時: date, hours, who, note; outline level 2) —
@@ -44,10 +46,18 @@ SHEET = "工作報告"
 HEADER_ROW = 5
 # (header, width, kind)
 COLUMNS = [("編號", 7, ""), ("類型", 8, ""), ("項目", 44, "wrap"), ("標籤", 14, "wrap"), ("負責人", 16, "wrap"), ("狀態", 11, ""), ("優先", 6, ""),
-           ("開始", 16, "date"), ("到期", 16, "date"), ("完成%", 8, "pct"), ("預估(h)", 8, "hours"), ("實際(h)", 8, "hours"),
+           ("開始", 16, "date"), ("到期", 16, "date"), ("里程碑", 7, ""), ("前置任務", 18, "wrap"), ("完成%", 8, "pct"), ("預估(h)", 8, "hours"), ("實際(h)", 8, "hours"),
            ("最新進度／說明", 52, "wrap"), ("備註", 22, "wrap"), ("系統ID", 9, "")]
 COL = {c[0]: i for i, c in enumerate(COLUMNS)}
 PRINT_COLS = len(COLUMNS) - 1                                  # 系統ID is not printed
+
+
+def _get(row, key, default=None):
+    """A column of a sqlite row or a dict, or default when the row has no such column."""
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return default
 
 
 def _txt(v):
@@ -140,7 +150,8 @@ def _is_late(due, status, today: date) -> bool:
 
 
 def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[int, list], times: Dict[int, list],
-                 names: Dict[int, str], author: str = "", now: Optional[datetime] = None) -> bytes:
+                 names: Dict[int, str], author: str = "", now: Optional[datetime] = None,
+                 sub_deps: Optional[Dict[int, list]] = None) -> bytes:
     """cards: enriched rows (owner / assignees / mentions as dicts with id, username, name, done).
     subtasks / comments / times are keyed by card id; names maps user id → display name."""
     now = now or datetime.now()
@@ -149,6 +160,10 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
     ws = wb.active
     ws.title = SHEET
     rows = []                                            # (level, values, status, late)
+    sub_deps = sub_deps or {}
+    number = {}                                          # "t:12" / "s:45" → its number in this report (1, 1.2, …)
+    pending_deps = []                                    # (row values, [{key, title, card, lag}]) filled in at the end
+    MS = "◆"
     tally, done_all, total_all, late_n, blocked_n, hours_all = {}, 0, 0, 0, 0, 0
 
     for n, t in enumerate(cards, start=1):
@@ -175,8 +190,12 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
         rows.append((0, [
             str(n), KIND["card"], _txt(t["title"]), _txt(" ".join("#" + x for x in t.get("tags") or [])) or None,
             _txt(lead["name"]) if lead else None, STATUS_ZH.get(t["status"], t["status"]),
-            PRIORITY.get(t["priority"], t["priority"]), _dt(t["start_at"]), due, pct, _hours(est), _hours(spent),
+            PRIORITY.get(t["priority"], t["priority"]), None if t.get("milestone") else _dt(t["start_at"]), due,
+            MS if t.get("milestone") else None, None, pct, _hours(est), _hours(spent),
             _txt(_blocked_text(t) or _latest(cmts, names, None) or (_one_line(t["description"]) or None)), None, f"T{t['id']}"], t["status"], late))
+        number[f"t:{t['id']}"] = str(n)
+        if t.get("deps"):
+            pending_deps.append((rows[-1][1], t["deps"]))
         kids = {}
         for s in subs:
             kids.setdefault(s["task_parent_id"] if "task_parent_id" in s.keys() else None, []).append(s)
@@ -197,10 +216,14 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
             rows.append((level, [
                 num, KIND["sub"], _txt("　" * (level - 1) + "└ " + (s["title"] or "子任務")), None,
                 _txt(names.get(s["assignee_id"])) if s["assignee_id"] else None,
-                STATUS_ZH.get(st, st), PRIORITY.get(s["priority"] or "normal"), _dt(s["start_at"]), sdue,
+                STATUS_ZH.get(st, st), PRIORITY.get(s["priority"] or "normal"), None if _get(s, "milestone") else _dt(s["start_at"]), sdue,
+                MS if _get(s, "milestone") else None, None,
                 1.0 if st == "complete" else 0.0 if st != "canceled" else None, _hours(s["estimate_minutes"]),
                 _hours(tree_minutes(s["id"]) if children else own_minutes(s["id"])),
                 _txt(_latest(cmts, names, s["id"]) or (_one_line(desc) or None)), None, f"S{s['id']}"], st, _is_late(sdue, st, today)))
+            number[f"s:{s['id']}"] = num
+            if sub_deps.get(s["id"]):
+                pending_deps.append((rows[-1][1], sub_deps[s["id"]]))
             # the work log of this subtask: one row per entry (date, hours, who, what) — ignored on import
             logs = sorted((e for e in card_times if e["comment_id"] == s["id"]),
                           key=lambda e: (e["work_date"] or str(e["created_at"] or ""), e["id"]))
@@ -209,7 +232,7 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
                 label = (f"{day:%m/%d} " if day else "") + (_one_line(e["note"]) or "工時")
                 rows.append((min(level + 1, 7), [
                     None, KIND["time"], _txt("　" * level + "· " + label), None, _txt(names.get(e["user_id"])) if e["user_id"] else None,
-                    None, None, day, None, None, None, _hours(e["minutes"]), _txt(e["note"]) or None, None, None], None, False))
+                    None, None, day, None, None, None, None, None, _hours(e["minutes"]), _txt(e["note"]) or None, None, None], None, False))
                 hours_all += (e["minutes"] or 0)
             for k, child in enumerate(children, start=1):
                 emit(child, f"{num}.{k}", level + 1)
@@ -222,9 +245,20 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
             m += 1
             rows.append((1, [
                 f"{n}.{m}", KIND["collab"], _txt(f"└ 協作（{c['why']}）"), None, _txt(c["name"]), COLLAB_DONE if c.get("done") else COLLAB_OPEN,
-                None, None, None, 1.0 if c.get("done") else 0.0, None, None, None, None, f"C{c['id']}"],
+                None, None, None, None, None, 1.0 if c.get("done") else 0.0, None, None, None, None, f"C{c['id']}"],
                 "complete" if c.get("done") else None, False))
 
+    # predecessors by their number here; ones outside this report by name
+    titles = {f"t:{t['id']}": t["title"] for t in cards}
+    for values, deps in pending_deps:
+        parts = []
+        for d in deps:
+            where = number.get(d["key"])
+            if not where:
+                card = titles.get(f"t:{d.get('card')}")
+                where = f"「{d['title']}」" if d["key"].startswith("t:") or not card else f"「{card} › {d['title']}」"
+            parts.append(where + (f"（{'+' if d.get('lag', 0) > 0 else ''}{d['lag']} 天）" if d.get("lag") else ""))
+        values[COL["前置任務"]] = _txt("、".join(parts))
     # ---- report header
     last_col = get_column_letter(PRINT_COLS)
     ws["A1"] = "工作進度報告"
@@ -262,7 +296,7 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
             name, _, kind = COLUMNS[i - 1]
             cell.border = BOX
             cell.alignment = Alignment(vertical="top", wrap_text=kind == "wrap",
-                                       horizontal="center" if name in ("編號", "類型", "狀態", "優先", "完成%") else None)
+                                       horizontal="center" if name in ("編號", "類型", "狀態", "優先", "完成%", "里程碑") else None)
             if level == 2:
                 cell.font = Font(color="475569", size=10)
             if level == 0:
@@ -281,12 +315,15 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
                 cell.font = Font(bold=True, color="DC2626")
             if name == "系統ID":
                 cell.font = Font(color="94A3B8", size=9)
+            if name == "里程碑" and cell.value:
+                cell.font = Font(bold=True, color="1E3A8A")
     last = max(r, HEADER_ROW + 1)
     # ---- helpers for whoever edits the file before importing
     dv = DataValidation(type="list", allow_blank=True, formula1='"' + ",".join(list(STATUS_ZH.values()) + [COLLAB_OPEN]) + '"')
     dv_p = DataValidation(type="list", allow_blank=True, formula1='"低,一般,高"')
     dv_k = DataValidation(type="list", allow_blank=True, formula1='"主任務,子任務,協作"')
-    for d, col in ((dv, "狀態"), (dv_p, "優先"), (dv_k, "類型")):
+    dv_m = DataValidation(type="list", allow_blank=True, formula1='"◆,否"')
+    for d, col in ((dv, "狀態"), (dv_p, "優先"), (dv_k, "類型"), (dv_m, "里程碑")):
         letter = get_column_letter(COL[col] + 1)
         d.add(f"{letter}{HEADER_ROW + 1}:{letter}{HEADER_ROW + 1000}")
         ws.add_data_validation(d)
@@ -396,6 +433,14 @@ def parse(data: bytes) -> List[dict]:
             if not key:
                 item["errors"].append(f"狀態「{st}」不認得（可用：{'、'.join(STATUS_ZH.values())}）")
             item["status"] = key
+        ms = str(get(r, "里程碑") or "").strip()
+        if ms and kind != "collab":
+            if ms in ("◆", "♦", "是", "Y", "y", "V", "v", "✓", "✔", "1", "TRUE", "True", "true"):
+                item["milestone"] = True
+            elif ms in ("否", "N", "n", "X", "x", "✗", "0", "FALSE", "False", "false", "－", "-"):
+                item["milestone"] = False
+            else:
+                item["errors"].append(f"里程碑「{ms}」看不懂（填 ◆ 或「是」設為里程碑，「否」取消，空白不變）")
         pr = str(get(r, "優先") or "").strip()
         if pr and kind != "collab":
             item["priority"] = PRIORITY_IN.get(pr) or PRIORITY_IN.get(pr.lower())

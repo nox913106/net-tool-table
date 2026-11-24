@@ -803,6 +803,9 @@ async def export_xlsx(body: ExportIn, request: Request):
                 subtasks.setdefault(c["task_id"], []).append(c)
         for lst in subtasks.values():
             lst.sort(key=lambda c: (c["sort_order"] if c["sort_order"] is not None else c["id"], c["id"]))
+        all_subs = [c for lst in subtasks.values() for c in lst]
+        dep_map = await deps_out(db, [c["deps"] for c in all_subs])
+        sub_deps = {c["id"]: dep_map[c["deps"]] for c in all_subs if c["deps"] and dep_map.get(c["deps"])}
         cur = await db.execute(f"SELECT * FROM task_time WHERE task_id IN ({marks}) AND minutes IS NOT NULL", found)
         times = {}
         for e in await cur.fetchall():
@@ -814,7 +817,7 @@ async def export_xlsx(body: ExportIn, request: Request):
     from datetime import datetime
     author = user.get("display_name") or user.get("username") or ""
     data = await asyncio.get_running_loop().run_in_executor(
-        None, lambda: xlsx_export.build_report(cards, subtasks, comments, times, names, author))
+        None, lambda: xlsx_export.build_report(cards, subtasks, comments, times, names, author, sub_deps=sub_deps))
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
     safe = re.sub(r'[\\/:*?"<>|\s]+', "_", cards[0]["title"])[:60]
     name = f"工作進度報告-{stamp}.xlsx" if len(cards) > 1 else f"{safe}-{stamp}.xlsx"
@@ -898,7 +901,7 @@ async def _import_plan(items: List[dict], user: dict) -> List[dict]:
                         t = None
                     if t:
                         ctx.update(id=t["id"], edit=await _can_edit(db, t["id"], user))
-                        cur = await db.execute("""SELECT id, title, status, priority, start_at, due_at, assignee_id, estimate_minutes
+                        cur = await db.execute("""SELECT id, title, status, priority, start_at, due_at, assignee_id, estimate_minutes, milestone
                                                   FROM task_comments WHERE task_id = ? AND is_task = 1 AND parent_id IS NULL""", (t["id"],))
                         ctx["subs"] = {r["id"]: dict(r) for r in await cur.fetchall()}
                         cur = await db.execute("SELECT user_id, role, done_at FROM task_members WHERE task_id = ? AND role IN ('assignee', 'mention')", (t["id"],))
@@ -914,6 +917,9 @@ async def _import_plan(items: List[dict], user: dict) -> List[dict]:
                         for k, label in (("start_at", "開始"), ("due_at", "到期")):
                             if it.get(k) and it[k] != (t[k] or ""):
                                 changes[k] = it[k]; out["changes"].append(_diff(label, t[k], it[k]))
+                        if it.get("milestone") is not None and it["milestone"] != bool(t.get("milestone")):
+                            changes["milestone"] = it["milestone"]; out["changes"].append(_diff("里程碑", "是" if t.get("milestone") else "否", "是" if it["milestone"] else "否"))
+                            changes.pop("start_at", None)
                         if it.get("status") and it["status"] != t["status"]:
                             changes["status"] = it["status"]; out["changes"].append(_diff("狀態", ZH.get(t["status"]), ZH.get(it["status"])))
                             if ctx["summary"]:
@@ -938,6 +944,9 @@ async def _import_plan(items: List[dict], user: dict) -> List[dict]:
                     for k in ("priority", "start_at", "due_at"):
                         if it.get(k):
                             fields[k] = it[k]
+                    if it.get("milestone"):
+                        fields["milestone"] = True
+                        out["changes"].append("里程碑")
                     if it.get("tags"):
                         try:
                             fields["tags"] = _tags(it["tags"])
@@ -985,6 +994,9 @@ async def _import_plan(items: List[dict], user: dict) -> List[dict]:
                     for k, label in (("start_at", "開始"), ("due_at", "到期")):
                         if it.get(k) and it[k] != (s[k] or ""):
                             fields[k] = it[k]; out["changes"].append(_diff(label, s[k], it[k]))
+                    if it.get("milestone") is not None and it["milestone"] != bool(s["milestone"]):
+                        fields["milestone"] = it["milestone"]; out["changes"].append(_diff("里程碑", "是" if s["milestone"] else "否", "是" if it["milestone"] else "否"))
+                        fields.pop("start_at", None)
                     if "estimate_minutes" in it and (it["estimate_minutes"] or None) != (s["estimate_minutes"] or None):
                         fields["estimate_minutes"] = it["estimate_minutes"]
                         out["changes"].append(_diff("預估", s["estimate_minutes"] and f"{s['estimate_minutes'] / 60:g}h", it["estimate_minutes"] and f"{it['estimate_minutes'] / 60:g}h"))
@@ -1001,7 +1013,7 @@ async def _import_plan(items: List[dict], user: dict) -> List[dict]:
                     if ctx["id"] and not ctx["edit"]:
                         out["errors"].append("你沒有權限在這張卡片加子任務")
                         continue
-                    fields = {k: it[k] for k in ("status", "priority", "start_at", "due_at", "estimate_minutes") if it.get(k)}
+                    fields = {k: it[k] for k in ("status", "priority", "start_at", "due_at", "estimate_minutes", "milestone") if it.get(k)}
                     if person:
                         fields["assignee"] = person["username"]
                     out["action"], out["_op"] = "create", ("sub_create", it["title"], fields)
