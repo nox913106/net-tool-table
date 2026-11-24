@@ -1583,6 +1583,104 @@
     box.replaceChildren(el('div', { class: 'sys-step is-fail', html: svg('x') + _t('<span>等候逾時：伺服器的管理服務（tool-table-apply.path）沒有回應。請重新執行一次升級（upgrade）讓它安裝。</span>') }));
   }
 
+  function teamsCard(TM) {
+    const EVENTS = [['changes', _t('卡片與專案的變更')], ['project', _t('每日專案事件')], ['system', _t('系統與硬體告警')], ['health', _t('定時系統狀態報告')]];
+    let projects = [];
+    api('/api/tasks').then(list => { projects = (list || []).filter(t => (t.kind || 'ops') === 'project').map(t => ({ id: t.id, title: t.title })); paintChannels(); }).catch(() => {});
+    const chans = TM.channels.map(c => ({ ...c, url: null }));
+    const box = el('div', { class: 'tm-channels' });
+    const chk = (on, label, onChange) => { const i = el('input', { type: 'checkbox', checked: !!on }); i.addEventListener('change', () => onChange(i.checked)); return el('label', { class: 'tm-check' }, i, el('span', { text: label })); };
+    function paintChannels() {
+      box.replaceChildren(...chans.map((c, idx) => {
+        const name = input(c.name, { placeholder: _t('頻道名稱，例如 網管部 / 專案群組'), maxlength: '60' });
+        name.addEventListener('input', () => { c.name = name.value; });
+        const url = input('', { type: 'url', placeholder: c.url_set ? _t('已設定：{0}（留空 = 不變）', c.url_host || 'Teams') : 'https://…logic.azure.com/… 或 https://…/workflows/…' });
+        url.addEventListener('input', () => { c.url = url.value.trim() || null; });
+        const scope = el('select', { class: 'select' }, ...[['projects', _t('只有專案（含歸屬卡片）')], ['all', _t('所有卡片')], ['chosen', _t('指定的專案')]].map(([v, l]) => el('option', { value: v, text: l, selected: (c.scope || 'projects') === v })));
+        const picks = el('div', { class: 'tm-projects', hidden: (c.scope || 'projects') !== 'chosen' },
+          ...(projects.length ? projects.map(p => chk((c.projects || []).includes(p.id), p.title, on => { c.projects = (c.projects || []).filter(x => x !== p.id).concat(on ? [p.id] : []); }))
+            : [el('span', { class: 'hint', text: _t('還沒有專案') })]));
+        scope.addEventListener('change', () => { c.scope = scope.value; picks.hidden = scope.value !== 'chosen'; });
+        const test = el('button', { class: 'btn btn-sm', type: 'button', html: svg('zap') + _t('測試') });
+        const res = resultBox();
+        test.addEventListener('click', async () => {
+          test.disabled = true;
+          try { showSteps(res, await api('/api/system/teams/test', { method: 'POST', body: { id: c.id || '', url: c.url || null } })); }
+          catch (e) { showSteps(res, { steps: [{ status: 'fail', text: e.message }] }); }
+          test.disabled = false;
+        });
+        const del = el('button', { class: 'icon-btn', type: 'button', 'aria-label': _t('刪除這個頻道'), html: svg('trash') });
+        del.addEventListener('click', () => { chans.splice(idx, 1); paintChannels(); });
+        return el('div', { class: 'tm-channel' },
+          el('div', { class: 'tm-row' }, chk(c.enabled !== false, _t('啟用'), on => { c.enabled = on; }), name, del),
+          el('div', { class: 'tm-row' }, url, test),
+          el('div', { class: 'tm-row tm-events' }, el('span', { class: 'field-label', text: _t('傳送') }),
+            ...EVENTS.map(([k, l]) => chk((c.events || []).includes(k), l, on => { c.events = (c.events || []).filter(x => x !== k).concat(on ? [k] : []); }))),
+          el('div', { class: 'tm-row' }, el('span', { class: 'field-label', text: _t('卡片變更的範圍') }), scope), picks, res);
+      }), (() => {
+        const add = el('button', { class: 'btn btn-sm', type: 'button', html: svg('plus') + _t('新增頻道') });
+        add.addEventListener('click', () => { chans.push({ id: '', name: '', url: null, enabled: true, events: ['changes', 'project', 'system'], scope: 'projects', projects: [] }); paintChannels(); });
+        return add;
+      })());
+    }
+    paintChannels();
+    const o = {
+      lang: el('select', { class: 'select' }, ...[['site', _t('同網站預設語言')], ['zh-TW', '繁體中文'], ['en', 'English']].map(([v, l]) => el('option', { value: v, text: l, selected: TM.lang === v }))),
+      site_url: input(TM.site_url, { placeholder: TM.default_site_url }),
+      quiet_seconds: input(TM.quiet_seconds, { type: 'number', min: '10', max: '3600' }),
+      health_times: input(TM.health_times, { placeholder: '08:30,17:30' }),
+      health_only_abnormal: switchCtl(TM.health_only_abnormal, _t('全部正常時不送報告'), () => {}),
+      repeat_hours: input(TM.repeat_hours, { type: 'number', min: '0', max: '168', step: '0.5' }),
+    };
+    const TH = [['disk_warn', 'disk_fail', _t('磁碟使用率（%）')], ['mem_warn', 'mem_fail', _t('可用記憶體（%，低於）')], ['load_warn', 'load_fail', _t('CPU 負載（每核 5 分鐘平均）')],
+      ['temp_warn', 'temp_fail', _t('溫度（°C）')], ['cert_warn', 'cert_fail', _t('HTTPS 憑證剩餘天數（低於）')]];
+    const th = {};
+    TH.forEach(([a, b]) => { th[a] = input(TM[a], { type: 'number', step: 'any' }); th[b] = input(TM[b], { type: 'number', step: 'any' }); });
+    th.backup_hours = input(TM.backup_hours, { type: 'number', min: '1' });
+    const status = el('div', { class: 'tm-status' }, el('p', { class: 'hint', text: _t('讀取中…') }));
+    const LV = { ok: _t('正常'), warn: _t('注意'), fail: _t('告警') };
+    const loadStatus = async () => {
+      try {
+        const r = await api('/api/system/monitor');
+        status.replaceChildren(el('table', { class: 'tm-table' }, el('tbody', {}, ...r.items.map(it =>
+          el('tr', {}, el('td', {}, el('span', { class: `tm-lv lv-${it.level}`, text: LV[it.level] })), el('td', { text: `${it.group} / ${it.name}` }), el('td', { text: it.detail }))))));
+      } catch (e) { status.replaceChildren(el('p', { class: 'hint', text: e.message })); }
+    };
+    loadStatus();
+    const report = el('button', { class: 'btn', type: 'button', html: svg('megaphone') + _t('立即送出狀態報告') });
+    report.addEventListener('click', async () => { try { const r = await api('/api/system/teams/report', { method: 'POST' }); toast(_t('已排入 {0} 個頻道', r.queued)); } catch (e) { toast(e.message, true); } });
+    const refresh = el('button', { class: 'btn btn-ghost', type: 'button', html: svg('refresh') + _t('重新檢查') });
+    refresh.addEventListener('click', loadStatus);
+    const save = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + _t('儲存 Teams 設定') });
+    const last = el('p', { class: 'hint', text: TM.last_result ? _t('最近一次傳送：{0}', TM.last_result) : '' });
+    save.addEventListener('click', async () => {
+      const num = x => Number(x.value);
+      try {
+        TM = await api('/api/system/teams', { method: 'PUT', body: {
+          channels: chans.map(c => ({ id: c.id || '', name: c.name || '', url: c.url, enabled: c.enabled !== false, events: c.events || [], scope: c.scope || 'projects', projects: c.projects || [] })),
+          lang: o.lang.value, site_url: o.site_url.value.trim(), quiet_seconds: num(o.quiet_seconds), health_times: o.health_times.value.trim(),
+          health_only_abnormal: o.health_only_abnormal.querySelector('input').checked, repeat_hours: num(o.repeat_hours),
+          ...Object.fromEntries(Object.entries(th).map(([k, v]) => [k, num(v)])) } });
+        chans.splice(0, chans.length, ...TM.channels.map(c => ({ ...c, url: null })));
+        paintChannels();
+        toast(_t('Teams 設定已儲存'));
+      } catch (e) { toast(e.message, true); }
+    });
+    return sysCard('megaphone', _t('Microsoft Teams 通知'),
+      _t('在 Teams 頻道新增工作流程「收到 webhook 要求時張貼到頻道」（Post to a channel when a webhook request is received），把它產生的網址貼到下面。不需要 Entra ID 應用程式；網址等同密碼，加密保存。') + '<br>' +
+      _t('卡片變更：同一張卡片一分鐘內的修改合成一則，列出「欄位：原本 → 現在」與修改的人（單機版同步上來的修改也算）。系統告警：異常時、持續異常時（定時提醒）與恢復時各通知一次。'),
+      el('div', { class: 'span-all' }, box),
+      el('div', { class: 'sys-form' },
+        field(_t('訊息語言'), o.lang), field(_t('網站網址（訊息裡的連結）'), o.site_url, _t('留空 = 依伺服器名稱與連接埠')),
+        field(_t('卡片靜止幾秒後送出變更'), o.quiet_seconds), field(_t('狀態報告時間'), o.health_times, _t('多個時間用逗號分開')),
+        el('div', { class: 'field' }, o.health_only_abnormal), field(_t('持續異常每隔幾小時提醒（0 = 不提醒）'), o.repeat_hours),
+        el('details', { class: 'sys-advanced span-all' }, el('summary', { text: _t('告警門檻（注意 / 告警）') }),
+          el('div', { class: 'sys-form' }, ...TH.map(([a, b, l]) => el('div', { class: 'field' }, el('span', { class: 'field-label', text: l }), el('div', { class: 'sys-test-row' }, th[a], th[b]))),
+            field(_t('超過幾小時沒有成功的自動備份'), th.backup_hours)))),
+      el('div', { class: 'sys-test' }, el('span', { class: 'field-label', text: _t('目前的系統狀態') }), status, el('div', { class: 'sys-test-row' }, refresh, report)),
+      last, el('div', { class: 'sys-actions' }, save));
+  }
+
   async function renderSystem() {
     const body = $('stage-body');
     const grid = el('div', { class: 'sys-grid' });
@@ -1725,6 +1823,11 @@
           eres,
           el('div', { class: 'sys-actions' }, esave)));
       }
+
+      // ---------------- Microsoft Teams: channels, what they get, system / hardware alerts
+      let TM;
+      try { TM = await api('/api/system/teams'); } catch (e) { TM = null; }
+      if (TM) grid.append(teamsCard(TM));
 
       // ---------------- sign-in security
       const S = await api('/api/system/security');

@@ -25,12 +25,58 @@ def ensure_db_dir():
     """Ensure data directory exists"""
     DB_DIR.mkdir(parents=True, exist_ok=True)
 
+# Who is making the change (set per request by app/auth.py) — written to change_log by the capture triggers
+import contextvars
+ACTOR = contextvars.ContextVar("tt_actor", default=None)
+CAPTURE = {"on": False}             # change capture for Teams digests (app/teams.py turns it on when a channel wants changes)
+
+# Fields whose changes go into Teams change digests. Values are logged raw; app/teams.py formats them.
+TASK_FIELDS = ("title", "status", "priority", "start_at", "due_at", "milestone", "blocked_reason", "kind", "project_id", "description", "deps", "win")
+SUB_FIELDS = ("title", "status", "assignee_id", "start_at", "due_at", "milestone", "body", "deps", "win")
+
+
+def _capture_sql() -> list:
+    """TEMP triggers (this connection only): every change to cards, subtasks and owners → change_log, with the actor."""
+    actor = "(SELECT user_id FROM temp.tt_actor LIMIT 1)"
+    upd_t = " ".join(f"""INSERT INTO main.change_log (actor_id, tbl, row_id, card_id, field, old, new)
+                         SELECT {actor}, 't', NEW.id, NEW.id, '{f}', OLD.{f}, NEW.{f} WHERE OLD.{f} IS NOT NEW.{f};""" for f in TASK_FIELDS)
+    upd_s = " ".join(f"""INSERT INTO main.change_log (actor_id, tbl, row_id, card_id, field, old, new)
+                         SELECT {actor}, 's', NEW.id, NEW.task_id, '{f}', OLD.{f}, NEW.{f}
+                         WHERE OLD.{f} IS NOT NEW.{f} AND (NEW.is_task = 1 OR OLD.is_task = 1);""" for f in SUB_FIELDS)
+    return [
+        "CREATE TEMP TABLE IF NOT EXISTS tt_actor (user_id INTEGER)",
+        f"CREATE TEMP TRIGGER IF NOT EXISTS ttc_t_u AFTER UPDATE ON main.tasks BEGIN {upd_t} END",
+        f"""CREATE TEMP TRIGGER IF NOT EXISTS ttc_t_i AFTER INSERT ON main.tasks BEGIN
+            INSERT INTO main.change_log (actor_id, tbl, row_id, card_id, field, old, new) VALUES ({actor}, 't', NEW.id, NEW.id, '+', NULL, NEW.title); END""",
+        f"""CREATE TEMP TRIGGER IF NOT EXISTS ttc_t_d AFTER DELETE ON main.tasks BEGIN
+            INSERT INTO main.change_log (actor_id, tbl, row_id, card_id, field, old, new) VALUES ({actor}, 't', OLD.id, OLD.id, '-', OLD.title, NULL); END""",
+        f"CREATE TEMP TRIGGER IF NOT EXISTS ttc_s_u AFTER UPDATE ON main.task_comments BEGIN {upd_s} END",
+        f"""CREATE TEMP TRIGGER IF NOT EXISTS ttc_s_i AFTER INSERT ON main.task_comments BEGIN
+            INSERT INTO main.change_log (actor_id, tbl, row_id, card_id, field, old, new)
+            VALUES ({actor}, CASE WHEN NEW.is_task = 1 THEN 's' ELSE 'c' END, NEW.id, NEW.task_id, '+', NULL,
+                    CASE WHEN NEW.is_task = 1 THEN NEW.title ELSE substr(NEW.body, 1, 200) END); END""",
+        f"""CREATE TEMP TRIGGER IF NOT EXISTS ttc_s_d AFTER DELETE ON main.task_comments WHEN OLD.is_task = 1 BEGIN
+            INSERT INTO main.change_log (actor_id, tbl, row_id, card_id, field, old, new) VALUES ({actor}, 's', OLD.id, OLD.task_id, '-', OLD.title, NULL); END""",
+        f"""CREATE TEMP TRIGGER IF NOT EXISTS ttc_m_i AFTER INSERT ON main.task_members WHEN NEW.role = 'assignee' BEGIN
+            INSERT INTO main.change_log (actor_id, tbl, row_id, card_id, field, old, new) VALUES ({actor}, 'm', NEW.user_id, NEW.task_id, 'assignee', NULL, NEW.user_id); END""",
+        f"""CREATE TEMP TRIGGER IF NOT EXISTS ttc_m_d AFTER DELETE ON main.task_members WHEN OLD.role = 'assignee' BEGIN
+            INSERT INTO main.change_log (actor_id, tbl, row_id, card_id, field, old, new) VALUES ({actor}, 'm', OLD.user_id, OLD.task_id, 'assignee', OLD.user_id, NULL); END""",
+    ]
+
+
 async def get_db():
     """Get database connection"""
     ensure_db_dir()
     db = await aiosqlite.connect(DB_PATH)
     db.row_factory = aiosqlite.Row
     await db.execute("PRAGMA foreign_keys = ON")
+    if CAPTURE["on"]:
+        try:
+            for sql in _capture_sql():
+                await db.execute(sql)
+            await db.execute("INSERT INTO temp.tt_actor (user_id) VALUES (?)", (ACTOR.get(),))
+        except Exception:                      # never let notifications get in the way of the work itself
+            pass
     return db
 
 async def init_db():
@@ -315,6 +361,16 @@ async def init_db():
             if col not in task_cols:
                 await db.execute(f"ALTER TABLE tasks ADD COLUMN {col} {ddl}")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
+
+        # Teams: card / subtask changes waiting to be sent as a digest, and the send queue (app/teams.py)
+        await db.execute("""CREATE TABLE IF NOT EXISTS change_log (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT, at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                actor_id INTEGER, tbl TEXT, row_id INTEGER, card_id INTEGER, field TEXT, old TEXT, new TEXT)""")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_change_log_card ON change_log(card_id, at)")
+        await db.execute("""CREATE TABLE IF NOT EXISTS teams_queue (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT, channel TEXT, kind TEXT, payload TEXT,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, attempts INTEGER NOT NULL DEFAULT 0,
+                                sent_at TIMESTAMP, result TEXT)""")
 
         # Sync between standalone copies and the server (app/sync.py): uids, clocks, capture triggers
         from . import sync

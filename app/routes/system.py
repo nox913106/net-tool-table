@@ -26,7 +26,8 @@ the tool-table-apply.path unit applies it (scripts/tool-table.sh apply-request).
 import asyncio
 import re
 from dataclasses import replace
-from typing import Optional
+from datetime import datetime
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
@@ -215,6 +216,128 @@ async def test_entra(body: EntraIn):
         return {"ok": True, "steps": [{"status": "fail" if s.startswith("不能") else "ok", "text": s} for s in steps]}
     except entra.EntraError as e:
         return {"ok": False, "steps": [{"status": "fail", "text": str(e)}]}
+
+
+# ------------------------------------------------------------- Microsoft Teams
+class TeamsChannelIn(BaseModel):
+    id: str = ""
+    name: str = ""
+    url: Optional[str] = None                    # None = keep the stored address
+    enabled: bool = True
+    events: list = []
+    scope: str = "projects"
+    projects: list = []
+
+
+class TeamsIn(BaseModel):
+    channels: List[TeamsChannelIn] = []
+    lang: str = "site"
+    site_url: str = ""
+    quiet_seconds: int = 60
+    health_times: str = "08:30,17:30"
+    health_only_abnormal: bool = False
+    repeat_hours: float = 6
+    disk_warn: int = 80
+    disk_fail: int = 90
+    mem_warn: int = 15
+    mem_fail: int = 5
+    load_warn: float = 1.5
+    load_fail: float = 3.0
+    temp_warn: int = 80
+    temp_fail: int = 90
+    cert_warn: int = 30
+    cert_fail: int = 7
+    backup_hours: int = 30
+
+
+TEAMS_URL_RE = re.compile(r"^(https://[A-Za-z0-9.-]+|http://(127\.0\.0\.1|localhost))(:\d+)?/\S+$")   # http: local tests only
+
+
+@router.get("/teams")
+async def get_teams():
+    from .. import teams
+    return teams.public()
+
+
+@router.put("/teams")
+async def put_teams(body: TeamsIn):
+    from .. import teams
+    for ch in body.channels:
+        if ch.url and not TEAMS_URL_RE.match(ch.url.strip()):
+            raise HTTPException(status_code=400, detail=f"「{ch.name or '頻道'}」的網址要是 https:// 開頭的 Workflow 網址")
+    if body.lang not in ("site", "zh-TW", "en"):
+        raise HTTPException(status_code=400, detail="語言只能是 zh-TW 或 en")
+    if body.site_url and not body.site_url.startswith(("https://", "http://")):
+        raise HTTPException(status_code=400, detail="網站網址要以 https:// 開頭")
+    for t in body.health_times.replace("，", ",").split(","):
+        if t.strip() and not re.match(r"^\d{1,2}:\d{2}$", t.strip()):
+            raise HTTPException(status_code=400, detail="報告時間格式為 HH:MM，多個用逗號分開，例如 08:30,17:30")
+    if not (0 < body.disk_warn < body.disk_fail <= 100 and 0 <= body.mem_fail < body.mem_warn < 100
+            and 0 < body.load_warn < body.load_fail and 0 < body.temp_warn < body.temp_fail and 0 <= body.cert_fail < body.cert_warn):
+        raise HTTPException(status_code=400, detail="告警門檻不合理：注意的門檻要比告警寬鬆")
+    teams.save_channels([{**ch.model_dump(), "url": ch.url.strip() if ch.url else ch.url} for ch in body.channels])
+    v = body.model_dump(exclude={"channels"})
+    v["quiet_seconds"] = max(10, min(3600, v["quiet_seconds"]))
+    v["repeat_hours"] = max(0, min(168, v["repeat_hours"]))
+    sysconfig.save_teams(v)
+    return teams.public()
+
+
+class TeamsTestIn(BaseModel):
+    id: str = ""
+    url: Optional[str] = None
+
+
+@router.post("/teams/test")
+async def test_teams(body: TeamsTestIn):
+    """Send a test message now (to a stored channel, or an address typed in the form)."""
+    from .. import teams
+    url = (body.url or "").strip()
+    if not url:
+        ch = next((c for c in sysconfig.teams().channels if c["id"] == body.id), None)
+        url = teams.channel_url(ch) if ch else ""
+    if not url:
+        raise HTTPException(status_code=400, detail="請先填寫 Workflow 網址")
+    L = teams.lang()
+    payload = teams.card("[Test] Tool Table → Teams" if L == "en" else "【測試】Tool Table → Teams",
+                         ["If you can see this, the channel works." if L == "en" else "看到這則訊息，表示這個頻道設定正確。",
+                          datetime.now().strftime("%Y-%m-%d %H:%M:%S")], f"{teams.site_url()}/", "ok", "Open" if L == "en" else "開啟")
+    try:
+        await asyncio.get_running_loop().run_in_executor(None, teams.post, url, payload)
+    except Exception as e:
+        return {"ok": False, "steps": [{"status": "fail", "text": str(e)}]}
+    return {"ok": True, "steps": [{"status": "ok", "text": "已送出測試訊息，請到 Teams 頻道確認"}]}
+
+
+@router.get("/monitor")
+async def monitor_now():
+    """The system checks right now (for the settings page)."""
+    from .. import monitor, i18n
+    items = await asyncio.get_running_loop().run_in_executor(None, lambda: monitor.checks(sysconfig.teams(), True, True, i18n.lang()))
+    return {"items": items}
+
+
+@router.post("/teams/report")
+async def teams_report_now():
+    """Send the system status report to the channels that want it, now."""
+    from .. import monitor, teams, i18n
+    c = sysconfig.teams()
+    chans = teams.active_channels("health", c) or teams.active_channels("system", c)
+    if not chans:
+        raise HTTPException(status_code=400, detail="沒有頻道訂閱「系統狀態報告」或「系統告警」")
+    L = teams.lang(c)
+    items = await asyncio.get_running_loop().run_in_executor(None, lambda: monitor.checks(c, True, True, L))
+    from dataclasses import replace as _replace
+    payload = monitor.report(items, _replace(c, health_only_abnormal=False), L)   # always a full report when asked
+    from ..database import get_db
+    db = await get_db()
+    try:
+        for ch in chans:
+            await teams.enqueue(db, ch["id"], "health", payload)
+        await db.commit()
+    finally:
+        await db.close()
+    return {"queued": len(chans)}
 
 
 class SecurityIn(BaseModel):

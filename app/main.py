@@ -3,6 +3,7 @@ Tool Table - FastAPI application
 Serves the API and the static frontend (frontend/).
 """
 import ipaddress
+import logging
 import socket
 import time
 from contextlib import asynccontextmanager
@@ -19,6 +20,23 @@ from .routes import sync as sync_routes
 
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 VERSION = "3.0.0"
+
+
+async def _teams_loop():
+    """Teams (server edition): send what is queued every few seconds; turn quiet cards' changes into digests."""
+    import asyncio
+    from . import teams
+    teams.refresh_capture()
+    n = 0
+    while True:
+        try:
+            if n % 3 == 0:
+                await teams.digest()
+            await teams.flush()
+        except Exception:
+            logging.getLogger("tool_table").exception("teams")
+        n += 1
+        await asyncio.sleep(10)
 
 
 async def _scheduler():
@@ -40,6 +58,13 @@ async def _scheduler():
             await run_daily_if_due()
         except Exception:
             pass
+        from . import config as _C
+        if _C.AUTH:                             # system / hardware checks and alerts (app/monitor.py)
+            try:
+                from .monitor import tick as monitor_tick
+                await monitor_tick()
+            except Exception:
+                logging.getLogger("tool_table").exception("monitor")
         if tick % 60 == 5:                      # hourly: unposted comment images, orphaned files
             try:
                 await loop.run_in_executor(None, cleanup_images, DB_PATH)
@@ -70,6 +95,8 @@ async def lifespan(app: FastAPI):
     except Exception:                       # never block startup over this
         pass
     task = asyncio.create_task(_scheduler())
+    from . import config as _C
+    teams_task = asyncio.create_task(_teams_loop()) if _C.AUTH else None
     extra = []
     from . import config as C
     if not C.AUTH:                          # standalone copy: sync with a server once linked
@@ -77,6 +104,8 @@ async def lifespan(app: FastAPI):
         extra = await syncclient.startup()
     yield
     task.cancel()
+    if teams_task:
+        teams_task.cancel()
     for t in extra:
         t.cancel()
 

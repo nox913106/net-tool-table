@@ -15,7 +15,7 @@ import os
 import secrets
 import sqlite3
 import threading
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from typing import Optional
 
 from . import config as C
@@ -199,6 +199,41 @@ def save_entra(values: dict, secret: Optional[str]):
     if secret is not None:                           # None = keep, "" = clear
         data["client_secret_enc"] = encrypt(secret, "entra-secret") if secret else ""
     _write("_sys_entra", data)
+
+
+# ------------------------------------------------------------- Microsoft Teams
+@dataclass
+class Teams:
+    # channels: [{id, name, url_enc, enabled, events: [changes, project, system, health], scope: projects|all|chosen, projects: [ids]}]
+    channels: list = field(default_factory=list)
+    lang: str = "site"                  # site (the site's default language) | zh-TW | en
+    site_url: str = ""                  # links in messages; empty = https://<FQDN>:<port> from the network settings
+    quiet_seconds: int = 60             # a card's changes are sent once nobody has touched it for this long
+    health_times: str = "08:30,17:30"   # scheduled system status reports
+    health_only_abnormal: bool = False
+    repeat_hours: float = 6             # remind while something is still wrong (0 = only when it changes)
+    disk_warn: int = 80
+    disk_fail: int = 90
+    mem_warn: int = 15                  # % of memory still available
+    mem_fail: int = 5
+    load_warn: float = 1.5              # 5-minute load per CPU core
+    load_fail: float = 3.0
+    temp_warn: int = 80                 # °C
+    temp_fail: int = 90
+    cert_warn: int = 30                 # days before the HTTPS certificate expires
+    cert_fail: int = 7
+    backup_hours: int = 30              # the last successful backup is older than this
+    last_result: str = ""
+
+
+def teams() -> Teams:
+    return _merge(Teams, _read("_sys_teams"), {})
+
+
+def save_teams(values: dict):
+    data = asdict(teams())
+    data.update({k: v for k, v in values.items() if k in data})
+    _write("_sys_teams", data)
 
 
 # ---------------------------------------------------------- sign-in security

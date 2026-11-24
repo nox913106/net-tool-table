@@ -427,6 +427,12 @@
     else if (hash === '#/mine' && boardOn() && window.TTProjects) TTProjects.renderMine(view);
     else if (hash === '#/projects' && boardOn() && window.TTProjects) TTProjects.renderProjects(view);
     else if ((m = hash.match(/^#\/project\/(\d+)/)) && boardOn() && window.TTProjects) TTProjects.renderProject(view, Number(m[1]));
+    else if ((m = hash.match(/^#\/card\/(\d+)/)) && boardOn()) {          // a link from Teams: the board, with the card open
+      const id = Number(m[1]);
+      history.replaceState(null, '', '#/board');
+      renderBoard();
+      TTBoard.load().then(() => TTBoard.openTask(id)).catch(() => {});
+    }
     else renderHome();
 
     highlightNav();

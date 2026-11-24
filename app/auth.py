@@ -262,6 +262,8 @@ async def gate(request: Request, call_next):
     else:
         user = await session_user(request.cookies.get(COOKIE))
     request.state.user = user
+    from .database import ACTOR
+    ACTOR.set(user.get("id") if user else None)       # who changed what (Teams change digests)
     public = path in PUBLIC_EXACT or path.startswith(PUBLIC_PREFIX)
     if user is None and not public:
         if path.startswith("/api/") or path.startswith("/openapi"):

@@ -488,3 +488,16 @@ body.link-dragging .quick-admin { outline: 2px dashed var(--accent-line); outlin
 .win-row .select { width: auto; }
 .win-cap { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--text-2); }
 .win-cap .input { width: 64px; }
+
+/* ---- Teams channels and system status */
+.tm-channels { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.tm-channel { display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 10px; border: 1px solid var(--border); }
+.tm-row { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+.tm-row .input { flex: 1 1 260px; min-width: 0; }
+.tm-check { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
+.tm-projects { display: flex; flex-wrap: wrap; gap: 4px 14px; padding-left: 4px; }
+.tm-status { width: 100%; overflow-x: auto; }
+.tm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tm-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.tm-lv { display: inline-block; min-width: 40px; text-align: center; font: 700 11px var(--mono, monospace); padding: 1px 6px; border: 1px solid currentColor; }
+.tm-lv.lv-ok { color: var(--success); } .tm-lv.lv-warn { color: var(--warning); } .tm-lv.lv-fail { color: var(--danger); }

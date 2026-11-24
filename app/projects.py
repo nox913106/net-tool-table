@@ -363,6 +363,23 @@ async def daily_events(db, today: Optional[date] = None) -> int:
                 if mode == "all" or uid in e[3]:
                     await notify(db, [uid], pid, sys, "project", e[2])
                     count += 1
+    # the same events to Teams channels that follow projects (one message per project)
+    try:
+        from . import teams
+        from .i18n import translate
+        L = teams.lang()
+        base = teams.site_url()
+        for pid, evs in by_project.items():
+            if pid is None or not evs:
+                continue
+            title = ("[Project events] " if L == "en" else "【專案事件】") + proj[pid]["title"]
+            lines = ["• " + translate(e[2], L) for e in evs]
+            payload = teams.card(title, lines, f"{base}/#/project/{pid}", "warn", "Open project" if L == "en" else "開啟專案頁")
+            for ch in teams.active_channels("project"):
+                if await teams._in_scope(db, ch, pid):
+                    await teams.enqueue(db, ch["id"], "project", payload)
+    except Exception:
+        pass
     state = {"sent": sent_now, "slip": slips, "digest": digests}
     await db.execute("INSERT INTO settings (key, value) VALUES ('_proj_events', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                      (json.dumps(state, ensure_ascii=False),))
