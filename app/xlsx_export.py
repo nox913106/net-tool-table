@@ -22,7 +22,7 @@ The caller passes only cards the user may see (routes/tasks.py export_xlsx).
 """
 import io
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 
 from openpyxl import Workbook, load_workbook
@@ -45,10 +45,14 @@ BOX = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 SHEET = "工作報告"
 HEADER_ROW = 5
 # (header, width, kind)
-COLUMNS = [("編號", 7, ""), ("類型", 8, ""), ("項目", 44, "wrap"), ("標籤", 14, "wrap"), ("負責人", 16, "wrap"), ("狀態", 11, ""), ("優先", 6, ""),
-           ("開始", 16, "date"), ("到期", 16, "date"), ("里程碑", 7, ""), ("前置任務", 18, "wrap"), ("完成%", 8, "pct"), ("預估(h)", 8, "hours"), ("實際(h)", 8, "hours"),
+COLUMNS = [("編號", 7, ""), ("類型", 8, ""), ("項目", 44, "wrap"), ("標籤", 14, "wrap"), ("歸屬專案", 16, "wrap"), ("負責人", 16, "wrap"), ("狀態", 11, ""), ("優先", 6, ""),
+           ("開始", 16, "date"), ("到期", 16, "date"), ("里程碑", 7, ""), ("前置任務", 18, "wrap"), ("時段", 16, "wrap"), ("完成%", 8, "pct"), ("預估(h)", 8, "hours"), ("實際(h)", 8, "hours"),
            ("最新進度／說明", 52, "wrap"), ("備註", 22, "wrap"), ("系統ID", 9, "")]
 COL = {c[0]: i for i, c in enumerate(COLUMNS)}
+# rows are assembled without 歸屬專案 / 時段 and widened just before writing
+OLD = [c[0] for c in COLUMNS if c[0] not in ("歸屬專案", "時段")]
+OLD_COL = {n: i for i, n in enumerate(OLD)}
+KIND_PROJECT = "專案"
 PRINT_COLS = len(COLUMNS) - 1                                  # 系統ID is not printed
 
 
@@ -149,9 +153,90 @@ def _is_late(due, status, today: date) -> bool:
     return bool(d and d < today)
 
 
+def _sheet_head(ws, title, note, cols):
+    ws["A1"] = title
+    ws["A1"].font = Font(bold=True, size=14, color="1E3A8A")
+    ws["A2"] = note
+    ws["A2"].font = Font(color="475569")
+    for i, (name, width) in enumerate(cols, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = width
+        c = ws.cell(row=4, column=i, value=name)
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = HEAD_FILL
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        c.border = BOX
+    ws.freeze_panes = "B5"
+
+
+def _extra_sheets(wb, analysis: dict, today):
+    """專案總覽 / 人員負載 / 問題清單 — computed by app.projects.analyze for the cards in this report."""
+    if not analysis:
+        return
+    red = PatternFill("solid", fgColor="FEE2E2")
+    amber = PatternFill("solid", fgColor="FEF3C7")
+    projects = analysis.get("projects") or []
+    if projects:
+        ws = wb.create_sheet("專案總覽")
+        cols = [("排序", 6), ("專案", 34), ("狀態", 10), ("完成%", 8), ("預計完成", 12), ("基準線完成", 12), ("落後（天）", 10), ("下個里程碑", 26),
+                ("逾期", 7), ("卡住", 7), ("排程衝突", 9), ("跨專案前置", 10), ("時段衝突", 9), ("歸屬的一般卡", 12)]
+        _sheet_head(ws, "專案總覽", f"依主管排序；以本報告範圍內的卡片計算　製表日 {today:%Y-%m-%d}", cols)
+        for r, p in enumerate(projects, start=5):
+            pr = p["problems"]
+            vals = [p["rank"], _txt(p["title"]), STATUS_ZH.get(p["status"], p["status"]), (p["pct"] or 0) / 100,
+                    _dt(p["end"]), _dt(p["base_due"]), p["slip"],
+                    _txt(f"{p['next']['title']} {p['next']['due'][5:].replace('-', '/')}") if p.get("next") else None,
+                    pr["overdue"], pr["blocked"], pr["conflict"], pr["xdep"], pr["window"], len(p["attached"])]
+            for c, v in enumerate(vals, start=1):
+                cell = ws.cell(row=r, column=c, value=v)
+                cell.border = BOX
+                if c == 4:
+                    cell.number_format = "0%"
+                if c in (5, 6) and v is not None:
+                    cell.number_format = "yyyy-mm-dd"
+            if (p["slip"] or 0) > 0:
+                ws.cell(row=r, column=7).fill = red
+            if p["problem_items"]:
+                ws.cell(row=r, column=2).fill = amber
+    load = analysis.get("load") or []
+    if load:
+        ws = wb.create_sheet("人員負載")
+        w0 = date.fromisoformat(analysis["week0"])
+        limit = analysis["load_hours"]
+        cols = [("人員", 16)] + [(f"{'本週 ' if k == 0 else ''}{(w0 + timedelta(days=7 * k)):%m/%d} 週（小時）", 13) for k in range(6)] + [("本週項目", 9), ("本週未填預估", 12)]
+        _sheet_head(ws, "人員負載", f"每週到期的未完成項目預估工時合計（跨所有專案與一般卡）；上限 {limit:g} 小時，未填預估的項目以 {analysis['default_hours']:g} 小時計　以本報告範圍計算", cols)
+        for r, p in enumerate(load, start=5):
+            ws.cell(row=r, column=1, value=_txt(p["name"])).border = BOX
+            for k, w in enumerate(p["weeks"][:6], start=2):
+                cell = ws.cell(row=r, column=k, value=w["hours"])
+                cell.border = BOX
+                cell.number_format = "0.0"
+                if w["hours"] > limit:
+                    cell.fill = red
+                elif w["hours"] > limit * .8:
+                    cell.fill = amber
+            ws.cell(row=r, column=8, value=p["weeks"][0]["count"]).border = BOX
+            ws.cell(row=r, column=9, value=p["weeks"][0]["no_estimate"]).border = BOX
+    problems = analysis.get("problems") or []
+    if problems:
+        ws = wb.create_sheet("問題清單")
+        cols = [("類型", 14), ("項目", 36), ("卡片／專案", 30), ("負責", 14), ("說明", 50), ("到期", 12)]
+        _sheet_head(ws, "問題清單", "逾期、卡住、排程衝突、跨專案前置延誤、時段衝突、人員超載（3 天內到期屬於正常排程，不列入）", cols)
+        for r, p in enumerate(problems, start=5):
+            vals = [p["type_zh"], _txt(p["title"]), _txt(p["card_title"]), _txt(p.get("who_name")), _txt(p["text"]), _dt(p["due"])]
+            for c, v in enumerate(vals, start=1):
+                cell = ws.cell(row=r, column=c, value=v)
+                cell.border = BOX
+                cell.alignment = Alignment(vertical="top", wrap_text=c in (2, 3, 5))
+                if c == 6 and v is not None:
+                    cell.number_format = "yyyy-mm-dd"
+            if p["type"] in ("overdue", "blocked", "xdep"):
+                ws.cell(row=r, column=1).font = Font(bold=True, color="DC2626")
+
+
 def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[int, list], times: Dict[int, list],
                  names: Dict[int, str], author: str = "", now: Optional[datetime] = None,
-                 sub_deps: Optional[Dict[int, list]] = None) -> bytes:
+                 sub_deps: Optional[Dict[int, list]] = None, analysis: Optional[dict] = None,
+                 project_titles: Optional[Dict[int, str]] = None) -> bytes:
     """cards: enriched rows (owner / assignees / mentions as dicts with id, username, name, done).
     subtasks / comments / times are keyed by card id; names maps user id → display name."""
     now = now or datetime.now()
@@ -160,6 +245,11 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
     ws = wb.active
     ws.title = SHEET
     rows = []                                            # (level, values, status, late)
+    analysis = analysis or {}
+    project_titles = project_titles or {}
+    win_title = {w["id"]: w["title"] + f"（{w['from'][5:].replace('-', '/')}" + (f"–{w['to'][5:].replace('-', '/')}" if w["to"] != w["from"] else "") + "）"
+                 for w in analysis.get("windows") or []}
+    wide = {}                                            # id(values) → (歸屬專案, 時段)
     sub_deps = sub_deps or {}
     number = {}                                          # "t:12" / "s:45" → its number in this report (1, 1.2, …)
     pending_deps = []                                    # (row values, [{key, title, card, lag}]) filled in at the end
@@ -188,12 +278,13 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
         blocked_n += bool(_blocked_text(t))
         cmts = comments.get(t["id"], [])
         rows.append((0, [
-            str(n), KIND["card"], _txt(t["title"]), _txt(" ".join("#" + x for x in t.get("tags") or [])) or None,
+            str(n), KIND_PROJECT if t.get("kind") == "project" else KIND["card"], _txt(t["title"]), _txt(" ".join("#" + x for x in t.get("tags") or [])) or None,
             _txt(lead["name"]) if lead else None, STATUS_ZH.get(t["status"], t["status"]),
             PRIORITY.get(t["priority"], t["priority"]), None if t.get("milestone") else _dt(t["start_at"]), due,
             MS if t.get("milestone") else None, None, pct, _hours(est), _hours(spent),
             _txt(_blocked_text(t) or _latest(cmts, names, None) or (_one_line(t["description"]) or None)), None, f"T{t['id']}"], t["status"], late))
         number[f"t:{t['id']}"] = str(n)
+        wide[id(rows[-1][1])] = (_txt(project_titles.get(t.get("project_id"))) if t.get("project_id") else None, win_title.get(t.get("win")))
         if t.get("deps"):
             pending_deps.append((rows[-1][1], t["deps"]))
         kids = {}
@@ -222,6 +313,7 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
                 _hours(tree_minutes(s["id"]) if children else own_minutes(s["id"])),
                 _txt(_latest(cmts, names, s["id"]) or (_one_line(desc) or None)), None, f"S{s['id']}"], st, _is_late(sdue, st, today)))
             number[f"s:{s['id']}"] = num
+            wide[id(rows[-1][1])] = (None, win_title.get(_get(s, "win")))
             if sub_deps.get(s["id"]):
                 pending_deps.append((rows[-1][1], sub_deps[s["id"]]))
             # the work log of this subtask: one row per entry (date, hours, who, what) — ignored on import
@@ -258,7 +350,10 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
                 card = titles.get(f"t:{d.get('card')}")
                 where = f"「{d['title']}」" if d["key"].startswith("t:") or not card else f"「{card} › {d['title']}」"
             parts.append(where + (f"（{'+' if d.get('lag', 0) > 0 else ''}{d['lag']} 天）" if d.get("lag") else ""))
-        values[COL["前置任務"]] = _txt("、".join(parts))
+        values[OLD_COL["前置任務"]] = _txt("、".join(parts))
+    for k, (level, values, status, late) in enumerate(rows):
+        pj, wt = wide.get(id(values), (None, None))
+        rows[k] = (level, values[:4] + [pj] + values[4:OLD_COL["前置任務"] + 1] + [wt] + values[OLD_COL["前置任務"] + 1:], status, late)
     # ---- report header
     last_col = get_column_letter(PRINT_COLS)
     ws["A1"] = "工作進度報告"
@@ -321,7 +416,7 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
     # ---- helpers for whoever edits the file before importing
     dv = DataValidation(type="list", allow_blank=True, formula1='"' + ",".join(list(STATUS_ZH.values()) + [COLLAB_OPEN]) + '"')
     dv_p = DataValidation(type="list", allow_blank=True, formula1='"低,一般,高"')
-    dv_k = DataValidation(type="list", allow_blank=True, formula1='"主任務,子任務,協作"')
+    dv_k = DataValidation(type="list", allow_blank=True, formula1='"主任務,專案,子任務,協作"')
     dv_m = DataValidation(type="list", allow_blank=True, formula1='"◆,否"')
     for d, col in ((dv, "狀態"), (dv_p, "優先"), (dv_k, "類型"), (dv_m, "里程碑")):
         letter = get_column_letter(COL[col] + 1)
@@ -342,6 +437,7 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
     ws.oddFooter.center.text = "第 &P 頁，共 &N 頁"
     ws.oddFooter.right.text = f"{now:%Y-%m-%d}"
     out = io.BytesIO()
+    _extra_sheets(wb, analysis, today)
     wb.save(out)
     return out.getvalue()
 
@@ -414,7 +510,9 @@ def parse(data: bytes) -> List[dict]:
             item["errors"].append(f"系統ID「{sid}」格式不對（應為 T12／S45／C7，新項目請留空）")
         prefix = m.group(1).upper() if m else None
         item["id"] = int(m.group(2)) if m else None
-        kind = {"主任務": "card", "卡片": "card", "子任務": "sub", "協作": "collab"}.get(kind_txt) \
+        if kind_txt in (KIND_PROJECT, "主任務", "卡片"):
+            item["card_kind"] = "project" if kind_txt == KIND_PROJECT else "ops"
+        kind = {"主任務": "card", "卡片": "card", KIND_PROJECT: "card", "子任務": "sub", "協作": "collab"}.get(kind_txt) \
             or {"T": "card", "S": "sub", "C": "collab"}.get(prefix) or ("sub" if "." in num else "card")
         if prefix and {"T": "card", "S": "sub", "C": "collab"}[prefix] != kind:
             item["errors"].append(f"類型「{kind_txt}」和系統ID「{sid}」不一致")

@@ -48,7 +48,7 @@ DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$")
 REPEAT_RE = re.compile(r"^(daily|weekdays|weekly(:[1-7](,[1-7]){0,6})?|monthly(:\d{1,2})?|yearly)$")
 COLUMNS = ("id, title, description, status, priority, start_at, due_at, remind, repeat, repeat_every, next_id, "
            "overdue_from, overdue_ack, owner_id, sort_order, created_at, updated_at, completed_at, "
-           "blocked_at, blocked_reason, blocked_by, tags, milestone, deps, base_start, base_due, started_at")
+           "blocked_at, blocked_reason, blocked_by, tags, milestone, deps, base_start, base_due, started_at, win, kind, project_id, rank")
 
 
 def _repeat(v):
@@ -194,6 +194,13 @@ def _date(v):
     return v
 
 
+def _win(v):
+    if v is None:
+        return None
+    v = re.sub(r"[^A-Za-z0-9_-]", "", str(v))[:24]
+    return v                                   # "" clears it
+
+
 def _title(v):
     v = (v or "").strip()
     if not v:
@@ -284,6 +291,21 @@ class TaskIn(BaseModel):
     milestone: Optional[bool] = None               # a single date (the due date), drawn as a diamond
     deps: Optional[List[DepIn]] = None             # predecessors
     started_at: Optional[str] = None               # actual start (set automatically; can be corrected)
+    win: Optional[str] = None                      # the shared window it needs ("" = none)
+    kind: Optional[str] = None                     # ops | project
+    project_id: Optional[int] = None               # the project an ops card belongs to (0 / null = none)
+
+    @field_validator("kind")
+    @classmethod
+    def v_kind(cls, v):
+        if v is not None and v not in ("ops", "project"):
+            raise ValueError("類型必須是 ops 或 project")
+        return v
+
+    @field_validator("win")
+    @classmethod
+    def v_win(cls, v):
+        return _win(v)
 
     @field_validator("started_at")
     @classmethod
@@ -352,6 +374,21 @@ class TaskUpdate(BaseModel):
     milestone: Optional[bool] = None               # a single date (the due date), drawn as a diamond
     deps: Optional[List[DepIn]] = None             # predecessors
     started_at: Optional[str] = None               # actual start (set automatically; can be corrected)
+    win: Optional[str] = None                      # the shared window it needs ("" = none)
+    kind: Optional[str] = None                     # ops | project
+    project_id: Optional[int] = None               # the project an ops card belongs to (0 / null = none)
+
+    @field_validator("kind")
+    @classmethod
+    def v_kind(cls, v):
+        if v is not None and v not in ("ops", "project"):
+            raise ValueError("類型必須是 ops 或 project")
+        return v
+
+    @field_validator("win")
+    @classmethod
+    def v_win(cls, v):
+        return _win(v)
 
     @field_validator("started_at")
     @classmethod
@@ -812,12 +849,20 @@ async def export_xlsx(body: ExportIn, request: Request):
             times.setdefault(e["task_id"], []).append(e)
         cur = await db.execute("SELECT id, username, display_name FROM users")
         names = {u["id"]: u["display_name"] or u["username"] for u in await cur.fetchall()}
+        from .. import projects as pj
+        analysis = await pj.analyze(db, found)
+        pids = list({c["project_id"] for c in cards if c.get("project_id")})
+        project_titles = {}
+        if pids:
+            cur = await db.execute(f"SELECT id, title FROM tasks WHERE id IN ({','.join('?' * len(pids))})", pids)
+            project_titles = {r[0]: r[1] for r in await cur.fetchall()}
     finally:
         await db.close()
     from datetime import datetime
     author = user.get("display_name") or user.get("username") or ""
     data = await asyncio.get_running_loop().run_in_executor(
-        None, lambda: xlsx_export.build_report(cards, subtasks, comments, times, names, author, sub_deps=sub_deps))
+        None, lambda: xlsx_export.build_report(cards, subtasks, comments, times, names, author, sub_deps=sub_deps,
+                                               analysis=analysis, project_titles=project_titles))
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
     safe = re.sub(r'[\\/:*?"<>|\s]+', "_", cards[0]["title"])[:60]
     name = f"工作進度報告-{stamp}.xlsx" if len(cards) > 1 else f"{safe}-{stamp}.xlsx"
@@ -917,6 +962,9 @@ async def _import_plan(items: List[dict], user: dict) -> List[dict]:
                         for k, label in (("start_at", "開始"), ("due_at", "到期")):
                             if it.get(k) and it[k] != (t[k] or ""):
                                 changes[k] = it[k]; out["changes"].append(_diff(label, t[k], it[k]))
+                        if it.get("card_kind") and it["card_kind"] != (t.get("kind") or "ops"):
+                            changes["kind"] = it["card_kind"]
+                            out["changes"].append(_diff("類型", "專案" if t.get("kind") == "project" else "一般", "專案" if it["card_kind"] == "project" else "一般"))
                         if it.get("milestone") is not None and it["milestone"] != bool(t.get("milestone")):
                             changes["milestone"] = it["milestone"]; out["changes"].append(_diff("里程碑", "是" if t.get("milestone") else "否", "是" if it["milestone"] else "否"))
                             changes.pop("start_at", None)
@@ -947,6 +995,9 @@ async def _import_plan(items: List[dict], user: dict) -> List[dict]:
                     if it.get("milestone"):
                         fields["milestone"] = True
                         out["changes"].append("里程碑")
+                    if it.get("card_kind") == "project":
+                        fields["kind"] = "project"
+                        out["changes"].append("專案")
                     if it.get("tags"):
                         try:
                             fields["tags"] = _tags(it["tags"])
@@ -1128,6 +1179,106 @@ async def import_xlsx(request: Request, file: UploadFile = File(...), apply: boo
             "rows": [{k: v for k, v in o.items() if not k.startswith("_")} for o in plan]}
 
 
+# ------------------------------------------------------------------ projects
+def can_rank(user: dict) -> bool:
+    """Who sets the projects' order of importance: board administrators and department managers."""
+    return board_access(user)["edit"] in ("all", "dept")
+
+
+async def _project_fields(db, task_id: int, cur: dict, changes: dict, user: dict):
+    """Validate kind / project_id in changes (in place). A project belongs to no other project;
+    an ops card may belong to one project the user can see."""
+    kind = changes.get("kind", cur.get("kind") or "ops")
+    if "project_id" in changes:
+        pid = changes["project_id"] or None
+        if pid:
+            if pid == task_id:
+                raise HTTPException(status_code=400, detail="卡片不能歸屬自己")
+            p = await _get_visible(db, pid, user)
+            if (p.get("kind") or "ops") != "project":
+                raise HTTPException(status_code=400, detail="只能歸屬到「專案」類型的卡片")
+        changes["project_id"] = pid
+    if kind == "project":
+        if changes.get("project_id") or (cur.get("project_id") and "project_id" not in changes):
+            changes["project_id"] = None                        # a project is not part of another project
+        if (cur.get("kind") or "ops") != "project" and cur.get("rank") is None:
+            cur2 = await db.execute("SELECT COALESCE(MAX(rank), 0) + 1 FROM tasks WHERE kind = 'project'")
+            changes["rank"] = (await cur2.fetchone())[0]
+    if (cur.get("kind") or "ops") == "project" and kind == "ops":
+        # back to an ops card: the cards that belonged to it are let go
+        await db.execute("UPDATE tasks SET project_id = NULL WHERE project_id = ?", (task_id,))
+
+
+class OrderIds(BaseModel):
+    ids: List[int]
+
+
+@router.post("/projects/order")
+async def order_projects(body: OrderIds, request: Request):
+    """Order of importance of the projects (most important first); projects not sent keep their order after them."""
+    user = current_user(request)
+    if not can_rank(user):
+        raise HTTPException(status_code=403, detail="專案排序由看板管理員或部門主管調整")
+    db = await get_db()
+    try:
+        where, args = _visible_sql(user)
+        cur = await db.execute(f"SELECT t.id FROM tasks t WHERE t.kind = 'project' AND {where} ORDER BY COALESCE(t.rank, 1e9), t.id", args)
+        mine = [r[0] for r in await cur.fetchall()]
+        cur = await db.execute("SELECT id FROM tasks WHERE kind = 'project' AND id NOT IN (%s) ORDER BY COALESCE(rank, 1e9), id"
+                               % (",".join("?" * len(mine)) or "NULL"), mine)
+        others = [r[0] for r in await cur.fetchall()]
+        sent = [i for i in dict.fromkeys(body.ids) if i in mine]
+        order = sent + [i for i in mine if i not in sent] + others
+        for n, i in enumerate(order, start=1):
+            await db.execute("UPDATE tasks SET rank = ? WHERE id = ? AND COALESCE(rank, -1) != ?", (n, i, n))
+        await db.commit()
+        return {"order": order}
+    finally:
+        await db.close()
+
+
+@router.get("/projects/analysis")
+async def projects_analysis(request: Request):
+    """Projects' health, every problem, people load and shared windows for the cards the viewer can see
+    (one computation for the radar, the alert list, the project pages and the Excel report)."""
+    from .. import projects as pj
+    user = current_user(request)
+    where, args = _visible_sql(user)
+    db = await get_db()
+    try:
+        cur = await db.execute(f"SELECT t.id FROM tasks t WHERE {where}", args)
+        ids = [r[0] for r in await cur.fetchall()]
+        out = await pj.analyze(db, ids)
+        out["can_rank"] = can_rank(user)
+        return out
+    finally:
+        await db.close()
+
+
+@router.get("/projects/suspected")
+async def suspected_projects(request: Request):
+    """Everyday cards that look like projects (baseline, predecessors, a third level of subtasks, or many subtasks)."""
+    user = current_user(request)
+    where, args = _visible_sql(user)
+    db = await get_db()
+    try:
+        cur = await db.execute(f"""SELECT t.id, t.title,
+                (t.base_due IS NOT NULL OR t.base_start IS NOT NULL) AS has_base,
+                (t.deps IS NOT NULL OR EXISTS (SELECT 1 FROM task_comments c WHERE c.task_id = t.id AND c.deps IS NOT NULL)) AS has_deps,
+                EXISTS (SELECT 1 FROM task_comments c WHERE c.task_id = t.id AND c.task_parent_id IS NOT NULL) AS deep,
+                (SELECT COUNT(*) FROM task_comments c WHERE c.task_id = t.id AND c.is_task = 1) AS subs
+            FROM tasks t WHERE COALESCE(t.kind, 'ops') = 'ops' AND t.status NOT IN ('complete', 'canceled') AND {where}""", args)
+        out = []
+        for r in await cur.fetchall():
+            why = [w for w, on in (("有基準線", r["has_base"]), ("有前置任務", r["has_deps"]), ("有三層以上子任務", r["deep"]),
+                                   (f"{r['subs']} 個子任務", r["subs"] >= 10)) if on]
+            if why:
+                out.append({"id": r["id"], "title": r["title"], "why": why})
+        return out
+    finally:
+        await db.close()
+
+
 # ------------------------------------------------------------------ Gantt
 DEP_RE = re.compile(r"^([ts]):(\d+)$")
 
@@ -1222,7 +1373,7 @@ async def gantt(request: Request):
     db = await get_db()
     try:
         cur = await db.execute(f"""SELECT c.id, c.task_id, c.task_parent_id, c.title, c.status, c.priority, c.start_at, c.due_at,
-                                          c.milestone, c.deps, c.base_start, c.base_due, c.started_at, c.completed_at,
+                                          c.milestone, c.deps, c.base_start, c.base_due, c.started_at, c.completed_at, c.win,
                                           c.estimate_minutes, c.sort_order, c.assignee_id, u.username, u.display_name,
                                           (SELECT COALESCE(SUM(minutes), 0) FROM task_time tt WHERE tt.comment_id = c.id) AS spent
                                    FROM task_comments c JOIN tasks t ON t.id = c.task_id LEFT JOIN users u ON u.id = c.assignee_id
@@ -1246,7 +1397,7 @@ async def gantt(request: Request):
                  "started_at": r["started_at"], "completed_at": r["completed_at"], "estimate": r["estimate_minutes"],
                  "spent": r["spent"], "assignee": {"id": r["assignee_id"], "username": r["username"],
                                                     "name": r["display_name"] or r["username"]} if r["assignee_id"] else None,
-                 "mine_edit": me is not None and me in owners(r["id"])} for r in rows]
+                 "win": r["win"], "mine_edit": me is not None and me in owners(r["id"])} for r in rows]
     finally:
         await db.close()
 
@@ -1369,6 +1520,12 @@ async def create_task(t: TaskIn, request: Request):
             extra["deps"] = await deps_in(db, t.deps, ("t", task_id), user)
         if t.started_at:
             extra["started_at"] = t.started_at
+        if t.win:
+            extra["win"] = t.win
+        if t.kind or t.project_id:
+            pj = {k: v for k, v in (("kind", t.kind), ("project_id", t.project_id)) if v is not None}
+            await _project_fields(db, task_id, {"id": task_id, "kind": "ops", "project_id": None, "rank": None}, pj, user)
+            extra.update(pj)
         if extra:
             await db.execute(f"UPDATE tasks SET {', '.join(k + ' = ?' for k in extra)} WHERE id = ?", (*extra.values(), task_id))
         if user.get("id") is not None:
@@ -1399,6 +1556,9 @@ async def update_task(task_id: int, t: TaskUpdate, request: Request):
             changes["deps"] = await deps_in(db, t.deps, ("t", task_id), user)
         if "milestone" in changes:
             changes["milestone"] = 1 if changes["milestone"] else 0
+        if "win" in changes:
+            changes["win"] = changes["win"] or None
+        await _project_fields(db, task_id, cur_task, changes, user)
         if changes.get("milestone") or (cur_task.get("milestone") and "start_at" in changes):
             changes["start_at"] = None                 # a milestone is one date: its due date
         if assignees is not None:
@@ -1622,6 +1782,12 @@ class SubtaskIn(BaseModel):
     milestone: Optional[bool] = None        # a single date (the due date)
     deps: Optional[List[DepIn]] = None      # predecessors
     started_at: Optional[str] = None        # actual start (set automatically; can be corrected)
+    win: Optional[str] = None               # the shared window it needs ("" = none)
+
+    @field_validator("win")
+    @classmethod
+    def v_win(cls, v):
+        return _win(v)
 
     @field_validator("started_at")
     @classmethod
@@ -1837,7 +2003,7 @@ async def list_comments(task_id: int, request: Request):
                         "my_timer": next(({"id": e["id"], "elapsed": e["elapsed"]} for e in entries
                                           if e["ended_at"] is None and e["started_at"] is not None and e["user_id"] == me), None),
                         "milestone": bool(c["milestone"]), "base_start": c["base_start"], "base_due": c["base_due"],
-                        "started_at": c["started_at"], "deps": dep_map.get(c["deps"] or "", []),
+                        "started_at": c["started_at"], "deps": dep_map.get(c["deps"] or "", []), "win": c["win"],
                         "can_edit": editor or mine,             # every field but the assignee
                         "can_assign": editor or above,
                         "can_update": editor or mine,           # status + time log
@@ -2009,6 +2175,8 @@ async def update_subtask(task_id: int, comment_id: int, body: SubtaskIn, request
                 fields[k] = getattr(body, k)
         if "milestone" in sent:
             fields["milestone"] = 1 if body.milestone else 0
+        if "win" in sent:
+            fields["win"] = body.win or None
         if fields.get("milestone") or (c["milestone"] and "start_at" in fields):
             fields["start_at"] = None
         if "deps" in sent:

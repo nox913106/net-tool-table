@@ -5,6 +5,7 @@ filters, widgets, colors) lives here so the portal can be reused for any purpose
 """
 import json
 import re
+import secrets
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -88,6 +89,11 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "board_wip_high": 6,                # a column with this many open cards shows 高負荷 (default: ≤5 normal, 6–8 high)
     "board_wip_over": 9,                # … and from this many 超量
     "board_tag_colors": {},             # card tag (lower case) → "#RRGGBB" chosen by an administrator; others get an automatic colour
+    # shared windows several projects may need: power-downs, maintenance windows, change freezes
+    # [{id, title, kind: outage | maintenance | freeze, from: YYYY-MM-DD, to: YYYY-MM-DD, capacity: projects (0 = nothing may be scheduled)}]
+    "board_windows": [],
+    "board_load_hours": 40,             # a person is overloaded when the work due in one week (all projects + ops) is estimated above this
+    "board_default_estimate_hours": 4,  # what an item without an estimate counts for in that sum
 }
 
 ENUMS = {
@@ -122,6 +128,38 @@ def validate_setting(key: str, value: Any) -> Any:
         if not 1 <= n <= 999:
             raise HTTPException(status_code=400, detail="工作量門檻要在 1～999 之間")
         return n
+    if key in ("board_load_hours", "board_default_estimate_hours"):
+        try:
+            n = float(value)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="工時必須是數字")
+        if not 0 < n <= 200:
+            raise HTTPException(status_code=400, detail="工時要在 0～200 小時之間")
+        return round(n, 1) if n % 1 else int(n)
+    if key == "board_windows":
+        if not isinstance(value, list):
+            raise HTTPException(status_code=400, detail="時段格式錯誤")
+        clean, seen = [], set()
+        for w in value[:200]:
+            if not isinstance(w, dict):
+                continue
+            title = str(w.get("title") or "").strip()[:60]
+            start, end = str(w.get("from") or "")[:10], str(w.get("to") or w.get("from") or "")[:10]
+            if not title or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", start) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", end):
+                raise HTTPException(status_code=400, detail=f"時段「{title or '（未命名）'}」需要名稱與起訖日期")
+            if end < start:
+                raise HTTPException(status_code=400, detail=f"時段「{title}」的結束日早於開始日")
+            kind = w.get("kind") if w.get("kind") in ("outage", "maintenance", "freeze") else "outage"
+            wid = re.sub(r"[^A-Za-z0-9_-]", "", str(w.get("id") or ""))[:24] or secrets.token_hex(4)
+            while wid in seen:
+                wid = secrets.token_hex(4)
+            seen.add(wid)
+            try:
+                cap = max(0, min(20, int(w.get("capacity", 0 if kind == "freeze" else 1))))
+            except (TypeError, ValueError):
+                cap = 1
+            clean.append({"id": wid, "title": title, "kind": kind, "from": start, "to": end, "capacity": 0 if kind == "freeze" else cap})
+        return sorted(clean, key=lambda w: (w["from"], w["title"]))
     if key == "board_tag_colors":
         if not isinstance(value, dict):
             raise HTTPException(status_code=400, detail="標籤顏色格式錯誤")

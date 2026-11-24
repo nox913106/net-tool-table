@@ -11,7 +11,11 @@ from .config import DATA_DIR
 # Gantt fields on cards and subtasks: milestone (one date), predecessors (JSON [{"u": uid, "lag": days}]),
 # baseline (planned dates saved with "設定基準線"), actual start
 GANTT_COLS = (("milestone", "INTEGER NOT NULL DEFAULT 0"), ("deps", "TEXT"), ("base_start", "TEXT"),
-              ("base_due", "TEXT"), ("started_at", "TEXT"))
+              ("base_due", "TEXT"), ("started_at", "TEXT"), ("win", "TEXT"))   # win: the shared window it needs
+# Cards only: kind (ops = everyday work, project = a project with its own pages), the project an ops card
+# belongs to, and the projects' order of importance set by the managers
+PROJECT_COLS = (("kind", "TEXT NOT NULL DEFAULT 'ops'"), ("project_id", "INTEGER REFERENCES tasks(id) ON DELETE SET NULL"),
+                ("rank", "INTEGER"))
 
 # Database path (TOOL_TABLE_DATA_DIR, default ./data)
 DB_DIR = DATA_DIR
@@ -296,9 +300,10 @@ async def init_db():
         # Gantt: milestone, predecessors, baseline, actual start (also on cards)
         cursor = await db.execute("PRAGMA table_info(tasks)")
         task_cols = {row[1] for row in await cursor.fetchall()}
-        for col, ddl in GANTT_COLS:
+        for col, ddl in (*GANTT_COLS, *PROJECT_COLS):
             if col not in task_cols:
                 await db.execute(f"ALTER TABLE tasks ADD COLUMN {col} {ddl}")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
 
         # Sync between standalone copies and the server (app/sync.py): uids, clocks, capture triggers
         from . import sync
