@@ -32,8 +32,6 @@
 |---|---|
 | ![首頁（淺色）](docs/images/home-light.png) | ![管理後台](docs/images/admin.png) |
 
----|---|
-| ![首頁（淺色）](docs/images/home-light.png) | ![管理後台](docs/images/admin.png) |
 
 ---
 
