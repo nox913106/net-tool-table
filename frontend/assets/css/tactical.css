@@ -514,3 +514,40 @@ body { font-family: var(--font); background: var(--bg); }
 [data-theme="light"] .clock-hud .hud-ms { --hud-ink: color-mix(in srgb, var(--accent) 70%, var(--text)); }
 .clock-hud .clock-ymd { font-family: var(--mono); }
 .clock-hud .clock-wk { font-family: var(--mono); font-size: 11px; }
+
+/* ---- radar: projects, normal bubble, tabs, alert list */
+.radar-tabs { display: flex; gap: 2px; margin-left: auto; }
+.radar-tab { padding: 2px 8px; font: 700 11px var(--mono); color: var(--text-3); background: none; border: 1px solid transparent; cursor: pointer; }
+.radar-tab[aria-selected="true"] { color: var(--text); border-color: var(--reticle); }
+.radar-proj .radar-dot { stroke: var(--surface); stroke-width: 1; opacity: .7; }
+.radar-proj .radar-n { font: 700 8px var(--mono); fill: var(--text); pointer-events: none; }
+.radar-normal { cursor: pointer; outline: none; }
+.radar-normal rect { fill: var(--bg-2); stroke: var(--border); stroke-width: .7; }
+.radar-normal text { font: 700 6.4px var(--mono); fill: var(--text-2); }
+.radar-normal:hover rect, .radar-normal:focus rect { stroke: var(--accent); }
+.radar-phase-n { font: 700 7px var(--mono); fill: var(--danger); }
+.radar-crumb { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 12px; min-width: 0; }
+.radar-back { padding: 1px 6px; font: 700 11px var(--mono); color: var(--text-2); background: none; border: 1px solid var(--border); cursor: pointer; }
+.radar-back:hover { color: var(--text); border-color: var(--reticle); }
+.radar-crumb-t { font-weight: 700; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.radar-crumb-s { margin-left: auto; color: var(--text-3); font-family: var(--mono); font-size: 11px; white-space: nowrap; }
+.radar-over { background: none; border: 0; border-bottom: 1px dashed var(--border); font: inherit; color: inherit; cursor: pointer; padding: 0 0 3px; }
+.radar-list { width: 352px; max-width: calc(100vw - 60px); }
+.radar-chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 6px; }
+.radar-chip { display: inline-flex; gap: 4px; padding: 1px 6px; font: 11px var(--mono); color: var(--text-2); background: none; border: 1px solid var(--border); cursor: pointer; }
+.radar-chip[aria-pressed="true"] { color: var(--text); border-color: var(--accent); }
+.radar-mine { display: inline-flex; gap: 4px; align-items: center; margin-left: auto; font-size: 11px; color: var(--text-2); }
+.radar-alerts { display: flex; flex-direction: column; gap: 3px; max-height: 250px; overflow: auto; }
+.radar-alert { display: flex; gap: 8px; align-items: flex-start; padding: 4px 6px; text-align: left; font: inherit; color: var(--text); background: var(--bg-2);
+  border: 1px solid var(--border); border-left: 3px solid var(--warning); cursor: pointer; }
+.radar-alert:hover { border-color: var(--reticle); }
+.radar-alert.t-overdue, .radar-alert.t-blocked, .radar-alert.t-xdep { border-left-color: var(--danger); }
+.radar-alert-k { flex: none; width: 62px; font: 700 10.5px var(--mono); color: var(--text-2); }
+.radar-alert-b { display: flex; flex-direction: column; min-width: 0; font-size: 12px; }
+.radar-alert-b b, .radar-alert-b small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.radar-alert-b small { color: var(--text-3); font-size: 11px; }
+.radar-empty { margin: 8px 0; color: var(--text-3); font-size: 12px; }
+.radar-phase { font-size: 11px; }
+.radar-phase-i { flex: none; width: 14px; color: var(--text-3); font-weight: 700; }
+.radar-phase-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 96px; }
+.radar-phase b { color: var(--danger); }
