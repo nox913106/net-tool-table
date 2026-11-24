@@ -2120,6 +2120,7 @@ async def delete_comment(task_id: int, comment_id: int, request: Request):
         await _sync_subtask_members(db, task_id)
         if c["task_parent_id"]:
             await rollup_subtask(db, c["task_parent_id"])
+        await rollup_dates(db, task_id, c["task_parent_id"])
         await rollup_status(db, task_id)
         await db.commit()
         img.remove(files)
@@ -2173,6 +2174,10 @@ async def update_subtask(task_id: int, comment_id: int, body: SubtaskIn, request
         for k in ("title", "status", "start_at", "due_at", "estimate_minutes", "priority", "remind", "started_at"):
             if k in sent:
                 fields[k] = getattr(body, k)
+        if sent & {"start_at", "due_at"}:
+            cur = await db.execute("SELECT 1 FROM task_comments WHERE task_parent_id = ? AND is_task = 1 LIMIT 1", (comment_id,))
+            if await cur.fetchone():
+                fields.pop("start_at", None); fields.pop("due_at", None)    # it spans its subtasks
         if "milestone" in sent:
             fields["milestone"] = 1 if body.milestone else 0
         if "win" in sent:
@@ -2216,6 +2221,8 @@ async def update_subtask(task_id: int, comment_id: int, body: SubtaskIn, request
         await _sync_subtask_members(db, task_id)
         if c["task_parent_id"] and "status" in fields:      # a subtask of a subtask: its parents follow
             await rollup_subtask(db, c["task_parent_id"])
+        if fields.keys() & {"start_at", "due_at", "status", "milestone"}:
+            await rollup_dates(db, task_id, comment_id)
         await rollup_status(db, task_id)
 
         title = fields.get("title") or c["title"] or "子任務"
@@ -2421,6 +2428,90 @@ async def subtask_depth(db, comment_id) -> int:
     return depth
 
 
+async def rollup_dates(db, task_id: int, comment_id=None):
+    """A subtask with subtasks spans them (earliest start → latest due), up the chain;
+    a project card spans all its subtasks. Items without dates do not count."""
+    cid, n = comment_id, 0
+    while cid and n <= SUB_MAX_DEPTH:
+        cur = await db.execute("""SELECT MIN(COALESCE(start_at, due_at)), MAX(COALESCE(due_at, start_at)) FROM task_comments
+                                  WHERE task_parent_id = ? AND is_task = 1 AND COALESCE(status, 'new') != 'canceled'""", (cid,))
+        lo, hi = await cur.fetchone()
+        if lo or hi:
+            await db.execute("""UPDATE task_comments SET start_at = ?, due_at = ?, milestone = 0
+                                WHERE id = ? AND (COALESCE(start_at, '') != COALESCE(?, '') OR COALESCE(due_at, '') != COALESCE(?, ''))""",
+                             (lo, hi, cid, lo, hi))
+        cur = await db.execute("SELECT task_parent_id FROM task_comments WHERE id = ?", (cid,))
+        r = await cur.fetchone()
+        cid, n = (r[0] if r else None), n + 1
+    cur = await db.execute("SELECT kind FROM tasks WHERE id = ?", (task_id,))
+    r = await cur.fetchone()
+    if r and r[0] == "project":
+        cur = await db.execute("""SELECT MIN(COALESCE(start_at, due_at)), MAX(COALESCE(due_at, start_at)) FROM task_comments
+                                  WHERE task_id = ? AND task_parent_id IS NULL AND is_task = 1 AND parent_id IS NULL
+                                  AND COALESCE(status, 'new') != 'canceled'""", (task_id,))
+        lo, hi = await cur.fetchone()
+        if lo or hi:
+            await db.execute("""UPDATE tasks SET start_at = ?, due_at = ?, milestone = 0 WHERE id = ?
+                                AND (COALESCE(start_at, '') != COALESCE(?, '') OR COALESCE(due_at, '') != COALESCE(?, ''))""", (lo, hi, task_id, lo, hi))
+
+
+class ShiftIn(BaseModel):
+    keys: List[str]                          # "t:<card>" / "s:<subtask>"
+    days: int
+
+    @field_validator("days")
+    @classmethod
+    def v_days(cls, v):
+        if not -365 <= v <= 365 or v == 0:
+            raise ValueError("順延天數要在 ±365 天內且不為 0")
+        return v
+
+
+@router.post("/shift")
+async def shift_items(body: ShiftIn, request: Request):
+    """Move items by N days (the successors of a predecessor that slipped). Items one may not edit are skipped."""
+    from datetime import timedelta
+    user = current_user(request)
+    me = user.get("id")
+    db = await get_db()
+    moved, skipped = [], []
+    try:
+        def mv(v):
+            if not v:
+                return v
+            d = (date.fromisoformat(v[:10]) + timedelta(days=body.days)).isoformat()
+            return d + v[10:]
+        touched = set()
+        for key in list(dict.fromkeys(body.keys))[:200]:
+            m = DEP_RE.match(key or "")
+            if not m:
+                continue
+            kind, rid = m.group(1), int(m.group(2))
+            try:
+                if kind == "t":
+                    t = await _get_visible(db, rid, user)
+                    if not await _can_edit(db, rid, user):
+                        skipped.append(key); continue
+                    await db.execute("UPDATE tasks SET start_at = ?, due_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (mv(t["start_at"]), mv(t["due_at"]), rid))
+                    touched.add((rid, None))
+                else:
+                    c = await _comment(db, *(await (await db.execute("SELECT task_id, id FROM task_comments WHERE id = ?", (rid,))).fetchone()))
+                    await _get_visible(db, c["task_id"], user)
+                    if not (await _can_edit(db, c["task_id"], user) or (me is not None and me in await _owners_above(db, rid))):
+                        skipped.append(key); continue
+                    await db.execute("UPDATE task_comments SET start_at = ?, due_at = ? WHERE id = ?", (mv(c["start_at"]), mv(c["due_at"]), rid))
+                    touched.add((c["task_id"], c["task_parent_id"]))
+                moved.append(key)
+            except (HTTPException, TypeError):
+                skipped.append(key)
+        for task_id, parent in touched:
+            await rollup_dates(db, task_id, parent)
+        await db.commit()
+        return {"moved": moved, "skipped": skipped}
+    finally:
+        await db.close()
+
+
 async def rollup_subtask(db, comment_id: int):
     """A subtask with subtasks of its own follows them like a card follows its subtasks (and so on up)."""
     for _ in range(SUB_MAX_DEPTH):
@@ -2502,6 +2593,7 @@ async def create_subtask(task_id: int, body: SubtaskNew, request: Request):
         await _sync_subtask_members(db, task_id)
         if body.parent:
             await rollup_subtask(db, body.parent)
+        await rollup_dates(db, task_id, body.parent)
         await rollup_status(db, task_id)
         if assignee and me is not None and assignee["id"] != me:
             await notify(db, {assignee["id"]}, task_id, user, "assigned", f"{_who(user)} 指派子任務「{body.title}」給你（卡片「{t['title']}」）")

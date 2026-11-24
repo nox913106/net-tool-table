@@ -294,7 +294,23 @@ const TTBoard = window.TTBoard = (() => {
     if (!loading || force) loading = api('/api/tasks').then(t => { tasks = t; changed(); return tasks; });
     return loading;
   }
+  let anaCache = { at: 0, data: null, wait: null };
+  async function projectAnalysis(force = false) {
+    if (!force && anaCache.data && Date.now() - anaCache.at < 15000) return anaCache.data;
+    if (!anaCache.wait) anaCache.wait = api('/api/tasks/projects/analysis').then(d => {
+      const first = !anaCache.data;
+      anaCache = { at: Date.now(), data: d, wait: null };
+      if (first) boards.forEach(f => f());                 // project cards show their health once it is known
+      document.dispatchEvent(new Event('tt:analysis'));
+      return d;
+    }).catch(e => { anaCache.wait = null; throw e; });
+    return anaCache.wait;
+  }
+  const projHealth = id => anaCache.data?.projects.find(p => p.id === id) || null;
+  const isProject = t => (t.kind || 'ops') === 'project';
   function changed() {
+    anaCache.at = 0; ganttCache.at = 0;
+    setTimeout(() => projectAnalysis(true).catch(() => {}), 300);
     boards.forEach(f => f());
     refreshAlerts();
     document.dispatchEvent(new Event('tt:tasks'));            // e.g. the home page radar
@@ -764,8 +780,9 @@ const TTBoard = window.TTBoard = (() => {
     if (opts.full) root.classList.add('kb-full');
     let hideClosed = !!opts.hideClosed;
     let filter = opts.filter || 'all';                          // all | mine | user:<id>
+    let kindFilter = opts.kind || 'all';                        // all | ops | project
     const teamIds = () => new Set([meInfo.user?.id, ...(meInfo.team || []).map(p => p.id)].filter(x => x != null));
-    const pass = t => !tagPass(t) ? false : filter === 'all' ? true : filter === 'mine' ? t.mine !== false
+    const pass = t => !tagPass(t) || (kindFilter !== 'all' && (t.kind || 'ops') !== kindFilter) ? false : filter === 'all' ? true : filter === 'mine' ? t.mine !== false
       : filter === 'team' ? [t.owner, ...(t.assignees || [])].some(p => p && teamIds().has(p.id))
       : filter.startsWith('user:') ? [t.owner, ...(t.assignees || [])].some(p => p && String(p.id) === filter.slice(5))
       : filter.startsWith('dept:') ? (t.departments || []).includes(filter.slice(5)) : true;
@@ -1025,7 +1042,7 @@ const TTBoard = window.TTBoard = (() => {
       if (t.images?.length) chips.push(el('span', { class: 'kb-chip', title: `${t.images.length} 張圖片`, html: svg('image') + `<span>${t.images.length}</span>` }));
       if (t.files?.length) chips.push(el('span', { class: 'kb-chip', title: '附件：' + t.files.map(f => f.name).join('、'), html: svg('paperclip') + `<span>${t.files.length}</span>` }));
       const c = el('article', {
-        class: `kb-card prio-${t.priority}` + (tm.due ? ` is-${tm.due}` : '') + (tm.start === 'due' ? ' is-start' : '') + (CLOSED.has(t.status) ? ' is-closed' : '') + (isBlocked(t) ? ' is-blocked' : ''),
+        class: `kb-card prio-${t.priority}` + (isProject(t) ? ' is-project' : '') + (tm.due ? ` is-${tm.due}` : '') + (tm.start === 'due' ? ' is-start' : '') + (CLOSED.has(t.status) ? ' is-closed' : '') + (isBlocked(t) ? ' is-blocked' : ''),
         draggable: t.can_edit === false || selecting ? 'false' : 'true', tabindex: '0', dataset: { id: t.id },
         title: t.can_edit === false ? '唯讀：你可以檢視與留言' : null,
       },
@@ -1040,6 +1057,13 @@ const TTBoard = window.TTBoard = (() => {
           el('span', { text: t.title }),
           t.team ? el('span', { class: 'kb-team-tag', title: '下級的卡片（你是上級，可以' + (meInfo.board?.team_edit ? '檢視、留言與增刪修）' : '檢視與留言）'), text: '下級' }) : null),
         t.tags?.length ? el('div', { class: 'kb-tags' }, t.tags.map(x => tagChip(x, { onClick: setTagFilter }))) : null,
+        isProject(t) ? projectBlock(t) : null,
+        !isProject(t) && t.project_id ? (() => {
+          const pj = tasks.find(x => x.id === t.project_id);
+          const a = el('a', { class: 'kb-belongs', href: `#/project/${t.project_id}`, title: '歸屬的專案：點一下開啟專案頁', text: `↳ ${pj ? pj.title : '專案'}` });
+          a.addEventListener('click', e => e.stopPropagation());
+          return a;
+        })() : null,
         isBlocked(t) ? el('div', { class: 'kb-blocked-bar', title: `卡住（${t.blocked.by || ''} 標記）：${t.blocked.reason}`,
           text: `⛔ 卡住 ${blockedDays(t.blocked.since)}：${t.blocked.reason}` }) : null,
         t.description ? el('p', { class: 'kb-card-desc', text: t.description }) : null,
@@ -1072,10 +1096,11 @@ const TTBoard = window.TTBoard = (() => {
           e.preventDefault(); toggleSelect(t.id); return;
         }
         if (e.ctrlKey || e.metaKey) { setSelecting(true); toggleSelect(t.id, true); return; }     // Ctrl/⌘-click starts selecting
+        if (isProject(t) && opts.full) { location.hash = `#/project/${t.id}`; return; }            // a project opens its page
         openEditor(t);
       });
       c.addEventListener('keydown', e => {
-        if (e.key === 'Enter') openEditor(t);
+        if (e.key === 'Enter') { if (isProject(t) && opts.full) location.hash = `#/project/${t.id}`; else openEditor(t); }
         else if (e.key === ' ' && selecting) { e.preventDefault(); toggleSelect(t.id); }
       });
       c.addEventListener('dragstart', e => {
@@ -1183,6 +1208,7 @@ const TTBoard = window.TTBoard = (() => {
       setHideClosed(v) { hideClosed = v; render(); },
       setFilter(v) { filter = v; render(); },
       setLanes(v) { lanes = v; render(); },
+      setKind(v) { kindFilter = v; render(); },
       setFocus,
       render,
       root,
@@ -1421,6 +1447,25 @@ const TTBoard = window.TTBoard = (() => {
     return { el: box, value: () => ({ ...changed }) };
   }
 
+  /** Project card on the board: health from the analysis (behind / ahead of the baseline, next milestone, problems) and my part. */
+  function projectBlock(t) {
+    const h = projHealth(t.id);
+    const mine = (t.subtasks?.mine || []).length;
+    const slip = h?.slip;
+    const md = v => v ? `${+v.slice(5, 7)}/${+v.slice(8, 10)}` : '';
+    return el('div', { class: 'kb-proj' },
+      el('div', { class: 'kb-proj-row' },
+        el('span', { class: 'kb-proj-badge', text: '◇ 專案' }),
+        h?.rank ? el('span', { class: 'kb-proj-rank', title: '主管排序', text: `#${h.rank}` }) : null,
+        slip != null ? el('span', { class: 'kb-chip ' + (slip > 0 ? 'due-overdue' : 'kb-chip-ok'), text: slip > 0 ? `落後 ${slip} 天` : slip < 0 ? `提前 ${-slip} 天` : '準時' }) : null,
+        h?.problem_items ? el('span', { class: 'kb-chip due-overdue', title: Object.entries(h.problems).filter(([, n]) => n).map(([k, n]) => `${PROBLEM_ZH[k]} ${n}`).join('、'), text: `問題 ${h.problem_items}` }) : null),
+      h?.next ? el('div', { class: 'kb-proj-next', text: `◆ ${h.next.title} ${md(h.next.due)}` }) : null,
+      el('div', { class: 'kb-proj-row' },
+        el('span', { class: 'kb-proj-bar' }, el('i', { style: { width: `${h?.pct ?? 0}%` } })), el('span', { class: 'kb-proj-pct', text: `${h?.pct ?? 0}%` })),
+      mine ? el('div', { class: 'kb-proj-mine', text: `我在這個專案的工作 ${mine} 項 ›` }) : null);
+  }
+  const PROBLEM_ZH = { overdue: '逾期', blocked: '卡住', conflict: '排程衝突', xdep: '跨專案前置', window: '時段衝突', overload: '超載' };
+
   function openSubtaskEditor(card, c, onSaved) {
     const s = c.task;
     const edit = s.can_edit;
@@ -1599,7 +1644,7 @@ const TTBoard = window.TTBoard = (() => {
   // ----------------------------------------------------------------- editor
   function openEditor(task, defaults = {}) {
     let refreshComments = () => {};           // set once the comment list exists (卡住 adds a comment)
-    const t = task || { title: defaults.title || '', description: '', status: defaults.status || 'new', priority: 'normal', start_at: null, due_at: null, remind: 1440, repeat: defaults.repeat || null, repeat_every: 1, assignees: defaults.assignees || [] };
+    const t = task || { title: defaults.title || '', description: '', status: defaults.status || 'new', priority: 'normal', start_at: null, due_at: null, remind: 1440, repeat: defaults.repeat || null, repeat_every: 1, assignees: defaults.assignees || [], kind: defaults.kind || 'ops', project_id: defaults.project_id || null };
     const split = v => { const [d, tm] = (v || '').split('T'); return [d || '', tm || '']; };
     const [sd, st] = split(t.start_at);
     const [dd, dt] = split(t.due_at);
@@ -1814,6 +1859,26 @@ const TTBoard = window.TTBoard = (() => {
 
     const field = (label, ...ctl) => el('label', { class: 'field' }, el('span', { class: 'field-label', text: label }), ...ctl);
     const sched = scheduleBlock({ key: task ? `t:${task.id}` : null, item: { ...t, deps: t.deps || [] }, editable: !readOnly, card: task || null });
+    // kind: everyday card or project; an everyday card may belong to a project
+    let kind = t.kind || 'ops';
+    const kindSeg = el('div', { class: 'segmented', role: 'group', 'aria-label': '卡片類型' },
+      ...[['ops', '一般（維運）'], ['project', '專案']].map(([v, l]) => {
+        const b = el('button', { type: 'button', dataset: { v }, text: l, disabled: readOnly });
+        b.addEventListener('click', () => { kind = v; paintKind(); });
+        return b;
+      }));
+    const projSel = el('select', { class: 'select', disabled: readOnly, 'aria-label': '歸屬專案' },
+      el('option', { value: '', text: '不歸屬任何專案' }),
+      ...tasks.filter(x => isProject(x) && x.id !== task?.id).map(x => el('option', { value: x.id, text: x.title, selected: x.id === t.project_id })));
+    const projField = el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('layout') + '歸屬專案' }), projSel,
+      el('span', { class: 'hint', text: '這張卡片也會出現在該專案的甘特圖與專案看板' }));
+    const kindHint = el('span', { class: 'hint' });
+    const paintKind = () => {
+      kindSeg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === kind)));
+      projField.hidden = kind === 'project';
+      kindHint.textContent = kind === 'project' ? '專案有自己的專案頁（甘特圖、專案看板、清單），在待辦看板上以一張專案卡出現' : '';
+    };
+    paintKind();
     const ok = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + (task ? '儲存' : '新增') });
     const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: '取消' });
     const del = task && task.can_delete !== false ? el('button', { class: 'btn btn-danger kb-del', type: 'button', html: svg('trash') + '刪除' }) : null;
@@ -2361,6 +2426,8 @@ const TTBoard = window.TTBoard = (() => {
           field('標題', title),
           field('說明', desc),
           el('div', { class: 'field' }, el('span', { class: 'field-label', text: '標籤' }), tagBox, tagSug, tagData),
+          el('div', { class: 'field' }, el('span', { class: 'field-label', text: '類型' }), kindSeg, kindHint),
+          projField,
           el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('paperclip') + '附件' }), imgBox),
           meInfo.people ? el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('users') + '負責人' }), assignBox) : null,
           el('div', { class: 'kb-row' }, el('div', { class: 'field' }, el('span', { class: 'field-label', text: '狀態' }), status,
@@ -2445,7 +2512,12 @@ const TTBoard = window.TTBoard = (() => {
       };
       if (tagInput.value.trim()) { addTag(tagInput.value); tagInput.value = ''; }
       body.tags = tagList;
-      if (!readOnly) Object.assign(body, sched.value());
+      if (!readOnly) {
+        Object.assign(body, sched.value());
+        if (kind !== (t.kind || 'ops')) body.kind = kind;
+        const pid = kind === 'project' ? null : (Number(projSel.value) || null);
+        if (pid !== (t.project_id || null)) body.project_id = pid || 0;
+      }
       if (body.milestone ?? t.milestone) { body.start_at = null; if (!body.due_at) { toast('里程碑需要到期日', true); dueD.focus(); return; } }
       if (canAssign) body.assignees = assignees.map(p => p.username);
       if (body.start_at && body.due_at && body.start_at.slice(0, 10) > body.due_at.slice(0, 10)) { toast('開始日不能晚於到期日', true); return; }
@@ -2863,12 +2935,15 @@ const TTBoard = window.TTBoard = (() => {
       const prio = el('select', { class: 'select input-sm', disabled: !s.can_edit }, PRIORITIES.map(([v, l]) => el('option', { value: v, text: l, selected: v === (s.priority || 'normal') })));
       prio.addEventListener('change', () => put({ priority: prio.value }));
       box.append(row('優先', prio));
+      const spans = kids(c.id).length > 0;              // its dates are its subtasks' span
       const date = key => {
-        const inp = el('input', { class: 'input input-sm', type: 'date', value: (s[key] || '').slice(0, 10), disabled: !s.can_edit });
+        const inp = el('input', { class: 'input input-sm', type: 'date', value: (s[key] || '').slice(0, 10), disabled: !s.can_edit || spans,
+          title: spans ? '由下層子任務推算：改下層的日期' : '' });
         inp.addEventListener('change', () => put({ [key]: inp.value ? inp.value + (s[key]?.includes('T') ? s[key].slice(10) : '') : null }));
         return inp;
       };
       box.append(row('開始', date('start_at')), row('到期', date('due_at')));
+      if (spans) box.append(el('span', { class: 'hint kb-nav-field is-wide', text: '開始／到期由下層子任務推算' }));
       const est = el('input', { class: 'input input-sm', type: 'number', min: '0', max: '1000', step: '0.5', placeholder: '—', disabled: !s.can_edit,
         value: s.estimate_minutes ? String(+(s.estimate_minutes / 60).toFixed(2)) : '' });
       est.addEventListener('change', () => { const h = parseFloat(est.value); put({ estimate_minutes: Number.isFinite(h) && h > 0 ? Math.round(h * 60) : null }); });
@@ -2954,5 +3029,5 @@ const TTBoard = window.TTBoard = (() => {
     reload(false).then(() => { if (path.length) paint(true); });
   }
 
-  return { init, load, refresh, openNavigator, ganttRows, baselineText, save, mount, mountBell, openEditor, openTask, exportXlsx, importXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; } };
+  return { init, load, refresh, openNavigator, ganttRows, baselineText, save, projectAnalysis, isProject, PROBLEM_ZH, get meInfo() { return meInfo; }, mount, mountBell, openEditor, openTask, exportXlsx, importXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; } };
 })();

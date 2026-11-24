@@ -266,15 +266,38 @@
       { href: '#/', icon: 'home', label: '首頁' },
       s.enable_favorites !== false && { href: '#/favorites', icon: 'star', label: '我的最愛', count: favorites().length },
       s.enable_recent !== false && { href: '#/recent', icon: 'history', label: '最近使用' },
+      boardOn() && { href: '#/mine', icon: 'user', label: '我的工作', mine: true },
       boardOn() && { href: '#/board', icon: 'kanban', label: '待辦看板', board: true },
+      boardOn() && { href: '#/projects', icon: 'layout', label: '專案總覽', projects: true },
     ].filter(Boolean);
     $('nav-main').replaceChildren(...items.map(it =>
       el('a', { class: 'nav-item', href: it.href, title: it.label, dataset: { route: it.href } },
         el('span', { class: 'nav-icon', html: svg(it.icon) }),
         el('span', { class: 'nav-label', text: it.label }),
         it.count ? el('span', { class: 'badge', text: it.count }) : null,
-        it.board ? el('span', { class: 'badge badge-alert', dataset: { boardBadge: '' }, hidden: true, title: '需要注意的待辦' }) : null)));
+        it.board ? el('span', { class: 'badge badge-alert', dataset: { boardBadge: '' }, hidden: true, title: '需要注意的待辦' }) : null,
+        it.mine ? el('span', { class: 'badge badge-alert', dataset: { mineBadge: '' }, hidden: true }) : null,
+        it.projects ? el('span', { class: 'badge badge-alert', dataset: { projBadge: '' }, hidden: true }) : null)));
+    paintNavCounts();
   }
+  /** Sidebar counts that point at the other pages: my overdue / due today, projects behind or with problems. */
+  let navTimer = null;
+  function paintNavCounts() {
+    clearTimeout(navTimer);
+    navTimer = setTimeout(async () => {
+      if (!boardOn() || typeof TTProjects === 'undefined') return;
+      const mine = document.querySelector('[data-mine-badge]'), proj = document.querySelector('[data-proj-badge]');
+      try {
+        const c = await TTProjects.mineCounts();
+        if (mine) { const n = c.late + c.today; mine.hidden = !n; mine.textContent = n; mine.title = `${c.late} 項逾期、${c.today} 項今天到期`; }
+        const a = await TTBoard.projectAnalysis();
+        const bad = a.projects.filter(x => x.problem_items || (x.slip || 0) > 0).length;
+        if (proj) { proj.hidden = !bad; proj.textContent = bad; proj.title = `${bad} 個專案落後或有問題`; }
+      } catch (e) { /* not signed in yet */ }
+    }, 400);
+  }
+  document.addEventListener('tt:tasks', paintNavCounts);
+  document.addEventListener('tt:analysis', paintNavCounts);
   const boardOn = () => state.settings.board_enabled !== false && typeof TTBoard !== 'undefined';
 
   function buildTree() {
@@ -343,7 +366,7 @@
 
   function highlightNav() {
     const hash = location.hash || '#/';
-    document.querySelectorAll('.nav-item').forEach(a => a.classList.toggle('active', a.dataset.route === hash || (hash === '#' && a.dataset.route === '#/')));
+    document.querySelectorAll('.nav-item').forEach(a => a.classList.toggle('active', a.dataset.route === hash || (hash === '#' && a.dataset.route === '#/') || (hash.startsWith('#/project/') && a.dataset.route === '#/projects')));
     document.querySelectorAll('#sidebar .tree-row.active').forEach(r => r.classList.remove('active'));
     const m = hash.match(/^#\/f\/(\d+)/);
     if (m) {
@@ -399,6 +422,9 @@
     else if (hash === '#/favorites') renderFavorites();
     else if (hash === '#/recent') renderRecent();
     else if (hash === '#/board' && boardOn()) renderBoard();
+    else if (hash === '#/mine' && boardOn() && window.TTProjects) TTProjects.renderMine(view);
+    else if (hash === '#/projects' && boardOn() && window.TTProjects) TTProjects.renderProjects(view);
+    else if ((m = hash.match(/^#\/project\/(\d+)/)) && boardOn() && window.TTProjects) TTProjects.renderProject(view, Number(m[1]));
     else renderHome();
 
     highlightNav();
@@ -704,19 +730,48 @@
     };
     who.addEventListener('change', () => { filter = who.value; store.set('board-filter', filter); board.setFilter(filter); });
     const meta = el('span');
+    let kindF = store.get('board-kind', 'all');
+    const kindSeg = el('div', { class: 'segmented board-kind', role: 'group', title: '卡片類型' },
+      ...[['all', '全部'], ['ops', '一般'], ['project', '專案']].map(([v, l]) => {
+        const b = el('button', { type: 'button', dataset: { v }, text: l });
+        b.addEventListener('click', () => { kindF = v; store.set('board-kind', v); paintKindSeg(); board.setKind(v); });
+        return b;
+      }));
+    const paintKindSeg = () => kindSeg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === kindF)));
+    paintKindSeg();
+    // the projects' warnings brought to the board: no need to open 專案總覽 to know one is late
+    const strip = el('div', { class: 'board-strip', hidden: true });
+    const paintStrip = async () => {
+      if (!strip.isConnected) { document.removeEventListener('tt:analysis', paintStrip); return; }
+      const a = await TTBoard.projectAnalysis().catch(() => null);
+      if (!a || !a.projects.length) { strip.hidden = true; return; }
+      const live = a.projects.filter(p => !['complete', 'canceled'].includes(p.status));
+      const late = live.filter(p => (p.slip || 0) > 0);
+      const bad = live.filter(p => p.problem_items);
+      const T = new Date(); const t0 = Date.UTC(T.getFullYear(), T.getMonth(), T.getDate());
+      const week = live.filter(p => p.next && (Date.parse(p.next.due) - t0) / 864e5 <= 7 && Date.parse(p.next.due) >= t0);
+      const link = (text, href) => el('a', { href, text });
+      strip.replaceChildren(...[el('span', { class: 'board-strip-l', text: '專案' }), el('span', { text: `${live.length} 個進行中` }),
+        late.length ? link(`${late.length} 個落後（最多 ${Math.max(...late.map(p => p.slip))} 天）`, '#/projects') : null,
+        bad.length ? link(`${bad.length} 個有問題`, '#/projects') : null,
+        week.length ? el('span', {}, '本週里程碑：', ...week.flatMap((p, i) => [i ? '、' : '', link(`${p.next.title} ${p.next.due.slice(5).replace('-', '/')}`, `#/project/${p.id}`)])) : null].filter(Boolean));
+      strip.hidden = false;
+    };
+    document.addEventListener('tt:analysis', paintStrip);
     frag.append(pageHead({
       tileNode: el('span', { class: 'page-icon', html: svg('kanban') }),
       title: '待辦看板',
       desc: '拖曳卡片換狀態；設定開始日與到期日，時間到會在右上角 🔔 提醒。',
       meta: ' ',
-      tools: el('div', { class: 'board-tools' }, auth ? who : null, layout, toggle, pick, add),
+      tools: el('div', { class: 'board-tools' }, auth ? who : null, kindSeg, layout, toggle, pick, add),
     }));
     const box = el('div');
-    const board = TTBoard.mount(box, { hideClosed, full: true, filter, lanes });
+    const board = TTBoard.mount(box, { hideClosed, full: true, filter, lanes, kind: kindF });
     toggle.querySelector('input').addEventListener('change', e => { hideClosed = e.target.checked; store.set('board-hide-closed', hideClosed); board.setHideClosed(hideClosed); });
     const gbox = el('div', { class: 'board-gantt' });
     let gantt = null;
-    const page = el('div', { class: 'board-page' }, frag, box, gbox);
+    const page = el('div', { class: 'board-page' }, frag, strip, box, gbox);
+    setTimeout(paintStrip, 0);
     function applyMode() {
       paintLayout();
       const showGantt = mode === 'gantt' || mode === 'split';

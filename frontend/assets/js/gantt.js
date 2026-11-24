@@ -23,10 +23,12 @@
   function mount(host, opts = {}) {
     const board = opts.board || null;
     let linked = !!board && TT.store.get('gantt-linked', true);
+    const fixed = !!opts.project;                        // a project page: fixed scope, nothing to filter
     let zoom = TT.store.get('gantt-zoom', 'day');
     let solo = { q: '', who: 'all', hideClosed: TT.store.get('gantt-hide-closed', true) };
-    let hideUndated = TT.store.get('gantt-hide-undated', true);
+    let hideUndated = !fixed && TT.store.get('gantt-hide-undated', true);
     const open = new Set(TT.store.get('gantt-open', []));
+    if (opts.project) open.add(`t:${opts.project}`);
     let subs = [];
     let hot = null;                                        // hovered item key (its arrows light up)
     let drag = null;
@@ -71,7 +73,8 @@
     collapse.addEventListener('click', () => { open.clear(); saveOpen(); paint(); });
     todayBtn.addEventListener('click', () => scrollToday(true));
     const paintTools = () => {
-      soloTools.hidden = linked;
+      soloTools.hidden = linked || fixed;
+      undatedSw.hidden = fixed;
       zoomSeg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === zoom)));
       opts.onLinked?.(linked);
     };
@@ -79,6 +82,8 @@
 
     // ---------------------------------------------------------------- data
     function cardsShown() {
+      // one project's page: the project and the everyday cards attached to it, finished work included
+      if (opts.project) return TTBoard.tasks.filter(t => t.id === opts.project || (t.project_id === opts.project && (t.kind || 'ops') !== 'project'));
       if (linked && board) return board.cards();
       return TTBoard.tasks.filter(t => !(solo.hideClosed && CLOSED.has(t.status))
         && (solo.who !== 'mine' || t.mine !== false));
@@ -186,10 +191,11 @@
                    <span class="g-ms-lbl" style="left:${left + dw + 6}px">${esc(x.title)} ${md(x.due)}</span>`;
           } else {
             const p = pct(x);
-            bar = `<span class="g-bar${x.kids.length ? ' is-parent' : ''}${derived ? ' is-derived' : ''}${lt ? ' is-late' : ''}${x.canEdit && !derived ? ' can-drag' : ''}"
+            const drag = x.canEdit && !derived && !x.kids.length;
+            bar = `<span class="g-bar${x.kids.length ? ' is-parent' : ''}${derived ? ' is-derived' : ''}${lt ? ' is-late' : ''}${drag ? ' can-drag' : ''}"
                      data-drag="move" style="left:${left}px;width:${width}px;--c:${st.color}">
                      <span class="g-fill" style="width:${p}%"></span>${width > 46 ? `<span class="g-pct">${p}%</span>` : ''}
-                     ${x.canEdit && !derived ? '<span class="g-h g-h-l" data-drag="start"></span><span class="g-h g-h-r" data-drag="end"></span>' : ''}</span>`;
+                     ${drag ? '<span class="g-h g-h-l" data-drag="start"></span><span class="g-h g-h-r" data-drag="end"></span>' : ''}</span>`;
           }
         }
         const bs = dayNum(x.base_start || x.base_due), be = dayNum(x.base_due || x.base_start);
@@ -299,7 +305,7 @@
         ${x.base_due || x.base_start ? `<div>${esc(TTBoard.baselineText({ ...x, due_at: x.due }))}</div>` : ''}
         ${x.started_at ? `<div>實際開始 ${md(x.started_at)}</div>` : ''}
         ${deps.length ? `<div>前置：${esc(deps.join('、'))}</div>` : ''}
-        ${x.canEdit && !span(x)[2] ? '<div class="hint">拖曳改日期 · 點一下開啟</div>' : '<div class="hint">點一下開啟</div>'}`;
+        ${x.kids.length ? '<div class="hint">期間由下層推算 · 點一下開啟</div>' : x.canEdit && !span(x)[2] ? '<div class="hint">拖曳改日期 · 點一下開啟</div>' : '<div class="hint">點一下開啟</div>'}`;
       tip.hidden = false;
       const r = tip.getBoundingClientRect();
       tip.style.left = Math.min(innerWidth - r.width - 8, e.clientX + 14) + 'px';
@@ -358,9 +364,30 @@
         if (x.kind === 't') await TTBoard.save(x.id, body);
         else await api(`/api/tasks/${x.cardId}/comments/${x.id}/task`, { method: 'PUT', body });
         toast(`「${x.title}」改為 ${x.milestone ? md(body.due_at) : `${md(body.start_at || x.start || body.due_at)} – ${md(body.due_at || x.due || body.start_at)}`}`);
+        const newEnd = x.milestone ? b + delta : mode === 'move' ? b + delta : mode === 'end' ? Math.max(a, b + delta) : b;
+        if (newEnd > b) await offerShift(x, newEnd, newEnd - b);
         await refresh(true);
       } catch (err) { toast(err.message, true); paint(); }
     });
+
+    /** The successors (and theirs) that now start before their predecessor ends: shift them by the same days? */
+    async function offerShift(x, newEnd, days) {
+      const all = new Map();
+      items().forEach(r => { const rec = y => { all.set(y.key, y); y.kids.forEach(rec); }; rec(r); });
+      const succ = key => [...all.values()].filter(y => (y.deps || []).some(d => d.key === key));
+      const direct = succ(x.key).filter(y => { const d = y.deps.find(v => v.key === x.key); const st = span(y)[0]; return st != null && st < newEnd + (d.lag || 0) + (y.milestone ? 0 : 1); });
+      if (!direct.length) return;
+      const chain = new Map(direct.map(y => [y.key, y]));
+      const queue = [...direct];
+      while (queue.length) { const y = queue.shift(); succ(y.key).forEach(z => { if (!chain.has(z.key) && z.key !== x.key) { chain.set(z.key, z); queue.push(z); } }); }
+      const list = [...chain.values()];
+      const names = list.slice(0, 5).map(y => `「${y.title}」`).join('、') + (list.length > 5 ? ` 等 ${list.length} 項` : '');
+      if (!confirm(`「${x.title}」延後了 ${days} 天，後續 ${list.length} 項會比它更早開始：\n${names}\n\n要把它們一起順延 ${days} 天嗎？`)) return;
+      try {
+        const r = await api('/api/tasks/shift', { method: 'POST', body: { keys: list.filter(y => !y.kids.length || y.kind === 't').map(y => y.key), days } });
+        toast(`已順延 ${r.moved.length} 項` + (r.skipped.length ? `；${r.skipped.length} 項你沒有權限修改，未順延` : ''));
+      } catch (e) { toast(e.message, true); }
+    }
 
     // ---------------------------------------------------------------- refresh
     let pending = null;
