@@ -201,6 +201,7 @@ jobs:
           fi
           gh release view "$TAG" >/dev/null 2>&1 \
             || gh release create "$TAG" --title "$TITLE" --notes-file portable/RELEASE_NOTES.md
+          gh release edit "$TAG" --title "$TITLE" --notes-file portable/RELEASE_NOTES.md   # keep the text current
           # one installer name per release, so "latest" does not pile up old versions
           cp portable/output/ToolTable-Setup-*.exe ToolTable-Setup.exe
           gh release upload "$TAG" portable/output/ToolTable-windows-x64.zip ToolTable-Setup.exe --clobber
