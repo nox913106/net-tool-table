@@ -1332,10 +1332,28 @@
 
     function renderSettings0() {
       draft = Object.fromEntries(keys.map(k => [k, structuredClone(state.settings[k])]));
-      holder.replaceChildren(...SETTINGS_GROUPS.map(g => el('section', { class: 'panel settings-card' },
+      cards = SETTINGS_GROUPS.map(g => el('section', { class: 'panel settings-card' },
         el('h3', { class: 'settings-card-title', html: svg(g.icon) + esc(g.title) }),
-        el('div', { class: 'settings-fields' }, g.fields.map(control)))));
+        el('div', { class: 'settings-fields' }, g.fields.map(control))));
+      layout(true);
     }
+    // masonry: each card goes, in order, under the shortest column (a plain grid leaves
+    // tall gaps next to the long 待辦看板 card)
+    let cards = [], cols = 0;
+    function layout(force) {
+      if (!holder.isConnected && !force) return;
+      const n = Math.max(1, Math.floor(((holder.clientWidth || $('stage-body').clientWidth) + 16) / (420 + 16)));
+      if (n === cols && !force) return;
+      cols = n;
+      const columns = Array.from({ length: n }, () => el('div', { class: 'settings-col' }));
+      holder.replaceChildren(...columns);
+      for (const c of cards) {
+        const target = columns.reduce((a, b) => (b.offsetHeight < a.offsetHeight ? b : a));
+        target.append(c);
+      }
+    }
+    const ro = new ResizeObserver(() => { if (!holder.isConnected) return ro.disconnect(); layout(false); });
+    ro.observe(holder);
     renderSettings0();
   }
 

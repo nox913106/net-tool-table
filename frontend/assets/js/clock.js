@@ -138,31 +138,38 @@ const TTClock = (() => {
   }
 
   async function mountNetInfo(root, settings) {
-    const chips = [];
+    // each chip appears as soon as it is known: a blocked / silently dropped ipinfo.io
+    // (common on company networks) must never hold back this server's own answer
+    const show = chip => { root.append(chip); root.hidden = false; };
+    if (settings.show_public_ip) publicIp().then(chip => chip && show(chip));
     if (settings.show_client_ip) {
       try {
         const w = await TT.api('/api/whoami');
         const title = w.local
           ? _t("這台電腦的 IP（{0}）", w.host || '') + ((w.all || []).length > 1 ? _t('\n全部：') + w.all.join('、') : '')
           : _t('你的 IP（本伺服器看到的位址）');
-        if (w.ip) chips.push(TT.el('span', { class: 'net-chip', title },
-          TT.el('span', { class: 'net-dot' }), w.ip));
+        if (w.ip) {
+          const chip = TT.el('span', { class: 'net-chip', title }, TT.el('span', { class: 'net-dot' }), w.ip);
+          root.prepend(chip); root.hidden = false;          // this server's answer first
+        }
       } catch { /* ignore */ }
     }
-    if (settings.show_public_ip) {
-      try {
-        const res = await fetch('https://ipinfo.io/json', { cache: 'no-store' });
-        const j = await res.json();
-        if (j && j.ip) {
-          const place = [j.city, j.country].filter(Boolean).join(', ');
-          chips.push(TT.el('a', {
-            class: 'net-chip', href: `https://ipinfo.io/${encodeURIComponent(j.ip)}`, target: '_blank', rel: 'noopener',
-            title: _t('對外 IP（ipinfo.io）'), html: TT.svg('globe') + TT.esc(j.ip) + (place ? ` <span class="muted">· ${TT.esc(place)}</span>` : ''),
-          }));
-        }
-      } catch { /* offline / blocked */ }
-    }
-    if (chips.length) { root.replaceChildren(...chips); root.hidden = false; }
+  }
+
+  async function publicIp() {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 6000);
+    try {
+      const res = await fetch('https://ipinfo.io/json', { cache: 'no-store', signal: ctl.signal });
+      const j = await res.json();
+      if (!j || !j.ip) return null;
+      const place = [j.city, j.country].filter(Boolean).join(', ');
+      return TT.el('a', {
+        class: 'net-chip', href: `https://ipinfo.io/${encodeURIComponent(j.ip)}`, target: '_blank', rel: 'noopener',
+        title: _t('對外 IP（ipinfo.io）'), html: TT.svg('globe') + TT.esc(j.ip) + (place ? ` <span class="muted">· ${TT.esc(place)}</span>` : ''),
+      });
+    } catch { return null; /* offline / blocked */ }
+    finally { clearTimeout(timer); }
   }
 
   /** 5 quick clicks on any of these elements opens the admin page */
