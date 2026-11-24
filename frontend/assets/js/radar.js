@@ -1,5 +1,5 @@
 /* =============================================================================
-   Tool Table — task radar (floating, tactical skin)
+   IPMS — task radar (floating, tactical skin)
    Distance = urgency: the closer to the centre, the sooner it is due
      centre ring = overdue · today · ≤3 days · ≤7 days · ≤30 days · outer edge = later / no due date
    Quadrant = the card:  I high priority · II normal · III low · IV Pending / On hold / Canceled

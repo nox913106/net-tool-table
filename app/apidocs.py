@@ -10,11 +10,11 @@ from typing import Optional
 from fastapi.openapi.utils import get_openapi
 
 INTRO = """\
-Tool Table 的所有 API。頁面上的「Try it out」會直接呼叫這台伺服器，**以你目前登入的身分執行**，
+IPMS 的所有 API。頁面上的「Try it out」會直接呼叫這台伺服器，**以你目前登入的身分執行**，
 修改資料的操作會真的改到資料，請小心使用。
 
 **驗證**
-- 伺服器版：瀏覽器登入後的 session cookie（`tt_session`）。先在同一個瀏覽器登入 Tool Table，再開這一頁。
+- 伺服器版：瀏覽器登入後的 session cookie（`tt_session`）。先在同一個瀏覽器登入 IPMS，再開這一頁。
 - 單機版同步：`Authorization: Bearer <裝置權杖>`（只限 `/api/sync/`）。
 - 所有會修改資料的呼叫（POST／PUT／DELETE）都必須帶 `X-Tool-Table: 1` 標頭，用來防止其他網站偽造請求。
   這一頁會自動加上；用 curl 或程式呼叫時要自己帶。
@@ -213,11 +213,11 @@ def _tag(method: str, path: str, old: Optional[list]) -> str:
 
 
 INTRO_EN = """\
-Every Tool Table API. “Try it out” calls this server **as the account you are signed in with**;
+Every IPMS API. “Try it out” calls this server **as the account you are signed in with**;
 calls that change data really change it.
 
 **Authentication**
-- Server edition: the session cookie (`tt_session`) of a browser sign-in. Sign in to Tool Table in the same browser first.
+- Server edition: the session cookie (`tt_session`) of a browser sign-in. Sign in to IPMS in the same browser first.
 - Standalone sync: `Authorization: Bearer <device token>` (only for `/api/sync/`).
 - Every call that changes data (POST / PUT / DELETE) must send the `X-Tool-Table: 1` header, so other websites can't forge requests.
   This page adds it; add it yourself with curl or in code. `X-Lang: en` returns messages in English.
@@ -254,7 +254,7 @@ def install(app, version: str):
         if lang in cache:
             return cache[lang]
         en = lang == "en"
-        spec = get_openapi(title="Tool Table API", version=version, description=INTRO_EN if en else INTRO, routes=app.routes)
+        spec = get_openapi(title="IPMS API", version=version, description=INTRO_EN if en else INTRO, routes=app.routes)
         spec["tags"] = [{"name": TAGS_EN[n][0] if en else n, "description": TAGS_EN[n][1] if en else d} for n, d in TAGS]
         for path, ops in spec.get("paths", {}).items():
             for method, op in ops.items():

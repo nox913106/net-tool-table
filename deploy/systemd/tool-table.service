@@ -1,5 +1,5 @@
 [Unit]
-Description=Tool Table portal (FastAPI / uvicorn, loopback only)
+Description=IPMS portal (FastAPI / uvicorn, loopback only)
 Documentation=https://github.com/nox913106/net-tool-table
 After=network-online.target
 Wants=network-online.target

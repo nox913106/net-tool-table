@@ -1,4 +1,4 @@
-# Tool Table
+# IPMS
 
 ![Version](https://img.shields.io/badge/version-3.0.0-6366f1)
 ![Python](https://img.shields.io/badge/python-3.10+-3b82f6)
@@ -162,12 +162,12 @@
 
 ### Windows 用戶端（單機版）
 
-**安裝版（建議）**：下載 **[ToolTable-Setup.exe](https://github.com/nox913106/net-tool-table/releases/latest/download/ToolTable-Setup.exe)** 執行，
+**安裝版（建議）**：下載 **[IPMS-Setup.exe](https://github.com/nox913106/net-tool-table/releases/latest/download/IPMS-Setup.exe)** 執行，
 不需要系統管理員權限，裝到 `%LOCALAPPDATA%\Programs\ToolTable`，建立開始功能表與桌面捷徑（可選開機自動啟動）。
 升級：直接執行新版安裝檔；解除安裝：Windows「應用程式」。兩者都**保留資料**（`…\ToolTable\data\`）。
 
-**免安裝版**：下載 **[ToolTable-windows-x64.zip](https://github.com/nox913106/net-tool-table/releases/latest/download/ToolTable-windows-x64.zip)**，
-解壓縮到任何位置（隨身碟也可以），點兩下 `ToolTable.cmd`。資料存在同資料夾的 `data\`，整個資料夾複製走就能換電腦。
+**免安裝版**：下載 **[IPMS-windows-x64.zip](https://github.com/nox913106/net-tool-table/releases/latest/download/IPMS-windows-x64.zip)**，
+解壓縮到任何位置（隨身碟也可以），點兩下 `IPMS.cmd`。資料存在同資料夾的 `data\`，整個資料夾複製走就能換電腦。
 
 入口會用 Chrome（沒有就用 Edge）以**獨立視窗**打開（`--tab` 改回一般分頁）；那個黑色視窗是服務本身，關掉就停止。
 不需要另外安裝 Python 或任何軟體。
@@ -176,10 +176,10 @@
 > 用戶端改用 python.org 官方、有 PSF 數位簽章的 `python.exe`（內嵌版）執行程式碼，安裝檔用 Inno Setup 製作，
 > 整個套件裡沒有任何自製的執行檔。
 
-`ToolTable.cmd --lan` 可讓同網段其他電腦連線；其他選項見壓縮檔內的 `README.txt`。
+`IPMS.cmd --lan` 可讓同網段其他電腦連線；其他選項見壓縮檔內的 `README.txt`。
 
 單機版另外可以**啟動電腦上的程式**：把桌面或開始功能表的捷徑、或執行檔直接拖進入口，確認後就變成一張卡片，點了就開啟。
-為了安全，這只對「執行 Tool Table 用戶端的那台電腦」本身開放：使用 `--lan` 時，其他電腦看得到這些卡片，但不能新增或啟動程式；
+為了安全，這只對「執行 IPMS 用戶端的那台電腦」本身開放：使用 `--lan` 時，其他電腦看得到這些卡片，但不能新增或啟動程式；
 其他網站也無法透過瀏覽器偷偷呼叫它。Linux 伺服器版沒有這個功能（程式會在伺服器上執行，沒有意義）。
 
 > 每次推送到 `main`，GitHub Actions 會在 Windows 上重新打包（檢查沒有自製 exe、`python.exe` 簽章有效）、實際啟動測試、

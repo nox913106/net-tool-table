@@ -23,8 +23,8 @@ router = APIRouter(prefix="/api", tags=["settings"])
 # Default values: also documents every supported setting key.
 DEFAULT_SETTINGS: Dict[str, Any] = {
     # --- Branding ---
-    "site_title": "Tool Table",
-    "site_subtitle": "",
+    "site_title": "IPMS",
+    "site_subtitle": "Infra Project Management System",
     "favicon": "",                      # icon file name or an emoji
 
     # --- Appearance ---

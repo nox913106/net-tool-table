@@ -116,7 +116,7 @@ def _check_members(tar: tarfile.TarFile):
             raise ValueError(f"備份檔內容不安全：{n}")
         if not (n in ("tool-table.db", "meta.json", ".secret.key", "icons", "attachments")
                 or n.startswith("icons/") or n.startswith("attachments/")):
-            raise ValueError(f"不是 Tool Table 的備份檔（多出 {n}）")
+            raise ValueError(f"不是 IPMS 的備份檔（多出 {n}）")
         names.add(n)
     if "tool-table.db" not in names:
         raise ValueError("備份檔裡沒有資料庫")

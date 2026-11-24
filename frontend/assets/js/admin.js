@@ -1,5 +1,5 @@
 /* =============================================================================
-   Tool Table — admin
+   IPMS — admin
    Panels (hash): #content  #home  #quick  #icons  #settings  #backup
    ============================================================================= */
 'use strict';
@@ -181,9 +181,9 @@
 
   function paintBrand() {
     const s = state.settings;
-    $('rail-title').textContent = s.site_title || 'Tool Table';
+    $('rail-title').textContent = s.site_title || 'IPMS';
     $('rail-mark').replaceChildren(tile({ icon: s.favicon, name: s.site_title || 'T', size: 34 }));
-    document.title = _t("{0} · 管理後台", s.site_title || 'Tool Table');
+    document.title = _t("{0} · 管理後台", s.site_title || 'IPMS');
     if (s.favicon) TT.setFavicon(s.favicon);
   }
 

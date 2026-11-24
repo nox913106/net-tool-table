@@ -1,7 +1,7 @@
 """
 Local programs (Windows portable edition)
 
-When Tool Table runs as the portable ToolTable.exe, the server *is* the user's PC, so
+When IPMS runs as the portable ToolTable.exe, the server *is* the user's PC, so
 it can do what a web page cannot: launch programs and read shortcuts / exe icons.
 
 Everything here is gated by `require_local()`:

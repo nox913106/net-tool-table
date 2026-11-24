@@ -1,4 +1,4 @@
-/* Tool Table — API documentation (Swagger UI, bundled under /assets/vendor/swagger-ui).
+/* IPMS — API documentation (Swagger UI, bundled under /assets/vendor/swagger-ui).
    "Try it out" calls this server as the signed-in user (session cookie); writes need the
    X-Tool-Table header, which is added here so they work from this page. */
 window.addEventListener('DOMContentLoaded', () => {

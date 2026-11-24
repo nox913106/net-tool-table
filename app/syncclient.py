@@ -137,7 +137,7 @@ async def _call(cfg, method, path, body=None, raw=None, timeout=60, token=True, 
     try:
         return json.loads(data or b"{}")
     except ValueError:
-        raise SyncError("伺服器回應的不是 Tool Table 同步資料（網址正確嗎？）")
+        raise SyncError("伺服器回應的不是 IPMS 同步資料（網址正確嗎？）")
 
 
 def _normalize_server(url: str) -> str:
@@ -257,7 +257,7 @@ async def connect_browser_start(server: str, verify: bool = True) -> dict:
     except SyncError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not res.get("poll") or not res.get("url"):
-        raise HTTPException(status_code=400, detail="伺服器沒有回應連結資訊（網址是 Tool Table 伺服器嗎？）")
+        raise HTTPException(status_code=400, detail="伺服器沒有回應連結資訊（網址是 IPMS 伺服器嗎？）")
     BROWSER_LINK.clear()
     BROWSER_LINK.update(server=server, verify=verify, poll=res["poll"], code=res["code"], url=res["url"], at=time.time())
     return {"code": res["code"], "url": res["url"], "expires_in": res.get("expires_in", 600)}
@@ -292,7 +292,7 @@ async def _finish_link(server: str, verify: bool, res: dict, sent: float, old: d
     global LOCAL_USER
     user, token = res.get("user"), res.get("token")
     if not user or not token:
-        raise HTTPException(status_code=400, detail="伺服器沒有回應連結資訊（網址是 Tool Table 伺服器嗎？）")
+        raise HTTPException(status_code=400, detail="伺服器沒有回應連結資訊（網址是 IPMS 伺服器嗎？）")
     if old.get("user") and old["user"].get("username") != user["username"] and old.get("server"):
         raise HTTPException(status_code=400, detail=f"這台電腦的資料屬於 {old['user'].get('display_name') or old['user']['username']}，"
                                                     "不能改連另一個帳號（請改用另一份單機版）")

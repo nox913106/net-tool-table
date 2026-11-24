@@ -52,7 +52,7 @@ async def dashboard():
             totals = {s: sum(p["counts"][s] for p in people_rows) for s in SHOWN}
             out.append({"department": dept, "people": people_rows, "totals": totals, "total": sum(totals.values())})
         return {
-            "title": settings.get("site_title") or "Tool Table",
+            "title": settings.get("site_title") or "IPMS",
             "statuses": SHOWN,
             "departments": out,
             "totals": {s: sum(d["totals"][s] for d in out) for s in SHOWN},

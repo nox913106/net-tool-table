@@ -299,7 +299,7 @@ async def test_teams(body: TeamsTestIn):
     if not url:
         raise HTTPException(status_code=400, detail="請先填寫 Workflow 網址")
     L = teams.lang()
-    payload = teams.card("[Test] Tool Table → Teams" if L == "en" else "【測試】Tool Table → Teams",
+    payload = teams.card("[Test] IPMS → Teams" if L == "en" else "【測試】IPMS → Teams",
                          ["If you can see this, the channel works." if L == "en" else "看到這則訊息，表示這個頻道設定正確。",
                           datetime.now().strftime("%Y-%m-%d %H:%M:%S")], f"{teams.site_url()}/", "ok", "Open" if L == "en" else "開啟")
     try:
@@ -462,7 +462,7 @@ async def upload_backup(file: UploadFile = File(...)):
         raise
     except Exception as e:
         target.unlink(missing_ok=True)
-        raise HTTPException(status_code=400, detail=f"不是有效的 Tool Table 備份檔：{e}")
+        raise HTTPException(status_code=400, detail=f"不是有效的 IPMS 備份檔：{e}")
     return bk.describe(target)
 
 

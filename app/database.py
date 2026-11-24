@@ -1,5 +1,5 @@
 """
-SQLite Database Module for Tool Table
+SQLite Database Module for IPMS
 Handles database connection and table creation
 """
 import aiosqlite

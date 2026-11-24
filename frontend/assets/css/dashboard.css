@@ -1,4 +1,4 @@
-/* Tool Table — public task dashboard (wall-screen friendly) */
+/* IPMS — public task dashboard (wall-screen friendly) */
 .dash-head { position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 22px clamp(16px, 3vw, 40px) 10px; }
 .dash-brand { display: flex; align-items: center; gap: 14px; }
 .dash-brand h1 { font-size: clamp(20px, 2.2vw, 28px); font-weight: 800; letter-spacing: -.01em; }

@@ -1,5 +1,5 @@
 [Unit]
-Description=Run Tool Table backup daily
+Description=Run IPMS backup daily
 
 [Timer]
 OnCalendar=*-*-* 02:37:00

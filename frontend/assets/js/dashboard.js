@@ -1,4 +1,4 @@
-/* Tool Table — public task dashboard (no login, read only, counts only) */
+/* IPMS — public task dashboard (no login, read only, counts only) */
 'use strict';
 (async () => {
   const $ = id => document.getElementById(id);
@@ -14,8 +14,8 @@
     TTI18n.site(settings.language || 'zh-TW');
     TT.applyAppearance(settings);
     $('dash-mark').replaceChildren(tile({ icon: settings.favicon || '', name: settings.site_title || 'T', size: 44 }));
-    $('dash-title').textContent = _t("{0} · 任務進度", settings.site_title || 'Tool Table');
-    document.title = _t("任務進度 · {0}", settings.site_title || 'Tool Table');
+    $('dash-title').textContent = _t("{0} · 任務進度", settings.site_title || 'IPMS');
+    document.title = _t("任務進度 · {0}", settings.site_title || 'IPMS');
   } catch { /* defaults */ }
   const themeBtn = $('theme-btn');
   const paintTheme = () => {

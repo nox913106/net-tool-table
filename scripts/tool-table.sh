@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Tool Table — single entry-point deployment tool (Debian / Ubuntu)
+# IPMS — single entry-point deployment tool (Debian / Ubuntu)
 #
 # Usage:
 #   tool-table.sh install   [--https-port 33443] [--http-port 80|0] [--app-port 8080]
@@ -89,7 +89,7 @@ ensure_local_admin() {
     out="$(app_cli local-admin 2>&1)" || { warn "$out"; return 1; }
     if grep -q "密碼：" <<<"$out"; then
         install -m 0600 -o root -g root /dev/null "$ETC_DIR/initial-admin.txt"
-        { echo "# Tool Table 本機管理員（緊急用）— $(date '+%F %T')"; echo "$out"; } > "$ETC_DIR/initial-admin.txt"
+        { echo "# IPMS 本機管理員（緊急用）— $(date '+%F %T')"; echo "$out"; } > "$ETC_DIR/initial-admin.txt"
         ADMIN_NOTE="$out"
     fi
 }
@@ -207,7 +207,7 @@ print_summary() {
     local host="${fqdn:-${ip:-<伺服器IP>}}"
     echo
     echo "=============================================================="
-    echo "  Tool Table 已就緒"
+    echo "  IPMS 已就緒"
     echo "--------------------------------------------------------------"
     echo "  入口      https://${host}:${https_port}/"
     echo "  管理後台  https://${host}:${https_port}/admin"
@@ -249,7 +249,7 @@ cmd_install() {
     done
     require_root
     check_os
-    [[ -f "$APP_DIR/app/main.py" ]] || die "$APP_DIR 不是 Tool Table 原始碼目錄（請用 bootstrap.sh 安裝）"
+    [[ -f "$APP_DIR/app/main.py" ]] || die "$APP_DIR 不是 IPMS 原始碼目錄（請用 bootstrap.sh 安裝）"
 
     # Values: argument > existing env file > default
     https_port="${https_port:-$(env_get TOOL_TABLE_HTTPS_PORT)}"; https_port="${https_port:-$DEFAULT_HTTPS_PORT}"
@@ -480,7 +480,7 @@ cmd_restore() {
     icon_dir="$(env_get TOOL_TABLE_ICON_DIR)"; icon_dir="${icon_dir:-$data_dir/icons}"
     work="$(mktemp -d)"
     tar -C "$work" -xzf "$file"
-    [[ -d "$work/tool-table" ]] || die "不是 Tool Table 的備份檔"
+    [[ -d "$work/tool-table" ]] || die "不是 IPMS 的備份檔"
 
     log "還原前先備份目前資料"
     cmd_backup --quiet
@@ -522,7 +522,7 @@ cmd_doctor() {
     bad()  { echo -e "  \033[1;31m✘\033[0m $1"; [[ -n "${2:-}" ]] && echo -e "    → $2"; fails=$((fails + 1)); }
     info() { echo -e "  · $*"; }
 
-    echo "Tool Table 健檢"
+    echo "IPMS 健檢"
     [[ $EUID -eq 0 ]] || warn "建議用 sudo 執行，部分檢查需要 root"
 
     if [[ -f "$ENV_FILE" ]]; then ok "設定檔 $ENV_FILE"
@@ -763,7 +763,7 @@ cmd_reset_admin() {
     local out
     out="$(app_cli local-admin --reset)" || die "$out"
     install -m 0600 -o root -g root /dev/null "$ETC_DIR/initial-admin.txt"
-    { echo "# Tool Table 本機管理員（緊急用）— 重設於 $(date '+%F %T')"; echo "$out"; } > "$ETC_DIR/initial-admin.txt"
+    { echo "# IPMS 本機管理員（緊急用）— 重設於 $(date '+%F %T')"; echo "$out"; } > "$ETC_DIR/initial-admin.txt"
     echo "$out"
     echo "（已登出這個帳號的所有工作階段；也存在 $ETC_DIR/initial-admin.txt）"
 }

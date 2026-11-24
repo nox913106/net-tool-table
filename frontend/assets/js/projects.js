@@ -1,5 +1,5 @@
 /* =============================================================================
-   Tool Table — projects and my work
+   IPMS — projects and my work
    #/mine         everything assigned to me (every project and level, everyday cards), by due date
    #/projects     the projects side by side: managers' order, health, problems; cards that look like projects
    #/project/ID   one project: Gantt, project board (its L2–L4 work by status), list, Excel

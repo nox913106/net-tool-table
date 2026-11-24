@@ -1,5 +1,5 @@
 /* =============================================================================
-   Tool Table — header clock + network info
+   IPMS — header clock + network info
    Time is synced against this server (/api/time), not a third-party service.
    ============================================================================= */
 'use strict';

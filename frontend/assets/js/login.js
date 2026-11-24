@@ -1,4 +1,4 @@
-/* Tool Table — sign-in page */
+/* IPMS — sign-in page */
 'use strict';
 (async () => {
   const $ = id => document.getElementById(id);
@@ -16,8 +16,8 @@
     TTI18n.site(b.language || 'zh-TW');
     document.querySelector('.login-card')?.append(TT.langButton('btn btn-ghost btn-sm login-lang'));
     TT.applyAppearance(b);
-    document.title = _t("登入 · {0}", b.site_title || 'Tool Table');
-    $('login-title').textContent = b.site_title || 'Tool Table';
+    document.title = _t("登入 · {0}", b.site_title || 'IPMS');
+    $('login-title').textContent = b.site_title || 'IPMS';
     $('login-mark').replaceChildren(tile({ icon: b.favicon || '', name: b.site_title || 'T', size: 48 }));
     $('login-dash').hidden = b.public_dashboard === false;
   } catch { /* defaults */ }

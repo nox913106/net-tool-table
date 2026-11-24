@@ -1,4 +1,4 @@
-/* Tool Table — approve a standalone copy's link to my account (opened from the copy; sign-in required) */
+/* IPMS — approve a standalone copy's link to my account (opened from the copy; sign-in required) */
 'use strict';
 (async () => {
   const { api, el, svg } = TT;

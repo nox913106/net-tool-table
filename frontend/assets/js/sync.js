@@ -1,5 +1,5 @@
 /* =============================================================================
-   Tool Table — live updates and server sync
+   IPMS — live updates and server sync
    Both editions: the board refreshes as soon as anything changes (long poll on
    /api/sync/wait), so edits by other people — or arriving from a standalone copy —
    show up at once.

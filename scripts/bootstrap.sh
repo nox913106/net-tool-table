@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Tool Table one-shot install: clone to /opt/tool-table, then run the installer.
+# IPMS one-shot install: clone to /opt/tool-table, then run the installer.
 # Usage (no manual git needed):
 #   curl -fsSL https://raw.githubusercontent.com/nox913106/net-tool-table/main/scripts/bootstrap.sh | sudo bash
 #   # with options:

@@ -1,9 +1,9 @@
 @echo off
 chcp 65001 >nul
-title Tool Table Server
+title IPMS Server
 
 echo ========================================
-echo   Tool Table - 本機開發模式
+echo   IPMS - 本機開發模式
 echo ========================================
 echo.
 

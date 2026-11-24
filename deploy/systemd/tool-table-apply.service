@@ -1,5 +1,5 @@
 [Unit]
-Description=Tool Table: apply a request from the admin UI (certificate / ports)
+Description=IPMS: apply a request from the admin UI (certificate / ports)
 After=network.target
 
 [Service]

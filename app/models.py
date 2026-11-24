@@ -1,5 +1,5 @@
 """
-Pydantic Models for Tool Table API
+Pydantic Models for IPMS API
 """
 import re
 from datetime import datetime

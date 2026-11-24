@@ -1,4 +1,4 @@
-/* Tool Table — sign-in page */
+/* IPMS — sign-in page */
 .login-wrap { min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; position: relative; z-index: 1; }
 .login-card {
   width: min(400px, 100%);

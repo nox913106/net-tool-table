@@ -1,8 +1,9 @@
 """
-Tool Table - FastAPI application
+IPMS - FastAPI application
 Serves the API and the static frontend (frontend/).
 """
 import ipaddress
+import json
 import logging
 import socket
 import time
@@ -94,6 +95,21 @@ async def lifespan(app: FastAPI):
             await rollup_all()
     except Exception:                       # never block startup over this
         pass
+    try:                                    # the new name: a site still called by the old default name follows it
+        from .database import get_db
+        db = await get_db()
+        try:
+            cur = await db.execute("SELECT key, value FROM settings WHERE key IN ('site_title', 'site_subtitle')")
+            got = {k: v for k, v in await cur.fetchall()}
+            if got.get("site_title") == json.dumps("Tool Table"):
+                await db.execute("UPDATE settings SET value = ? WHERE key = 'site_title'", (json.dumps("IPMS"),))
+                if got.get("site_subtitle") in (None, json.dumps("")):
+                    await db.execute("DELETE FROM settings WHERE key = 'site_subtitle'")      # → the default subtitle
+                await db.commit()
+        finally:
+            await db.close()
+    except Exception:
+        pass
     task = asyncio.create_task(_scheduler())
     from . import config as _C
     teams_task = asyncio.create_task(_teams_loop()) if _C.AUTH else None
@@ -111,7 +127,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Tool Table API",
+    title="IPMS API",
     version=VERSION,
     lifespan=lifespan,
     docs_url=None,                          # our own Swagger UI page below (bundled, works offline and under the CSP)
@@ -220,7 +236,7 @@ async def web_manifest():
         s = await read_settings(db)
     finally:
         await db.close()
-    title = (s.get("site_title") or "Tool Table").strip()[:45]
+    title = (s.get("site_title") or "IPMS").strip()[:45]
     icon = "/assets/app/"
     return JSONResponse({
         "id": "/",

@@ -8,12 +8,12 @@ PSF-signed python.exe from python.org's embeddable package instead:
     python/                     python.org embeddable Python + Lib/site-packages (requirements.txt)
     app/                        app/, frontend/, resource/icon/, portable/launcher.py
     data/                       created on first start (database, icons) — kept on upgrade
-    ToolTable.cmd               starts the client (python\\python.exe app\\portable\\launcher.py)
+    IPMS.cmd                    starts the client (python\\python.exe app\\portable\\launcher.py)
     tooltable.ico, README.txt
 
 Runs on Windows (CI: windows-latest). Usage:
     python portable/build_portable.py [--version 1.0.0] [--skip-iscc]
-Outputs in portable/output/: ToolTable-Setup-<ver>.exe and ToolTable-windows-x64.zip
+Outputs in portable/output/: IPMS-Setup-<ver>.exe and IPMS-windows-x64.zip (whose folder stays ToolTable: data lives there)
 """
 import argparse
 import os
@@ -63,7 +63,7 @@ def main():
     ap.add_argument("--skip-iscc", action="store_true")
     a = ap.parse_args()
     minor = PY_VER.rsplit(".", 1)[0]
-    print(f"=== Build Tool Table client {a.version} (embedded Python {PY_VER}) ===", flush=True)
+    print(f"=== Build IPMS client {a.version} (embedded Python {PY_VER}) ===", flush=True)
 
     print("[1/4] 內嵌 Python", flush=True)
     if STAGE.exists():
@@ -99,7 +99,7 @@ def main():
     shutil.copy2(HERE / "launcher.py", app / "portable" / "launcher.py")
     shutil.copy2(HERE / "tooltable.ico", STAGE / "tooltable.ico")
     shutil.copy2(HERE / "README.txt", STAGE / "README.txt")
-    (STAGE / "ToolTable.cmd").write_text(
+    (STAGE / "IPMS.cmd").write_text(
         '@echo off\r\n"%~dp0python\\python.exe" "%~dp0app\\portable\\launcher.py" %*\r\n', encoding="ascii")
     if os.name == "nt":                                   # self-test with the embedded interpreter
         run([pydir / "python.exe", "-c", "import sys; sys.path.insert(0, r'%s'); import uvicorn, aiosqlite, openpyxl, ldap3, "
@@ -110,13 +110,13 @@ def main():
 
     print("[4/4] 封裝", flush=True)
     OUT.mkdir(exist_ok=True)
-    z = OUT / "ToolTable-windows-x64.zip"
+    z = OUT / "IPMS-windows-x64.zip"
     if z.exists():
         z.unlink()
     with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         for f in sorted(STAGE.rglob("*")):
             if f.is_file() and "data" not in f.relative_to(STAGE).parts[:1]:
-                zf.write(f, Path("ToolTable") / f.relative_to(STAGE))
+                zf.write(f, Path("ToolTable") / f.relative_to(STAGE))   # same folder as before: unzip over it, data stays
     print(f"   {z.name} {z.stat().st_size / 2**20:.0f} MB", flush=True)
     if a.skip_iscc:
         return
@@ -124,7 +124,7 @@ def main():
     if not iscc:
         sys.exit("找不到 Inno Setup 6（ISCC.exe）：winget install --id JRSoftware.InnoSetup -e --scope user")
     run([iscc, "/Q", f"/DAppVersion={a.version}", HERE / "ToolTable.iss"])
-    exe = OUT / f"ToolTable-Setup-{a.version}.exe"
+    exe = OUT / f"IPMS-Setup-{a.version}.exe"
     print(f"   {exe.name} {exe.stat().st_size / 2**20:.0f} MB", flush=True)
 
 

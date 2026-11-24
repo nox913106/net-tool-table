@@ -1,6 +1,6 @@
-# Tool Table 安裝與運維 SOP
+# IPMS 安裝與運維 SOP
 
-適用：在一台**全新、空白的 Linux** 上部署 Tool Table。
+適用：在一台**全新、空白的 Linux** 上部署 IPMS。
 架構：nginx 以 HTTPS（預設 **33443**）對外，反向代理到只綁 `127.0.0.1` 的應用程式，
 應用程式的服務埠不對外開放；HTTP（80）一律轉到 HTTPS。預設使用自簽憑證。
 
@@ -164,7 +164,7 @@ sudo bash /opt/tool-table/scripts/tool-table.sh reset-admin
 
 和 AD 登入可以同時使用：登入頁多一個「以 Microsoft 帳號登入」按鈕，用公司的 Microsoft 帳號（含多重要素驗證）登入。
 
-1. Entra 系統管理中心 →「應用程式註冊」→「新增註冊」：名稱例如 Tool Table；支援的帳戶類型選「僅此組織目錄中的帳戶」
+1. Entra 系統管理中心 →「應用程式註冊」→「新增註冊」：名稱例如 IPMS；支援的帳戶類型選「僅此組織目錄中的帳戶」
 2. 重新導向 URI 選「Web」，填 `https://<伺服器>:<埠>/api/auth/entra/callback`（後台「系統設定 → Microsoft Entra ID 登入」會顯示這台伺服器的正確網址，可按「複製」）
 3. 「憑證與祕密」→ 新增用戶端密碼，複製「值」
 4. 「API 權限」保留 Microsoft Graph 的 `User.Read`（委派）即可。要在看板 @ 或指派還沒登入過的人，另外加 `User.Read.All`（**應用程式**權限）並由系統管理員同意

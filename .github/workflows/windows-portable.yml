@@ -3,7 +3,7 @@ name: Windows portable build
 # Builds the Windows client on a Windows runner — official python.org embeddable Python + the app,
 # no custom-compiled .exe (PyInstaller executables get deleted by corporate antivirus as a false
 # positive) — starts it to make sure it really serves the portal, then publishes the installer
-# (ToolTable-Setup-<ver>.exe, Inno Setup, no admin rights) and the portable ToolTable-windows-x64.zip:
+# (IPMS-Setup-<ver>.exe, Inno Setup, no admin rights) and the portable IPMS-windows-x64.zip:
 #   push to main  → release "latest" (asset replaced on every build)
 #   push tag v*   → release for that tag
 on:
@@ -160,7 +160,7 @@ jobs:
       - name: Installer test (silent install, start, uninstall keeps data)
         shell: pwsh
         run: |
-          $setup = Get-ChildItem portable\output\ToolTable-Setup-*.exe | Select-Object -First 1
+          $setup = Get-ChildItem portable\output\IPMS-Setup-*.exe | Select-Object -First 1
           Start-Process $setup.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=' -Wait
           $dir = "$env:LOCALAPPDATA\Programs\ToolTable"
           if (-not (Test-Path "$dir\python\python.exe")) { throw 'installer did not install the client' }
@@ -181,10 +181,10 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ToolTable-windows-x64
+          name: IPMS-windows-x64
           path: |
-            portable/output/ToolTable-windows-x64.zip
-            portable/output/ToolTable-Setup-*.exe
+            portable/output/IPMS-windows-x64.zip
+            portable/output/IPMS-Setup-*.exe
 
       - name: Publish to GitHub Releases
         if: github.event_name == 'push'
@@ -193,9 +193,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            TAG="${GITHUB_REF#refs/tags/}"; TITLE="Tool Table $TAG"
+            TAG="${GITHUB_REF#refs/tags/}"; TITLE="IPMS $TAG"
           else
-            TAG="latest"; TITLE="Tool Table（最新版）"
+            TAG="latest"; TITLE="IPMS（最新版）"
             git tag -f latest
             git push -f origin refs/tags/latest
           fi
@@ -203,5 +203,8 @@ jobs:
             || gh release create "$TAG" --title "$TITLE" --notes-file portable/RELEASE_NOTES.md
           gh release edit "$TAG" --title "$TITLE" --notes-file portable/RELEASE_NOTES.md   # keep the text current
           # one installer name per release, so "latest" does not pile up old versions
-          cp portable/output/ToolTable-Setup-*.exe ToolTable-Setup.exe
-          gh release upload "$TAG" portable/output/ToolTable-windows-x64.zip ToolTable-Setup.exe --clobber
+          cp portable/output/IPMS-Setup-*.exe IPMS-Setup.exe
+          gh release upload "$TAG" portable/output/IPMS-windows-x64.zip IPMS-Setup.exe --clobber
+          # the files of the earlier name (Tool Table)
+          gh release delete-asset "$TAG" ToolTable-Setup.exe -y 2>/dev/null || true
+          gh release delete-asset "$TAG" ToolTable-windows-x64.zip -y 2>/dev/null || true

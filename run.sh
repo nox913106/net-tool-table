@@ -1,9 +1,9 @@
 #!/bin/bash
-# Tool Table - local development launcher
+# IPMS - local development launcher
 # Production: see docs/INSTALL.md (scripts/bootstrap.sh → nginx HTTPS + systemd)
 
 echo "========================================"
-echo "  Tool Table - 本機開發模式"
+echo "  IPMS - 本機開發模式"
 echo "========================================"
 echo
 

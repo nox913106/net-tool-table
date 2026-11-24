@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Tool Table — generate a self-signed TLS certificate (ECDSA P-384)
+# IPMS — generate a self-signed TLS certificate (ECDSA P-384)
 #
 # Usage:
 #   sudo bash scripts/generate-self-signed-cert.sh \
@@ -82,7 +82,7 @@ trap 'rm -rf "$TMP"' EXIT
 openssl ecparam -name secp384r1 -genkey -noout -out "$TMP/server.key"
 openssl req -new -x509 -sha384 -days "$DAYS" \
     -key "$TMP/server.key" -out "$TMP/server.crt" \
-    -subj "/CN=${CN}/O=Tool Table (self-signed)" \
+    -subj "/CN=${CN}/O=IPMS (self-signed)" \
     -addext "subjectAltName=${SAN_STR}" \
     -addext "basicConstraints=critical,CA:FALSE" \
     -addext "keyUsage=critical,digitalSignature" \

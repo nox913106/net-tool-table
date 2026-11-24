@@ -1,5 +1,5 @@
 /* =============================================================================
-   Tool Table — languages (Traditional Chinese, English)
+   IPMS — languages (Traditional Chinese, English)
    The source text is Traditional Chinese; _t('中文', a, b) returns the English text from
    assets/i18n/en.js when English is on, with {0} {1} … filled in. Missing entries fall back
    to the Chinese. The language: the person's own choice (saved per account and in this

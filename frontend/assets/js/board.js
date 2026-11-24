@@ -1,5 +1,5 @@
 /* =============================================================================
-   Tool Table — task board (kanban) + reminders
+   IPMS — task board (kanban) + reminders
    Columns: 週期工作 (recurring) / New / On going / Pending / On hold / Complete / Canceled.
    Recurring cards: at their deadline a prompt asks whether to close them; closing
    creates the next occurrence (server side, once) in the 週期工作 column.
@@ -745,7 +745,7 @@ const TTBoard = window.TTBoard = (() => {
       if (fresh.length) {
         store.set('board-notes-seen', Math.max(...list.map(n => n.id)));
         if (seen) fresh.slice(0, 3).forEach(n => {           // not on the very first load
-          if (canNotify()) { const x = new Notification('Tool Table', { body: n.text, tag: 'tt-note-' + n.id, icon: '/assets/app/icon-192.png' }); x.onclick = () => { window.focus(); openTask(n.task_id); }; }
+          if (canNotify()) { const x = new Notification('IPMS', { body: n.text, tag: 'tt-note-' + n.id, icon: '/assets/app/icon-192.png' }); x.onclick = () => { window.focus(); openTask(n.task_id); }; }
           else toast('💬 ' + n.text);
         });
       }

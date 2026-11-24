@@ -1,4 +1,4 @@
-/* API documentation page: a Tool Table header above the stock Swagger UI */
+/* API documentation page: a IPMS header above the stock Swagger UI */
 :root { --ad-bg: #0B0E11; --ad-line: #26302B; --ad-ink: #E6ECE7; --ad-ink2: #A9B4AC; --ad-accent: #10B981; }
 body { margin: 0; background: #fff; }
 .ad-head { position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;

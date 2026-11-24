@@ -1,5 +1,5 @@
 """
-Tool Table — client launcher (Windows: started by ToolTable.cmd / the installed shortcut; also works from source)
+IPMS — client launcher (Windows: started by IPMS.cmd / the installed shortcut; also works from source)
 
 Double-click → starts the portal on http://127.0.0.1:8080 (or the next free port),
 opens it in its own app window (Chrome or Edge "--app" mode, no address bar / tabs;
@@ -27,7 +27,7 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
-APP_NAME = "Tool Table"
+APP_NAME = "IPMS"
 FROZEN = getattr(sys, "frozen", False)
 # Where the program files are: <install>\app (installed / portable zip) or the repository root
 BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))

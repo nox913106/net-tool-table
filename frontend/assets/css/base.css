@@ -1,5 +1,5 @@
 /* =============================================================================
-   Tool Table — design system (shared by portal and admin)
+   IPMS — design system (shared by portal and admin)
    Theme:   <html data-theme="dark|light">       (set by common.js; "auto" follows OS)
    Accent:  --accent (set from settings)          everything else is derived
    Perf:    <html data-perf="low">                no blur, no animation

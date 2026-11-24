@@ -1,5 +1,5 @@
 /* =============================================================================
-   Tool Table — portal
+   IPMS — portal
    Everything on screen comes from /api/settings, /api/nodes/tree, /api/auth-links.
 
    Routes (hash):
@@ -107,8 +107,8 @@
   // ======================================================================
   function applyBranding() {
     const s = state.settings;
-    document.title = s.site_title || 'Tool Table';
-    $('brand-title').textContent = s.site_title || 'Tool Table';
+    document.title = s.site_title || 'IPMS';
+    $('brand-title').textContent = s.site_title || 'IPMS';
     $('brand-subtitle').textContent = _t(s.site_subtitle || '');
     $('brand-subtitle').hidden = !s.site_subtitle;
     $('brand-mark').replaceChildren(tile({ icon: s.favicon || '', name: s.site_title || 'T', size: 36 }));
@@ -597,7 +597,7 @@
     const hero = el('div', { class: 'hero' },
       el('div', { class: 'hero-text' },
         el('p', { class: 'hero-kicker', text: greeting() }),
-        el('h1', { class: 'hero-title', text: s.site_title || 'Tool Table' }),
+        el('h1', { class: 'hero-title', text: s.site_title || 'IPMS' }),
         s.site_subtitle ? el('p', { class: 'hero-sub', text: s.site_subtitle }) : null));
     frag.append(hero);
 

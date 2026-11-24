@@ -1,5 +1,5 @@
 [Unit]
-Description=Tool Table daily backup (SQLite database + icons)
+Description=IPMS daily backup (SQLite database + icons)
 Documentation=https://github.com/nox913106/net-tool-table
 
 [Service]
