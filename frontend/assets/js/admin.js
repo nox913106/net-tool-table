@@ -322,6 +322,39 @@
   }
 
   /** Card tag colours: every tag in use (plus ones already given a colour) with a colour picker each. */
+  /** Shared windows: name, kind, from–to, how many projects may use it at once. */
+  function windowsEditor(value, onChange) {
+    let list = value.map(w => ({ ...w }));
+    const box = el('div', { class: 'win-ed' });
+    const KINDS = [['outage', '停電'], ['maintenance', '維護窗口'], ['freeze', '變更凍結期']];
+    const emit = () => onChange(list.map(w => ({ ...w })));
+    function paint() {
+      box.replaceChildren(...list.map((w, i) => {
+        const title = el('input', { class: 'input', value: w.title || '', placeholder: '名稱，例如 機房停電施工（週六）', maxlength: '60' });
+        const kind = el('select', { class: 'select' }, ...KINDS.map(([k, l]) => el('option', { value: k, text: l, selected: (w.kind || 'outage') === k })));
+        const from = el('input', { class: 'input', type: 'date', value: w.from || '' });
+        const to = el('input', { class: 'input', type: 'date', value: w.to || w.from || '' });
+        const cap = el('input', { class: 'input', type: 'number', min: '0', max: '20', value: String(w.capacity ?? 1), title: '同時可容納幾個專案', disabled: (w.kind || 'outage') === 'freeze' });
+        const del = el('button', { class: 'icon-btn', type: 'button', 'aria-label': '刪除這個時段', html: svg('trash') });
+        title.addEventListener('input', () => { w.title = title.value; emit(); });
+        kind.addEventListener('change', () => { w.kind = kind.value; if (w.kind === 'freeze') w.capacity = 0; paint(); emit(); });
+        from.addEventListener('change', () => { w.from = from.value; if (!w.to || w.to < w.from) { w.to = w.from; to.value = w.from; } emit(); });
+        to.addEventListener('change', () => { w.to = to.value; emit(); });
+        cap.addEventListener('input', () => { w.capacity = Math.max(0, Math.min(20, parseInt(cap.value, 10) || 0)); emit(); });
+        del.addEventListener('click', () => { list.splice(i, 1); paint(); emit(); });
+        return el('div', { class: 'win-row' }, el('div', { class: 'win-top' }, title, kind, del),
+          el('div', { class: 'win-bot' }, from, el('span', { text: '至' }), to,
+            el('label', { class: 'win-cap' }, el('span', { text: '可容納' }), cap, el('span', { text: '個專案' }))));
+      }), (() => {
+        const add = el('button', { class: 'btn btn-sm', type: 'button', html: svg('plus') + '新增時段' });
+        add.addEventListener('click', () => { const d = new Date().toISOString().slice(0, 10); list.push({ title: '', kind: 'outage', from: d, to: d, capacity: 1 }); paint(); emit(); });
+        return add;
+      })());
+    }
+    paint();
+    return box;
+  }
+
   function tagColorsEditor(value, onChange) {
     const colors = { ...value };
     const box = el('div', { class: 'tagc' });
@@ -1212,6 +1245,9 @@
       { key: 'board_supervisor', label: '上級對下級卡片的權限', type: 'seg', options: [['rw', '可編輯'], ['ro', '檢視＋留言'], ['off', '不分享']], hint: '上級＝帳號的上級（AD 的 manager 或在「帳號與權限」設定），可以多層。可編輯：瀏覽、留言、增刪修、指派給下級；檢視＋留言：只能看與留言' },
       { key: 'board_wip_high', label: '工作量：每欄幾張起算「高負荷」', type: 'number', hint: '預設 6：每欄 ≤5 張為正常、6～8 張顯示「高負荷」' },
       { key: 'board_wip_over', label: '工作量：每欄幾張起算「超量」', type: 'number', hint: '預設 9：≥9 張顯示「超量」，顯示在看板欄位標題' },
+      { key: 'board_load_hours', label: '人員負載：每週上限（小時）', type: 'hours', hint: '每人每週到期的未完成工作，預估工時合計超過這個數字就算「超載」（跨所有專案與一般卡），會列入雷達的警示清單' },
+      { key: 'board_default_estimate_hours', label: '人員負載：沒填預估的項目以幾小時計', type: 'hours', hint: '負載表會另外標出「未填預估」的項目數，提醒大家補填' },
+      { key: 'board_windows', label: '共用時段（停電、維護窗口、變更凍結期）', type: 'windows', hint: '工作可以在「排程」選要用哪個時段。停電／維護：超過「可容納幾個專案」就算衝突；凍結期：任何排進來的工作都算衝突。' },
       { key: 'board_tag_colors', label: '卡片標籤顏色', type: 'tagcolors', hint: '列出卡片上用過的標籤；沒指定的標籤依名稱自動配色。也可以先為還沒用過的標籤設定顏色。' },
       { key: 'public_dashboard', label: '公開進度看板 /dashboard（不需登入、只顯示數量）', type: 'switch', hint: '依部門 → 帳號 → 狀態顯示卡片數，不含任何卡片內容與週期工作；關閉後該頁顯示「已關閉」' },
       { key: 'board_overdue_remind_time', label: '過期未結案：每天提醒時間', type: 'text', hint: '格式 HH:MM（預設 09:30）。單次卡片過了到期日還沒結案，會移到「過期未結案」，每天這個時間跳出提醒直到結案' },
@@ -1275,6 +1311,9 @@
         }
         case 'icon': return el('div', { class: 'field' }, el('span', { class: 'field-label', text: f.label }),
           iconButton(v, () => draft.site_title || 'T', x => set(f.key, x)), f.hint ? el('span', { class: 'hint', text: f.hint }) : null);
+        case 'hours': { const i = el('input', { class: 'input', type: 'number', min: '0.5', max: '200', step: '0.5', value: v ?? '' }); i.addEventListener('input', () => set(f.key, parseFloat(i.value) || 1)); return field(f.label, i, f.hint); }
+        case 'windows': return el('div', { class: 'field span-all' }, el('span', { class: 'field-label', text: f.label }),
+          windowsEditor(v || [], x => set(f.key, x)), el('span', { class: 'hint', text: f.hint }));
         case 'tagcolors': return el('div', { class: 'field span-all' }, el('span', { class: 'field-label', text: f.label }),
           tagColorsEditor(v || {}, x => set(f.key, x)), el('span', { class: 'hint', text: f.hint }));
         case 'filters': return el('div', { class: 'field span-all' }, el('span', { class: 'field-label', text: f.label }), filtersEditor(v || [], x => set(f.key, x)), el('span', { class: 'hint', text: f.hint }));

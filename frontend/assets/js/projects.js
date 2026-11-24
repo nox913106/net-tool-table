@@ -95,12 +95,22 @@
       el('div', {}, el('h1', { text: '專案總覽' }), el('p', { class: 'page-desc', text: '所有專案一列一個，依主管排序；一般（維運）卡片不會混進來。' }))),
       el('div', { class: 'board-tools' }, add));
     const body = el('div', { class: 'pj-over' }, el('p', { class: 'hint', text: '載入中…' }));
-    view.replaceChildren(head, body);
+    let tab = TT.store.get('projects-tab', 'list');
+    const tabs = el('div', { class: 'pj-tabs', role: 'tablist' });
+    view.replaceChildren(head, tabs, body);
     await TTBoard.load().catch(() => {});
+    const paintTabs = () => tabs.replaceChildren(...[['list', '專案'], ['load', '人員負載'], ['links', '時段與跨專案']].map(([k, l]) => {
+      const b = el('button', { class: 'pj-tab', type: 'button', role: 'tab', 'aria-selected': String(tab === k), text: l });
+      b.addEventListener('click', () => { tab = k; TT.store.set('projects-tab', k); paintTabs(); paint(); });
+      return b;
+    }));
+    paintTabs();
     const paint = async () => {
       if (!body.isConnected) { document.removeEventListener('tt:tasks', paint); return; }
       const a = await TTBoard.projectAnalysis().catch(() => null);
       if (!a) { body.replaceChildren(el('p', { class: 'hint', text: '讀不到專案資料' })); return; }
+      if (tab === 'load') { body.replaceChildren(...loadView(a)); return; }
+      if (tab === 'links') { body.replaceChildren(...linksView(a)); return; }
       const T = todayN();
       const ps = a.projects;
       const lo = Math.min(T - 14, ...ps.map(p => day(p.start) ?? T)), hi = Math.max(T + 60, ...ps.map(p => day(p.end) ?? day(p.due) ?? T));
@@ -161,6 +171,59 @@
     };
     document.addEventListener('tt:tasks', paint);
     paint();
+  }
+
+  const titleOf = id => TTBoard.tasks.find(t => t.id === id)?.title || '';
+  /** People × weeks: estimated hours due, across every project and everyday card. */
+  function loadView(a) {
+    const limit = a.load_hours, w0 = Date.parse(a.week0);
+    let sel = a.load.find(r => r.over) || a.load[0];
+    let wk = 0;
+    const detail = el('div', { class: 'pj-load-detail' });
+    const table = el('table', { class: 'pj-table pj-heat' });
+    const paintTable = () => table.replaceChildren(
+      el('thead', {}, el('tr', {}, el('th', { text: '人員' }), ...[0, 1, 2, 3, 4, 5].map(k => el('th', { text: `${k ? '' : '本週 '}${md(new Date(w0 + k * 7 * 864e5).toISOString())} 週` })))),
+      el('tbody', {}, ...a.load.map(r => el('tr', {}, el('td', {}, r.name, r.over ? el('span', { class: 'pj-flag overload', text: '超載' }) : null),
+        ...r.weeks.slice(0, 6).map((w, k) => {
+          const lv = w.hours === 0 ? 0 : w.hours <= limit * .6 ? 1 : w.hours <= limit ? 2 : 3;
+          const td = el('td', { class: `h l${lv}` + (sel === r && wk === k ? ' sel' : ''), tabindex: '0', title: `${w.count} 項${w.no_estimate ? `，${w.no_estimate} 項未填預估` : ''}` },
+            el('b', { text: `${w.hours}h` }), w.no_estimate ? el('small', { text: ` (${w.no_estimate}?)` }) : null);
+          const go = () => { sel = r; wk = k; paintTable(); paintDetail(); };
+          td.addEventListener('click', go);
+          td.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+          return td;
+        })))));
+    const paintDetail = () => {
+      if (!sel) { detail.replaceChildren(); return; }
+      const w = sel.weeks[wk];
+      const groups = {};
+      w.items.forEach(i => { const k = i.project ? `#${i.project}` : 'ops'; (groups[k] = groups[k] || []).push(i); });
+      detail.replaceChildren(el('h3', { text: `${sel.name} · ${wk ? `第 ${wk + 1} 週` : '本週'}：${w.hours} 小時 / 上限 ${limit}` + (w.no_estimate ? `（${w.no_estimate} 項未填預估，各以 ${a.default_hours} 小時計）` : '') }),
+        ...Object.entries(groups).sort((x, y) => y[1].reduce((n, i) => n + i.hours, 0) - x[1].reduce((n, i) => n + i.hours, 0)).map(([k, list]) =>
+          el('div', { class: 'pj-load-row' }, el('span', { class: k === 'ops' ? 'pj-kind ops' : 'pj-kind proj', text: k === 'ops' ? '一般' : titleOf(+k.slice(1)) }),
+            el('span', { text: `${list.reduce((n, i) => n + i.hours, 0)}h：` + list.map(i => `${i.title}${i.estimated ? '' : '（未填）'}`).join('、') }))));
+    };
+    paintTable(); paintDetail();
+    return [el('p', { class: 'hint', text: `每格是當週到期的未完成項目預估工時合計（跨所有專案與一般卡），上限 ${limit} 小時；括號是未填預估的項目數（以 ${a.default_hours} 小時計）。點格子看是哪些專案疊在一起。上限在後台「設定 → 待辦看板」調整。` }),
+      a.load.length ? el('div', { class: 'pj-tw' }, table) : el('p', { class: 'hint', text: '這段期間沒有指派給人的到期項目。' }), detail];
+  }
+  /** Shared windows and cross-project dependencies: where projects get in each other's way. */
+  function linksView(a) {
+    const KIND = { outage: '停電', maintenance: '維護窗口', freeze: '變更凍結期' };
+    const wins = a.windows.map(w => el('div', { class: 'pj-win' + (w.clash ? ' clash' : '') },
+      el('div', {}, el('b', { text: w.title }), el('div', { class: 'hint', text: `${KIND[w.kind] || w.kind} · ${md(w.from)}${w.to !== w.from ? '–' + md(w.to) : ''} · ${w.kind === 'freeze' ? '不可排變更' : `可容納 ${w.capacity} 個專案`}` })),
+      el('div', { class: 'pj-win-users' }, ...(w.users.length ? w.users.map(u => el('span', {}, el('span', { class: 'pj-kind proj', text: titleOf(u.project || u.card) }), ` ${u.title}${u.who ? `（${u.who}）` : ''}`)) : [el('span', { class: 'hint', text: '沒有工作使用' })]),
+        el('span', { class: 'pj-flag' + (w.clash ? '' : ' ok'), text: w.clash ? (w.kind === 'freeze' ? '衝突：排進凍結期' : `衝突：${w.projects} 個專案搶用`) : '正常' }))));
+    const xd = a.problems.filter(p => p.type === 'xdep');
+    const links = xd.map(p => {
+      const row = el('button', { type: 'button', class: 'pj-chain' }, el('span', { class: 'pj-kind proj', text: p.card_title }), el('b', { text: p.title }), el('span', { text: p.text }));
+      row.addEventListener('click', () => { const c = TTBoard.tasks.find(t => t.id === p.card); if (c) TTBoard.openNavigator(c); });
+      return row;
+    });
+    return [el('h3', { class: 'pj-h3', text: '共用時段' }),
+      ...(wins.length ? wins : [el('p', { class: 'hint', text: '還沒有設定共用時段：在後台「設定 → 待辦看板 → 共用時段」新增停電、維護窗口或凍結期。' })]),
+      el('h3', { class: 'pj-h3', text: `跨專案前置延誤（${xd.length}）` }),
+      ...(links.length ? links : [el('p', { class: 'hint', text: '目前沒有：前置任務在別的專案而且延誤時，會列在這裡並通知後續的負責人。' })])];
   }
 
   // ---------------------------------------------------------------- one project

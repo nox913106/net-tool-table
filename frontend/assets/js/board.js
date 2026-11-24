@@ -1417,6 +1417,13 @@ const TTBoard = window.TTBoard = (() => {
     find?.addEventListener('focus', () => find.dispatchEvent(new Event('input')));
     find?.addEventListener('blur', () => setTimeout(() => { sug.hidden = true; }, 150));
     find?.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); sug.hidden = true; } });
+    const wins = settings.board_windows || [];
+    const winSel = el('select', { class: 'select input-sm kb-win-sel', disabled: !editable, title: '這項工作要用的共用時段（停電、維護窗口）；排進凍結期也在這裡標記' },
+      el('option', { value: '', text: '不使用共用時段' }),
+      ...wins.map(w => el('option', { value: w.id, selected: w.id === item.win,
+        text: `${w.title}（${w.from.slice(5).replace('-', '/')}${w.to !== w.from ? '–' + w.to.slice(5).replace('-', '/') : ''}${w.kind === 'freeze' ? '，凍結期' : `，可容納 ${w.capacity}`}）` })));
+    if (item.win && !wins.some(w => w.id === item.win)) winSel.append(el('option', { value: item.win, selected: true, text: '（已刪除的時段）' }));
+    winSel.addEventListener('change', () => emit({ win: winSel.value }));
     const st = el('input', { class: 'input input-sm', type: 'date', value: started.slice(0, 10), disabled: !editable, title: '第一次改成進行中或第一次記工時時自動記錄，也可以修正' });
     st.addEventListener('change', () => { started = st.value; emit({ started_at: started || null }); });
     const base = el('span', { class: 'kb-sched-base', text: baselineText(item) || '還沒有設定基準線' });
@@ -1439,11 +1446,12 @@ const TTBoard = window.TTBoard = (() => {
       clear?.addEventListener('click', () => run(true));
       baseBtns = el('span', { class: 'kb-sched-btns' }, set, clear);
     }
-    box.append(
+    box.append(...[
       el('div', { class: 'kb-sched-row' }, ms),
       el('div', { class: 'kb-sched-row' }, el('span', { class: 'kb-sched-label', html: svg('link') + '前置任務' }), el('div', { class: 'kb-dep-box' }, chips, find, sug)),
+      wins.length || item.win ? el('div', { class: 'kb-sched-row' }, el('span', { class: 'kb-sched-label', html: svg('zap') + '共用時段' }), winSel) : null,
       el('div', { class: 'kb-sched-row' }, el('span', { class: 'kb-sched-label', html: svg('play') + '實際開始' }), st,
-        el('span', { class: 'kb-sched-label', html: svg('calendar') + '基準線' }), base, baseBtns));
+        el('span', { class: 'kb-sched-label', html: svg('calendar') + '基準線' }), base, baseBtns)].filter(Boolean));
     return { el: box, value: () => ({ ...changed }) };
   }
 
