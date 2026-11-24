@@ -11,7 +11,8 @@ Layout (sheet 「工作報告」)
              Excel outline grouping folds a card's children (+/- on the left).
 Columns  編號 類型 項目 標籤 負責人 狀態 優先 開始 到期 里程碑 前置任務 完成% 預估(h) 實際(h) 最新進度／說明 備註 系統ID
   里程碑 (◆) can be set / cleared on import (◆／是 → set, 否 → clear, empty → unchanged); 前置任務 lists the
-  predecessors by their number in this report (or 「card › item」 when not in it) and is ignored on import.
+  predecessors by their number in this report (or 「card › item」 when not in it); on import the numbers
+  set the predecessors (「…」 references to items outside the file are left as they are).
   系統ID (T12 / S45 / C7) lets the same file be imported back to update those items; rows without
   one are created. 備註 is free space for the reader and is ignored on import.
   Under each subtask its work log follows (類型 工時: date, hours, who, note; outline level 2) —
@@ -533,6 +534,10 @@ def _cell_date(v):
     return f"{int(y):04d}-{int(mo):02d}-{int(d):02d}" + (f"T{int(hh):02d}:{mm}" if hh else "")
 
 
+# 前置任務: "1.2、1.3（+2 天）" — numbers of rows in the same file, optional lag in days
+DEPS_RE = re.compile(r"(?<![\d.])(\d+(?:\.\d+)*)(?:\s*[（(]\s*([+-]?\d+)\s*天?\s*[)）])?")
+
+
 def _clean_title(v) -> str:
     s = str(v or "").strip()
     s = re.sub(r"^[　\s]*└\s*", "", s)
@@ -583,6 +588,12 @@ def parse(data: bytes) -> List[dict]:
             item["errors"].append(f"類型「{kind_txt}」和系統ID「{sid}」不一致")
         item["kind"] = kind
         item["depth"] = num.count(".") if re.fullmatch(r"\d+(\.\d+)*", num) else 1   # 1.2 → 1, 1.2.1 → 2 (a subtask's subtask)
+        item["num"] = num if re.fullmatch(r"\d+(\.\d+)*", num) else None
+        deps_raw = str(get(r, "前置任務") or "").strip()
+        if deps_raw and kind != "collab":
+            inside = re.sub(r"「[^」]*」(?:\s*[（(][^)）]*[)）])?", " ", deps_raw)
+            item["deps"] = [(m.group(1), int(m.group(2) or 0)) for m in DEPS_RE.finditer(inside)]
+            item["deps_other"] = "「" in deps_raw              # refers to items outside this file: kept as they are
         person = str(get(r, "負責人") or "").strip()
         item["person"] = person or None
         if kind == "card" and "標籤" in cols:                  # "#a #b", "a、b" or "a, b"

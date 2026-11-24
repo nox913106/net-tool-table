@@ -942,18 +942,25 @@ async def _import_plan(items: List[dict], user: dict) -> List[dict]:
                 owner = it["row"]
             elif it["kind"] == "sub" and owner:
                 has_sub_rows.add(owner)
+        by_num = {}                                    # 編號 → index in plan (for 前置任務 and parents)
         for it in items:
             out = {"row": it["row"], "kind": it["kind"], "title": it.get("title") or "", "action": "unchanged",
                    "changes": [], "warnings": [], "errors": list(it["errors"]), "_op": None}
             plan.append(out)
+            if it.get("num") and it["kind"] != "collab":
+                by_num.setdefault(it["num"], len(plan) - 1)
+            if it.get("id") and it["kind"] in ("card", "sub"):
+                out["id"] = ("T" if it["kind"] == "card" else "S") + str(it["id"])
             person = None
             if it.get("person"):
                 try:
                     person = people.resolve(it["person"])
                 except ValueError as e:
-                    (out["errors"] if it["kind"] != "card" else out["warnings"]).append(str(e))
+                    # someone this system does not know (a file from another site): the row is still imported, unassigned
+                    (out["errors"] if it["kind"] == "collab" else out["warnings"]).append(str(e) + ("" if it["kind"] == "collab" else "，這一列不指派負責人"))
             if it["kind"] == "card":
-                ctx = {"row": it["row"], "id": None, "error": False, "subs": {}, "members": {}, "edit": True, "summary": False}
+                ctx = {"row": it["row"], "id": None, "error": False, "subs": {}, "members": {}, "edit": True, "summary": False,
+                       "index": len(plan) - 1}
                 if it["id"]:
                     try:
                         t = await _get_visible(db, it["id"], user)
@@ -1074,16 +1081,24 @@ async def _import_plan(items: List[dict], user: dict) -> List[dict]:
                     elif fields:
                         out["action"], out["_op"] = "update", ("sub_update", it["id"], fields)
                 else:
+                    parent = None
                     if it.get("depth", 1) >= 2:
-                        out["errors"].append("下層子任務（編號三段以上）請在看板的任務視窗新增；匯入只能新增第一層子任務")
-                        continue
+                        if it["depth"] > SUB_MAX_DEPTH:
+                            out["errors"].append("最多四層（主卡＋三層子任務），編號最多四段，例如 1.2.3.4")
+                            continue
+                        pnum = (it.get("num") or "").rsplit(".", 1)[0]
+                        pi = by_num.get(pnum)
+                        if pi is None or plan[pi]["kind"] != "sub" or pi < ctx["index"]:
+                            out["errors"].append(f"找不到上一層子任務（編號 {pnum}）：上一層要寫在這一列之前")
+                            continue
+                        parent = pi
                     if ctx["id"] and not ctx["edit"]:
                         out["errors"].append("你沒有權限在這張卡片加子任務")
                         continue
                     fields = {k: it[k] for k in ("status", "priority", "start_at", "due_at", "estimate_minutes", "milestone") if it.get(k)}
                     if person:
                         fields["assignee"] = person["username"]
-                    out["action"], out["_op"] = "create", ("sub_create", it["title"], fields)
+                    out["action"], out["_op"] = "create", ("sub_create", it["title"], fields, parent)
                     out["changes"].append("、".join(x for x in [ZH.get(fields.get("status", "new")), person and f"負責人 {people.name(person['id'])}",
                                                                  fields.get("due_at") and f"到期 {fields['due_at']}"] if x))
                 continue
@@ -1109,9 +1124,54 @@ async def _import_plan(items: List[dict], user: dict) -> List[dict]:
                     continue
                 out["action"], out["_op"] = "create", ("collab_add", people.by_id[uid]["username"], uid, bool(it.get("done")))
                 out["changes"].append("加入為共同負責" + ("，標記完成" if it.get("done") else ""))
+        # 前置任務: by the numbers of rows in this file
+        uid_of = {}
+        for idx, (o, it) in enumerate(zip(plan, items)):
+            if it.get("deps") is None or it["kind"] == "collab" or o["errors"] or o["action"] == "skip":
+                continue
+            if it.get("deps_other"):
+                if it["deps"]:
+                    o["warnings"].append("前置任務含有檔案外的項目（「…」），前置任務維持不變")
+                continue
+            refs, bad = [], []
+            for num, lag in it["deps"]:
+                j = by_num.get(num)
+                if j is None or j == idx:
+                    bad.append(num)
+                else:
+                    refs.append((j, lag))
+            if bad:
+                o["warnings"].append("前置任務的編號找不到，已略過：" + "、".join(bad))
+            if it.get("id"):                              # unchanged predecessors are not a change
+                want = []
+                for j, lag in refs:
+                    ref = plan[j].get("id")
+                    if not ref:
+                        want = None
+                        break
+                    if ref not in uid_of:
+                        tbl = "tasks" if ref[0] == "T" else "task_comments"
+                        cur = await db.execute(f"SELECT uid FROM {tbl} WHERE id = ?", (int(ref[1:]),))
+                        r = await cur.fetchone()
+                        uid_of[ref] = r[0] if r else None
+                    want.append({"u": uid_of[ref], "lag": lag})
+                tbl = "tasks" if it["kind"] == "card" else "task_comments"
+                cur = await db.execute(f"SELECT deps FROM {tbl} WHERE id = ?", (it["id"],))
+                r = await cur.fetchone()
+                try:
+                    have = [{"u": d["u"], "lag": int(d.get("lag") or 0)} for d in json.loads(r[0])] if r and r[0] else []
+                except (ValueError, TypeError, KeyError):
+                    have = []
+                if want is not None and sorted(map(json.dumps, want)) == sorted(map(json.dumps, have)):
+                    continue
+            o["_deps"] = refs
+            o["changes"].append("前置：" + ("、".join(items[j].get("num") + (f"（{'+' if lag > 0 else ''}{lag} 天）" if lag else "") for j, lag in refs) or "（清除）"))
+            if o["action"] == "unchanged":
+                o["action"] = "update"
         for o in plan:
             if o["errors"]:
                 o["action"], o["_op"] = "error", None
+                o.pop("_deps", None)
         return plan
     finally:
         await db.close()
@@ -1132,16 +1192,25 @@ async def _import_apply(plan: List[dict], request: Request):
                     if op:
                         await update_task(op[1], TaskUpdate(**op[2]), request)
                     card_id = int(o.get("_card") or 0) or (op[1] if op else None)
+                o["_cardid"] = card_id
                 if op:
                     o["done"] = True
                 continue
+            o["_cardid"] = card_id
             if not op:
                 continue
             if card_id is None:
                 raise HTTPException(status_code=400, detail="所屬主任務沒有建立")
             if op[0] == "sub_create":
-                cid = (await add_comment(card_id, CommentIn(body=op[1]), request))["id"]
-                await update_subtask(card_id, cid, SubtaskIn(is_task=True, title=op[1], **op[2]), request)
+                if op[3] is not None:                    # below another subtask of this file
+                    pid = plan[op[3]].get("id")
+                    if not pid:
+                        raise HTTPException(status_code=400, detail="上一層子任務沒有建立")
+                    cid = (await create_subtask(card_id, SubtaskNew(title=op[1], parent=int(pid[1:])), request))["id"]
+                    await update_subtask(card_id, cid, SubtaskIn(**op[2]), request)
+                else:
+                    cid = (await add_comment(card_id, CommentIn(body=op[1]), request))["id"]
+                    await update_subtask(card_id, cid, SubtaskIn(is_task=True, title=op[1], **op[2]), request)
                 o["id"] = f"S{cid}"
             elif op[0] == "sub_update":
                 await update_subtask(card_id, op[1], SubtaskIn(**op[2]), request)
@@ -1163,6 +1232,20 @@ async def _import_apply(plan: List[dict], request: Request):
             o["action"] = "error"
             o["errors"].append(str(e.detail))
             o["done"] = False
+    # predecessors last: every row they point to exists by now
+    for o in plan:
+        if "_deps" not in o or o["action"] == "error" or not o.get("id") or not o.get("_cardid"):
+            continue
+        deps = [DepIn(key=("t:" if plan[j]["id"][0] == "T" else "s:") + plan[j]["id"][1:], lag=lag)
+                for j, lag in o["_deps"] if plan[j].get("id") and plan[j]["action"] != "error"]
+        try:
+            if o["kind"] == "card":
+                await update_task(o["_cardid"], TaskUpdate(deps=deps), request)
+            else:
+                await update_subtask(o["_cardid"], int(o["id"][1:]), SubtaskIn(deps=deps), request)
+            o["done"] = True
+        except HTTPException as e:
+            o["warnings"].append("前置任務沒有設定：" + str(e.detail))
 
 
 @router.post("/import.xlsx")
