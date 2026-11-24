@@ -195,7 +195,7 @@ const TTBoard = window.TTBoard = (() => {
   /** Download the cards as a one-sheet progress report (.xlsx): 主任務 > 子任務／協作. */
   async function exportXlsx(ids) {
     try {
-      const res = await fetch('/api/tasks/export.xlsx', { method: 'POST', headers: { 'X-Tool-Table': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
+      const res = await fetch('/api/tasks/export.xlsx', { method: 'POST', headers: { 'X-Tool-Table': '1', 'X-Lang': TT_LANG, 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
       if (!res.ok) {
         let msg = `HTTP ${res.status}`;
         try { msg = (await res.json()).detail || msg; } catch { /* not json */ }
@@ -239,7 +239,7 @@ const TTBoard = window.TTBoard = (() => {
       const fd = new FormData();
       fd.append('file', file);
       fd.append('apply', doApply ? 'true' : 'false');
-      const res = await fetch('/api/tasks/import.xlsx', { method: 'POST', headers: { 'X-Tool-Table': '1' }, body: fd });
+      const res = await fetch('/api/tasks/import.xlsx', { method: 'POST', headers: { 'X-Tool-Table': '1', 'X-Lang': TT_LANG }, body: fd });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
       return data;

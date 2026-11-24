@@ -125,6 +125,9 @@ async def harden_icons(request: Request, call_next):
 
 # Registered last = runs first: login / roles / CSRF header (app/auth.py)
 app.middleware("http")(auth_mod.gate)
+# … and before that: the request's language; English answers get the server's texts translated (app/i18n.py)
+from . import i18n as i18n_mod          # noqa: E402
+app.middleware("http")(i18n_mod.middleware)
 
 # --- Static ---
 ICON_DIR.mkdir(parents=True, exist_ok=True)

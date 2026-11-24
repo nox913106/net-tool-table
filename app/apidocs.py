@@ -212,25 +212,67 @@ def _tag(method: str, path: str, old: Optional[list]) -> str:
     return _ROUTER_TAG.get((old or [""])[0], "其他")
 
 
+INTRO_EN = """\
+Every Tool Table API. “Try it out” calls this server **as the account you are signed in with**;
+calls that change data really change it.
+
+**Authentication**
+- Server edition: the session cookie (`tt_session`) of a browser sign-in. Sign in to Tool Table in the same browser first.
+- Standalone sync: `Authorization: Bearer <device token>` (only for `/api/sync/`).
+- Every call that changes data (POST / PUT / DELETE) must send the `X-Tool-Table: 1` header, so other websites can't forge requests.
+  This page adds it; add it yourself with curl or in code. `X-Lang: en` returns messages in English.
+
+**Permissions**: the same as the web pages. A card you can't see answers 404, no permission 403, not signed in 401.
+
+**Dates**: `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM` (server local time).
+"""
+TAGS_EN = {"待辦看板": ("Board", "Cards: create, change, delete, order, close, blocked, search and tags"),
+           "子任務、留言與工時": ("Subtasks, comments & time", "Comment threads, subtasks (up to four levels), timers and time logs"),
+           "專案與甘特圖": ("Projects & Gantt", "Project analysis (health, problems, people load, shared windows), ranking, Gantt data, baselines, shifting, project notifications"),
+           "附件": ("Attachments", "Images and documents on cards and comments"),
+           "Excel 報告": ("Excel report", "Export and import the progress report"),
+           "通知": ("Notifications", "🔔 notifications and marking them read"),
+           "登入與帳號": ("Sign-in & accounts", "Sign in and out, the current user, passwords, accounts and permissions, people search"),
+           "入口網站": ("Portal", "Folders and links (public and personal areas), search"),
+           "快速連結": ("Quick links", "The home page's quick links"),
+           "圖示": ("Icons", "Icon library: upload, rename, delete, fetch site icons"),
+           "設定與匯出": ("Settings & export", "Appearance and board settings, whole-site export / import"),
+           "系統設定": ("System settings", "AD / LDAP, sign-in security, backups, HTTPS certificate, network (administrators)"),
+           "單機版同步": ("Standalone sync", "Server side (device link, push, pull, files) and the standalone side (connect, sync now, conflicts)"),
+           "本機程式": ("Local programs", "Windows standalone: read shortcuts, start local programs"),
+           "公開儀表板": ("Public dashboard", "Work counts by department, no sign-in"),
+           "其他": ("Other", "Health check, server time, client IP")}
+
+
 def install(app, version: str):
-    """Replace app.openapi with one that carries the Chinese summaries, groups and the intro."""
+    """Replace app.openapi with one that carries the summaries, groups and the intro (Chinese, or English for X-Lang: en)."""
+    from . import i18n
+    cache = {}
+
     def openapi():
-        if app.openapi_schema:
-            return app.openapi_schema
-        spec = get_openapi(title="Tool Table API", version=version, description=INTRO, routes=app.routes)
-        spec["tags"] = [{"name": n, "description": d} for n, d in TAGS]
+        lang = i18n.lang()
+        if lang in cache:
+            return cache[lang]
+        en = lang == "en"
+        spec = get_openapi(title="Tool Table API", version=version, description=INTRO_EN if en else INTRO, routes=app.routes)
+        spec["tags"] = [{"name": TAGS_EN[n][0] if en else n, "description": TAGS_EN[n][1] if en else d} for n, d in TAGS]
         for path, ops in spec.get("paths", {}).items():
             for method, op in ops.items():
                 key = f"{method.upper()} {path}"
-                if key in SUMMARY:
+                if en:
+                    first = (op.get("description") or "").strip().split("\n")[0].strip()
+                    if first:
+                        op["summary"] = first[:120]
+                elif key in SUMMARY:
                     op["summary"] = SUMMARY[key]
-                op["tags"] = [_tag(method, path, op.get("tags"))]
+                tag = _tag(method, path, op.get("tags"))
+                op["tags"] = [TAGS_EN[tag][0] if en else tag]
         spec["components"] = spec.get("components", {})
         spec["components"]["securitySchemes"] = {
-            "session": {"type": "apiKey", "in": "cookie", "name": "tt_session", "description": "瀏覽器登入後的 session"},
-            "device": {"type": "http", "scheme": "bearer", "description": "單機版的裝置權杖（只限 /api/sync/）"},
+            "session": {"type": "apiKey", "in": "cookie", "name": "tt_session", "description": "Browser sign-in session" if en else "瀏覽器登入後的 session"},
+            "device": {"type": "http", "scheme": "bearer", "description": "Standalone device token (only /api/sync/)" if en else "單機版的裝置權杖（只限 /api/sync/）"},
         }
         spec["security"] = [{"session": []}, {"device": []}]
-        app.openapi_schema = spec
+        cache[lang] = spec
         return spec
     app.openapi = openapi

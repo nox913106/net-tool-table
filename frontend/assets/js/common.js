@@ -24,7 +24,7 @@ const TT = (() => {
   async function api(path, { method = 'GET', body, form } = {}) {
     // X-Tool-Table forces a CORS preflight for cross-site requests (which the server never
     // approves), so other websites cannot call local-only endpoints such as /api/launch.
-    const opts = { method, headers: { 'X-Tool-Table': '1' } };
+    const opts = { method, headers: { 'X-Tool-Table': '1', 'X-Lang': window.TT_LANG || 'zh-TW' } };
     if (form) opts.body = form;
     else if (body !== undefined) {
       opts.headers['Content-Type'] = 'application/json';

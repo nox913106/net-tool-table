@@ -20,6 +20,7 @@ window.addEventListener('DOMContentLoaded', () => {
     requestInterceptor: req => {
       req.headers = req.headers || {};
       req.headers['X-Tool-Table'] = '1';
+      req.headers['X-Lang'] = window.TT_LANG || 'zh-TW';
       req.credentials = 'same-origin';
       return req;
     },

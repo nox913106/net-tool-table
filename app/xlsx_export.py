@@ -202,7 +202,7 @@ def _extra_sheets(wb, analysis: dict, today):
         ws = wb.create_sheet("人員負載")
         w0 = date.fromisoformat(analysis["week0"])
         limit = analysis["load_hours"]
-        cols = [("人員", 16)] + [(f"{'本週 ' if k == 0 else ''}{(w0 + timedelta(days=7 * k)):%m/%d} 週（小時）", 13) for k in range(6)] + [("本週項目", 9), ("本週未填預估", 12)]
+        cols = [("人員", 16)] + [((f"本週 {(w0 + timedelta(days=7 * k)):%m/%d} 週（小時）" if k == 0 else f"{(w0 + timedelta(days=7 * k)):%m/%d} 週（小時）"), 13) for k in range(6)] + [("本週項目", 9), ("本週未填預估", 12)]
         _sheet_head(ws, "人員負載", f"每週到期的未完成項目預估工時合計（跨所有專案與一般卡）；上限 {limit:g} 小時，未填預估的項目以 {analysis['default_hours']:g} 小時計　以本報告範圍計算", cols)
         for r, p in enumerate(load, start=5):
             ws.cell(row=r, column=1, value=_txt(p["name"])).border = BOX
@@ -438,8 +438,71 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
     ws.oddFooter.right.text = f"{now:%Y-%m-%d}"
     out = io.BytesIO()
     _extra_sheets(wb, analysis, today)
+    from . import i18n
+    if i18n.lang() == "en":
+        localize_workbook(wb)
     wb.save(out)
     return out.getvalue()
+
+
+# ------------------------------------------------------------------ English
+# columns whose cells are the report's own words (not what people typed); everything else keeps its content
+SYSTEM_COLS = {"類型", "狀態", "優先", "里程碑", "說明", "前置任務"}
+
+
+def localize_workbook(wb):
+    """The report in English: sheet names, header rows and what is above them, the system columns,
+    drop-down lists and the page footer. Item names, people and notes are left as they are."""
+    from .i18n import translate
+    for ws in wb.worksheets:
+        ws.title = translate(ws.title, "en")[:31]
+        head = None
+        for row in ws.iter_rows(min_row=1, max_row=min(ws.max_row, 12)):
+            names = {str(c.value).strip() for c in row if c.value is not None}
+            if {"項目", "類型"} <= names or {"專案", "狀態"} <= names or {"人員"} & names or {"類型", "說明"} <= names:
+                head = row[0].row
+                break
+        sys_cols = set()
+        if head:
+            for c in ws[head]:
+                if isinstance(c.value, str) and c.value.strip() in SYSTEM_COLS:
+                    sys_cols.add(c.column)
+        for row in ws.iter_rows():
+            for c in row:
+                if not isinstance(c.value, str):
+                    continue
+                if (head and c.row <= head) or c.column in sys_cols or not head:
+                    c.value = _en_cell(c.value)
+        for dv in ws.data_validations.dataValidation:
+            f = dv.formula1 or ""
+            if f.startswith('"') and f.endswith('"'):
+                dv.formula1 = '"' + ",".join(translate(x, "en") for x in f[1:-1].split(",")) + '"'
+        if ws.oddFooter.center.text:
+            ws.oddFooter.center.text = translate(ws.oddFooter.center.text, "en")
+
+
+def _en_cell(v):
+    """A cell the report wrote: phrases joined by wide spaces, “／” or “、” are translated one by one."""
+    from .i18n import translate
+    out = translate(v, "en")
+    if out != v or not re.search(r"[\u3000／、]", v):
+        return out
+    def one(p):
+        t = translate(p, "en")
+        if t == p:
+            m = re.fullmatch(r"(\S+) (\d+)", p)                    # “進行中 2”
+            if m:
+                t = f"{translate(m.group(1), 'en')} {m.group(2)}"
+        return t
+    v = "\u3000".join("／".join(", ".join(one(x) for x in seg.split("、")) for seg in part.split("／")) for part in v.split("\u3000"))
+    return v.replace("／", " / ")
+
+
+# English report headers and values → the Chinese the importer reads
+def _zh_names():
+    from .i18n import _EN
+    names = [c[0] for c in COLUMNS] + list(STATUS_ZH.values()) + list(PRIORITY.values()) + list(KIND.values()) + [KIND_PROJECT, COLLAB_OPEN, "否", "是"]
+    return {_EN[n].strip().lower(): n for n in names if n in _EN}
 
 
 # ------------------------------------------------------------------ import
@@ -486,6 +549,8 @@ def parse(data: bytes) -> List[dict]:
     ws = wb[SHEET] if SHEET in wb.sheetnames else wb.worksheets[0]
     head, cols = None, {}
     rows = list(ws.iter_rows(values_only=True, max_row=5000))
+    back = _zh_names()                                     # a report exported in English reads the same
+    rows = [tuple(back.get(c.strip().lower(), c) if isinstance(c, str) else c for c in r) for r in rows]
     for i, r in enumerate(rows[:30]):
         names = [str(c).strip() if c is not None else "" for c in r]
         if "項目" in names and ("類型" in names or "編號" in names):

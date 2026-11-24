@@ -860,12 +860,15 @@ async def export_xlsx(body: ExportIn, request: Request):
         await db.close()
     from datetime import datetime
     author = user.get("display_name") or user.get("username") or ""
+    import contextvars
+    ctx = contextvars.copy_context()                   # the worker thread keeps the request's language
     data = await asyncio.get_running_loop().run_in_executor(
-        None, lambda: xlsx_export.build_report(cards, subtasks, comments, times, names, author, sub_deps=sub_deps,
-                                               analysis=analysis, project_titles=project_titles))
+        None, lambda: ctx.run(xlsx_export.build_report, cards, subtasks, comments, times, names, author, sub_deps=sub_deps,
+                              analysis=analysis, project_titles=project_titles))
+    from .. import i18n
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
     safe = re.sub(r'[\\/:*?"<>|\s]+', "_", cards[0]["title"])[:60]
-    name = f"工作進度報告-{stamp}.xlsx" if len(cards) > 1 else f"{safe}-{stamp}.xlsx"
+    name = i18n.tr("工作進度報告-{0}.xlsx", stamp) if len(cards) > 1 else f"{safe}-{stamp}.xlsx"
     return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={
         "Content-Disposition": f"attachment; filename=\"report-{stamp}.xlsx\"; filename*=UTF-8''{quote(name)}",
         "Cache-Control": "no-store",
