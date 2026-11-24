@@ -1664,6 +1664,68 @@
         res,
         el('div', { class: 'sys-actions' }, saveBtn)));
 
+      // ---------------- Microsoft Entra ID
+      let E;
+      try { E = await api('/api/system/entra'); } catch (e) { E = null; }
+      if (E) {
+        const ef = {
+          enabled: switchCtl(E.enabled, _t('啟用 Microsoft 帳號登入'), () => {}),
+          tenant_id: input(E.tenant_id, { placeholder: '00000000-0000-0000-0000-000000000000' }),
+          client_id: input(E.client_id, { placeholder: '00000000-0000-0000-0000-000000000000' }),
+          client_secret: input('', { type: 'password', autocomplete: 'new-password', placeholder: E.client_secret_set ? _t('••••••••（已設定；留空 = 不變）') : _t('用戶端密碼的「值」') }),
+          redirect_uri: input(E.redirect_uri, { placeholder: E.default_redirect_uri }),
+          allowed_groups: el('textarea', { class: 'textarea mono', rows: '2', placeholder: _t('群組物件 ID，一行一個（留空 = 租用戶內的人都能登入）') }),
+          sync_profile: switchCtl(E.sync_profile !== false, _t('登入時從 Entra 更新姓名、部門、信箱與上級（只讀取，不會寫回）'), () => {}),
+          directory: switchCtl(!!E.directory, _t('看板 @ 與指派可以搜尋 Entra 目錄（需要應用程式權限 User.Read.All）'), () => {}),
+          button_label: input(E.button_label, { placeholder: _t('以 Microsoft 帳號登入'), maxlength: '40' }),
+        };
+        ef.allowed_groups.value = E.allowed_groups || '';
+        const chk = x => x.querySelector('input').checked;
+        const evals = () => ({
+          enabled: chk(ef.enabled), tenant_id: ef.tenant_id.value.trim(), client_id: ef.client_id.value.trim(),
+          client_secret: ef.client_secret.value ? ef.client_secret.value : null, redirect_uri: ef.redirect_uri.value.trim(),
+          allowed_groups: ef.allowed_groups.value.trim(), sync_profile: chk(ef.sync_profile), directory: chk(ef.directory), button_label: ef.button_label.value.trim(),
+        });
+        const eres = resultBox();
+        const etest = el('button', { class: 'btn', type: 'button', html: svg('zap') + _t('測試') });
+        const esave = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + _t('儲存 Microsoft 登入設定') });
+        etest.addEventListener('click', async () => {
+          etest.disabled = true;
+          eres.hidden = false; eres.replaceChildren(el('div', { class: 'sys-step is-info', html: svg('refresh') + _t('<span>連線中…</span>') }));
+          try { showSteps(eres, await api('/api/system/entra/test', { method: 'POST', body: evals() })); }
+          catch (e) { showSteps(eres, { steps: [{ status: 'fail', text: e.message }] }); }
+          etest.disabled = false;
+        });
+        esave.addEventListener('click', async () => {
+          try {
+            E = await api('/api/system/entra', { method: 'PUT', body: evals() });
+            ef.client_secret.value = '';
+            ef.client_secret.placeholder = E.client_secret_set ? _t('••••••••（已設定；留空 = 不變）') : _t('用戶端密碼的「值」');
+            toast(E.enabled ? _t('Microsoft 登入已儲存並啟用') : _t('Microsoft 登入設定已儲存（未啟用）'));
+          } catch (e) { toast(e.message, true); }
+        });
+        const copyUri = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', html: svg('copy') + _t('複製') });
+        copyUri.addEventListener('click', async () => {
+          try { await navigator.clipboard.writeText(ef.redirect_uri.value.trim() || E.default_redirect_uri); toast(_t('已複製')); } catch { ef.redirect_uri.select(); }
+        });
+        grid.append(sysCard('globe', _t('Microsoft Entra ID 登入'),
+          _t('使用者按登入頁的「以 Microsoft 帳號登入」，用公司的 Microsoft 帳號（含多重要素驗證）登入；和 AD 登入可以同時使用。混合式環境中，內部部署帳號名稱相同的人會登入成同一個帳號。只讀取 Entra 的資料，不會寫回。') +
+          '<br>' + _t('在 Entra 系統管理中心 →「應用程式註冊」新增應用程式：重新導向 URI 選「Web」並填下方的網址，建立一組用戶端密碼，API 權限保留 Microsoft Graph 的 User.Read（委派）。'),
+          ef.enabled,
+          el('div', { class: 'sys-form' },
+            field(_t('租用戶（Tenant）ID'), ef.tenant_id, _t('目錄（租用戶）識別碼，或網域，例如 contoso.onmicrosoft.com')),
+            field(_t('應用程式（Client）ID'), ef.client_id),
+            field(_t('用戶端密碼（Client secret）'), ef.client_secret, _t('加密保存，不會再顯示；密碼到期前記得換新')),
+            el('div', { class: 'field span-all' }, el('span', { class: 'field-label', text: _t('重新導向 URI') }), el('div', { class: 'sys-test-row' }, ef.redirect_uri, copyUri),
+              el('span', { class: 'hint', text: _t('留空 = 使用這個網站的網址；在應用程式註冊填一模一樣的值') })),
+            el('div', { class: 'span-all' }, field(_t('只允許這些群組登入（選填）'), ef.allowed_groups, _t('需要在應用程式註冊的「權杖設定」加上 groups 宣告，或授與 GroupMember.Read.All'))),
+            el('div', { class: 'field span-all' }, ef.sync_profile, ef.directory),
+            field(_t('登入按鈕文字（選填）'), ef.button_label)),
+          el('div', { class: 'sys-test' }, el('span', { class: 'field-label', text: _t('測試（用目前表單的內容，不必先儲存）') }), el('div', { class: 'sys-test-row' }, etest)),
+          eres,
+          el('div', { class: 'sys-actions' }, esave)));
+      }
+
       // ---------------- sign-in security
       const S = await api('/api/system/security');
       const sf = {

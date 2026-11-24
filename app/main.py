@@ -146,6 +146,12 @@ if ENABLE_DOCS:
         return FileResponse(FRONTEND_DIR / "apidocs.html")
 
 
+@app.api_route("/link", methods=["GET", "HEAD"], include_in_schema=False)
+async def serve_link():
+    """Approve a standalone copy's link to my account (opened from the copy; sign-in required)."""
+    return FileResponse(FRONTEND_DIR / "link.html")
+
+
 @app.api_route("/admin", methods=["GET", "HEAD"], include_in_schema=False)
 async def serve_admin():
     return FileResponse(FRONTEND_DIR / "admin.html")

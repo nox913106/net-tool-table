@@ -108,7 +108,7 @@ def localize(data, path: str = ""):
 
 async def middleware(request, call_next):
     """Set the request's language; for English, translate the server's texts in JSON answers."""
-    want = (request.headers.get("x-lang") or "").strip()
+    want = (request.headers.get("x-lang") or request.cookies.get("tt_lang") or "").strip()
     token = LANG.set("en" if want == "en" else "zh-TW")
     try:
         response = await call_next(request)

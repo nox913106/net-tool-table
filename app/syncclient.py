@@ -237,6 +237,59 @@ async def connect(server: str, username: str, password: str, verify: bool = True
                                                            "name": socket.gethostname()[:80], "device": device}, token=False, timeout=30)
     except SyncError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    await _finish_link(server, verify, res, sent, old)
+
+
+BROWSER_LINK: dict = {}                 # the link waiting for approval in a browser: {server, verify, poll, code, url, at}
+
+
+async def connect_browser_start(server: str, verify: bool = True) -> dict:
+    """Link by approving in a browser (Microsoft Entra ID or any sign-in): ask the server for a code and the page to open."""
+    server = _normalize_server(server)
+    db = await get_db()
+    try:
+        device = await sync.state(db, "device")
+    finally:
+        await db.close()
+    cfg = {"server": server, "verify": verify}
+    try:
+        res = await _call(cfg, "POST", "/api/sync/link/start", {"name": socket.gethostname()[:80], "device": device}, token=False, timeout=30)
+    except SyncError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not res.get("poll") or not res.get("url"):
+        raise HTTPException(status_code=400, detail="伺服器沒有回應連結資訊（網址是 Tool Table 伺服器嗎？）")
+    BROWSER_LINK.clear()
+    BROWSER_LINK.update(server=server, verify=verify, poll=res["poll"], code=res["code"], url=res["url"], at=time.time())
+    return {"code": res["code"], "url": res["url"], "expires_in": res.get("expires_in", 600)}
+
+
+async def connect_browser_poll() -> dict:
+    """Has the person approved yet? → {pending: true} or the status once linked."""
+    if not BROWSER_LINK:
+        raise HTTPException(status_code=400, detail="連結代碼不存在或已過期，請在單機版重新開始")
+    cfg = {"server": BROWSER_LINK["server"], "verify": BROWSER_LINK["verify"]}
+    sent = time.time()
+    try:
+        res = await _call(cfg, "POST", "/api/sync/link/poll", {"poll": BROWSER_LINK["poll"]}, token=False, timeout=30)
+    except SyncError as e:
+        BROWSER_LINK.clear()
+        raise HTTPException(status_code=400, detail=str(e))
+    if res.get("pending"):
+        return {"pending": True, "code": BROWSER_LINK["code"], "url": BROWSER_LINK["url"]}
+    server, verify = BROWSER_LINK["server"], BROWSER_LINK["verify"]
+    BROWSER_LINK.clear()
+    db = await get_db()
+    try:
+        old = await _cfg(db)
+    finally:
+        await db.close()
+    await _finish_link(server, verify, res, sent, old)
+    return {"pending": False}
+
+
+async def _finish_link(server: str, verify: bool, res: dict, sent: float, old: dict):
+    """The server gave this computer a device token for an account: make this copy that account and start syncing."""
+    global LOCAL_USER
     user, token = res.get("user"), res.get("token")
     if not user or not token:
         raise HTTPException(status_code=400, detail="伺服器沒有回應連結資訊（網址是 Tool Table 伺服器嗎？）")

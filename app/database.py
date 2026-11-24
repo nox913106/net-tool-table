@@ -113,7 +113,7 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL UNIQUE,
-                source TEXT NOT NULL DEFAULT 'ldap',          -- local | ldap
+                source TEXT NOT NULL DEFAULT 'ldap',          -- local | ldap | entra
                 display_name TEXT,
                 email TEXT,
                 department TEXT,

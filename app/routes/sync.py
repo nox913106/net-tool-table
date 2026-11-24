@@ -117,6 +117,119 @@ async def link(body: LinkIn, request: Request):
         await db.close()
 
 
+async def _issue_device(db, user: dict, name: str, device: str, ip: str) -> str:
+    token = secrets.token_urlsafe(32)
+    await db.execute("INSERT INTO sync_devices (user_id, token_hash, name, device, last_seen, ip) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?)",
+                     (user["id"], hashlib.sha256(token.encode()).hexdigest(), (name or "").strip()[:80] or None,
+                      (device or "").strip()[:40] or None, ip))
+    return token
+
+
+# ----------------------------------------------- link by approving in a browser (Microsoft Entra ID, or any sign-in)
+# The standalone copy asks for a code; the person opens /link?code=… in a browser where they are signed in
+# (Microsoft, AD or local) and approves; the copy then collects its device token. No password reaches the copy.
+LINK_REQUESTS: dict = {}            # code → {poll, name, device, ip, at, user_id, denied}
+LINK_TTL = 600
+
+
+class LinkStartIn(BaseModel):
+    name: str = ""
+    device: str = ""
+
+
+def _link_gc():
+    now = time.time()
+    for k in [k for k, v in LINK_REQUESTS.items() if now - v["at"] > LINK_TTL]:
+        LINK_REQUESTS.pop(k, None)
+
+
+@router.post("/link/start")
+async def link_start(body: LinkStartIn, request: Request):
+    _server_only()
+    _link_gc()
+    if len(LINK_REQUESTS) > 200:
+        raise HTTPException(status_code=429, detail="嘗試次數過多，請 15 分鐘後再試")
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    code = "".join(secrets.choice(alphabet) for _ in range(8))
+    poll = secrets.token_urlsafe(24)
+    LINK_REQUESTS[code] = {"poll": poll, "name": body.name.strip()[:80], "device": body.device.strip()[:40],
+                           "ip": client_ip(request), "at": time.time(), "user_id": None, "denied": False}
+    from .auth import entra_redirect_uri
+    base = entra_redirect_uri(request, default_only=True).rsplit("/api/", 1)[0]
+    return {"code": f"{code[:4]}-{code[4:]}", "poll": poll, "url": f"{base}/link?code={code[:4]}-{code[4:]}", "expires_in": LINK_TTL}
+
+
+def _link_req(code: str) -> dict:
+    _link_gc()
+    r = LINK_REQUESTS.get((code or "").replace("-", "").strip().upper())
+    if not r:
+        raise HTTPException(status_code=404, detail="連結代碼不存在或已過期，請在單機版重新開始")
+    return r
+
+
+@router.get("/link/request")
+async def link_request(code: str, request: Request):
+    """What the approval page shows: which computer asks to link to my account."""
+    _server_only()
+    _signed_in(request)
+    r = _link_req(code)
+    return {"name": r["name"], "ip": r["ip"], "approved": bool(r["user_id"]), "denied": r["denied"]}
+
+
+class LinkApproveIn(BaseModel):
+    code: str
+    allow: bool = True
+
+
+@router.post("/link/approve")
+async def link_approve(body: LinkApproveIn, request: Request):
+    _server_only()
+    user = _signed_in(request)
+    if user.get("id") is None or user.get("device_id"):
+        raise HTTPException(status_code=403, detail="請在瀏覽器登入後核准")
+    r = _link_req(body.code)
+    if r["user_id"] or r["denied"]:
+        raise HTTPException(status_code=400, detail="這個連結代碼已經處理過了")
+    if body.allow:
+        r["user_id"] = user["id"]
+    else:
+        r["denied"] = True
+    return {"success": True}
+
+
+class LinkPollIn(BaseModel):
+    poll: str
+
+
+@router.post("/link/poll")
+async def link_poll(body: LinkPollIn, request: Request):
+    """The standalone copy asks whether the person approved; once approved, it gets its device token (once)."""
+    _server_only()
+    _link_gc()
+    code = next((k for k, v in LINK_REQUESTS.items() if secrets.compare_digest(v["poll"], body.poll or "")), None)
+    if code is None:
+        raise HTTPException(status_code=404, detail="連結代碼不存在或已過期，請在單機版重新開始")
+    r = LINK_REQUESTS[code]
+    if r["denied"]:
+        LINK_REQUESTS.pop(code, None)
+        raise HTTPException(status_code=403, detail="已在瀏覽器拒絕這台電腦的連結")
+    if not r["user_id"]:
+        return {"pending": True}
+    LINK_REQUESTS.pop(code, None)
+    db = await get_db()
+    try:
+        cur = await db.execute("SELECT * FROM users WHERE id = ? AND active = 1", (r["user_id"],))
+        row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=403, detail="這個帳號已被停用，請洽管理員")
+        user = dict(row)
+        token = await _issue_device(db, user, r["name"], r["device"], r["ip"])
+        await db.commit()
+        return {"token": token, "user": public_user(user), "now": _now_ms()}
+    finally:
+        await db.close()
+
+
 @router.post("/unlink")
 async def unlink(request: Request):
     _server_only()
@@ -432,7 +545,7 @@ async def _directory(db) -> dict:
     """Active accounts, so a standalone copy can show names and assign or @mention anyone while offline."""
     cur = await db.execute("""SELECT u.username, u.display_name, u.email, u.department, m.username FROM users u
                               LEFT JOIN users m ON m.id = u.manager_id
-                              WHERE u.active = 1 AND u.source = 'ldap' ORDER BY u.id LIMIT 5000""")
+                              WHERE u.active = 1 AND u.source IN ('ldap', 'entra') ORDER BY u.id LIMIT 5000""")
     return {r[0]: {"display_name": r[1], "email": r[2], "department": r[3], "manager": r[4], "directory": True}
             for r in await cur.fetchall()}
 
@@ -606,6 +719,27 @@ async def client_connect(body: ConnectIn):
     from .. import syncclient
     await syncclient.connect(body.server, body.username, body.password, body.verify)
     return await syncclient.status()
+
+
+class BrowserConnectIn(BaseModel):
+    server: str
+    verify: bool = True
+
+
+@router.post("/client/connect/start")
+async def client_connect_start(body: BrowserConnectIn):
+    """Link by approving in a browser (Microsoft account, or any sign-in): → {code, url} to open."""
+    _client_only()
+    from .. import syncclient
+    return await syncclient.connect_browser_start(body.server, body.verify)
+
+
+@router.post("/client/connect/poll")
+async def client_connect_poll():
+    _client_only()
+    from .. import syncclient
+    res = await syncclient.connect_browser_poll()
+    return res if res.get("pending") else {"pending": False, **(await syncclient.status())}
 
 
 @router.post("/client/now")

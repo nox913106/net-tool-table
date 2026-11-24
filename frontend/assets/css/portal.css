@@ -1678,3 +1678,8 @@ body.nav-collapsed .sidebar:not(.peek) .nav-empty, body.nav-collapsed .sidebar:n
   text-align: left; cursor: pointer; color: var(--text); font: inherit; font-size: 13px; }
 @media (max-width: 720px) { .pj-win { grid-template-columns: 1fr; } }
 .pj-actions .pj-watch { width: auto; flex: none; }
+.sync-alt { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.sync-alt .login-or { display: flex; align-items: center; gap: 10px; color: var(--text-3); font-size: 12px; }
+.sync-alt .login-or::before, .sync-alt .login-or::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+.sync-browser { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 10px; border: 1px dashed var(--border); }
+.sync-code { font-size: 22px; font-weight: 700; letter-spacing: .12em; }

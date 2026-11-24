@@ -734,6 +734,19 @@ async def _resolve_people(db, usernames: List[str]) -> List[dict]:
             if info:
                 from .auth import upsert_ldap_user
                 row = await upsert_ldap_user(db, info)
+        if row is None and C.AUTH:                    # Microsoft Entra ID directory (read only)
+            from .. import entra
+            if entra.directory_enabled():
+                try:
+                    hits = await asyncio.get_running_loop().run_in_executor(None, entra.search_directory, name, 5)
+                except entra.EntraError:
+                    hits = []
+                hit = next((h for h in hits if name in (h["username"], h["upn"].split("@")[0], h["sam"])), None)
+                if hit:
+                    cur = await db.execute("INSERT INTO users (username, source, display_name, email, department, role, active) "
+                                           "VALUES (?, 'entra', ?, ?, ?, 'user', 1)", (hit["username"], hit["display_name"], hit["email"], hit["department"]))
+                    cur = await db.execute("SELECT id, username, display_name, active, source FROM users WHERE id = ?", (cur.lastrowid,))
+                    row = await cur.fetchone()
         if row is None and not C.AUTH:                # linked copy: ask the server's directory (AD) while online
             from .. import syncclient
             hit = next((p for p in await syncclient.remote_people(name) if (p.get("username") or "").lower() == name), None)
@@ -742,7 +755,7 @@ async def _resolve_people(db, usernames: List[str]) -> List[dict]:
                                        "VALUES (?, 'ldap', ?, ?, 'user', 1)", (hit["username"], hit.get("display_name"), hit.get("department")))
                 cur = await db.execute("SELECT id, username, display_name, active, source FROM users WHERE id = ?", (cur.lastrowid,))
                 row = await cur.fetchone()
-        if row and row["active"] and row["source"] == "ldap":
+        if row and row["active"] and row["source"] in ("ldap", "entra"):
             out.append(dict(row))
     return out
 
@@ -1604,7 +1617,7 @@ async def create_task(t: TaskIn, request: Request):
             if t.assignees is not None and (acc_c["edit"] in ("all", "dept") or acc_c["team_edit"]):
                 await _check_assignees(db, user, None, await _resolve_people(db, t.assignees))
                 await set_assignees(db, task_id, t.assignees, user, t.title)
-            elif user.get("source") == "ldap":
+            elif user.get("source") in ("ldap", "entra"):
                 # a user's own card is assigned to them (counts on the dashboard under their name)
                 await db.execute("INSERT INTO task_members (task_id, user_id, role) VALUES (?, ?, 'assignee')", (task_id, user["id"]))
             await add_mentions(db, task_id, t.description, user, t.title, "說明")

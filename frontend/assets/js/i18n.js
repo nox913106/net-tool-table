@@ -45,6 +45,8 @@
     locale: lang === 'en' ? 'en-US' : 'zh-TW',
   };
   document.documentElement.lang = lang === 'en' ? 'en' : 'zh-Hant-TW';
+  // pages the browser opens directly (the Microsoft sign-in callback) learn the language from this cookie
+  try { document.cookie = `tt_lang=${lang}; path=/; max-age=31536000; samesite=lax`; } catch { /* ignore */ }
   // the static text of the HTML pages
   if (lang === 'en') {
     const tr = s => { const k = s.trim(); return k && DICT[k] != null ? s.replace(k, DICT[k]) : s; };

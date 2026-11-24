@@ -53,19 +53,131 @@ class UserAdd(BaseModel):
 
 @router.get("/api/auth/status")
 async def status():
-    return {"auth": C.AUTH, "ldap": ldapauth.enabled(), "directory": ldapauth.directory_enabled(),
-            "local_admin": C.LOCAL_ADMIN}
+    from .. import entra
+    e = sysconfig.entra()
+    return {"auth": C.AUTH, "ldap": ldapauth.enabled(), "directory": ldapauth.directory_enabled() or entra.directory_enabled(e),
+            "local_admin": C.LOCAL_ADMIN, "entra": entra.enabled(e) and C.AUTH, "entra_label": e.button_label}
+
+
+# ------------------------------------------------------------- Microsoft Entra ID sign-in
+def entra_redirect_uri(request: Request, default_only: bool = False) -> str:
+    """Where Microsoft sends the browser back: the setting, else this site's own address (as the browser sees it)."""
+    c = sysconfig.entra()
+    if c.redirect_uri and not default_only:
+        return c.redirect_uri
+    h = request.headers
+    proto = h.get("x-forwarded-proto") or request.url.scheme
+    host = (h.get("x-forwarded-host") or h.get("host") or request.url.netloc).split(",")[0].strip()
+    port = h.get("x-forwarded-port")
+    if port and ":" not in host and port not in ("443" if proto == "https" else "80",):
+        host = f"{host}:{port}"
+    return f"{proto}://{host}/api/auth/entra/callback"
+
+
+def _safe_next(n: str) -> str:
+    return n if n.startswith("/") and not n.startswith("//") else "/"
+
+
+@router.get("/api/auth/entra/start")
+async def entra_start(request: Request, next: str = "/"):
+    from fastapi.responses import RedirectResponse
+    from urllib.parse import quote
+    from .. import entra
+    try:
+        url = entra.start(entra_redirect_uri(request), _safe_next(next))
+    except entra.EntraError as e:
+        from .. import i18n
+        return RedirectResponse("/login?error=" + quote(i18n.translate(str(e))), status_code=303)
+    return RedirectResponse(url, status_code=303)
+
+
+async def upsert_entra_user(db, info: dict) -> dict:
+    """The account a Microsoft sign-in belongs to: an existing AD / Entra account with the same on-premises
+    account name, user principal name or e-mail, else a new account (source entra)."""
+    keys = [k for k in (info.get("sam"), info.get("upn"), info.get("username")) if k]
+    row = None
+    for k in keys:
+        cur = await db.execute("SELECT * FROM users WHERE lower(username) = ? AND source IN ('ldap', 'entra')", (k.lower(),))
+        row = await cur.fetchone()
+        if row:
+            break
+    if row is None and info.get("email"):
+        cur = await db.execute("SELECT * FROM users WHERE lower(email) = ? AND source IN ('ldap', 'entra')", (info["email"].lower(),))
+        row = await cur.fetchone()
+    if row is None:
+        cur = await db.execute("SELECT 1 FROM users WHERE lower(username) = ?", (info["username"].lower(),))
+        if await cur.fetchone():
+            raise HTTPException(status_code=409, detail="這個帳號名稱已被本機帳號使用")
+        cur = await db.execute("""INSERT INTO users (username, source, display_name, email, department, role, last_login)
+                                  VALUES (?, 'entra', ?, ?, ?, 'user', CURRENT_TIMESTAMP)""",
+                               (info["username"], info["display_name"], info["email"], info["department"]))
+        uid = cur.lastrowid
+    else:
+        uid = row["id"]
+        if sysconfig.entra().sync_profile:
+            await db.execute("""UPDATE users SET display_name = ?, email = COALESCE(NULLIF(?, ''), email),
+                                department = COALESCE(NULLIF(?, ''), department), last_login = CURRENT_TIMESTAMP WHERE id = ?""",
+                             (info["display_name"], info["email"], info["department"], uid))
+        else:
+            await db.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?", (uid,))
+    cur = await db.execute("SELECT * FROM users WHERE id = ?", (uid,))
+    user = dict(await cur.fetchone())
+    m = info.get("manager")
+    if m and sysconfig.entra().sync_profile and user.get("manager_source") != "manual":
+        cur = await db.execute("""SELECT id FROM users WHERE source IN ('ldap', 'entra') AND (lower(username) IN (?, ?) OR lower(email) = ?)""",
+                               (m.get("sam") or "-", m.get("upn") or "-", (m.get("email") or "-").lower()))
+        mr = await cur.fetchone()
+        if mr is None:
+            cur = await db.execute("""INSERT INTO users (username, source, display_name, email, department, role)
+                                      VALUES (?, 'entra', ?, ?, ?, 'user')""", (m["username"], m["display_name"], m["email"], m["department"]))
+            mid = cur.lastrowid
+        else:
+            mid = mr["id"]
+        from ..team import would_cycle
+        if mid != user.get("manager_id") and not await would_cycle(db, uid, mid):
+            await db.execute("UPDATE users SET manager_id = ?, manager_source = 'entra' WHERE id = ?", (mid, uid))
+    return user
+
+
+@router.get("/api/auth/entra/callback")
+async def entra_callback(request: Request, code: str = "", state: str = "", error: str = "", error_description: str = ""):
+    from fastapi.responses import RedirectResponse
+    from urllib.parse import quote
+    from .. import entra
+    from .. import i18n
+    fail = lambda msg: RedirectResponse("/login?error=" + quote(i18n.translate(msg)[:300]), status_code=303)
+    if error:
+        return fail(f"Microsoft：{error_description or error}")
+    try:
+        info = await asyncio.get_running_loop().run_in_executor(None, entra.finish, code, state)
+    except entra.EntraError as e:
+        return fail(str(e))
+    db = await get_db()
+    try:
+        try:
+            user = await upsert_entra_user(db, info)
+        except HTTPException as e:
+            return fail(e.detail)
+        if not user["active"]:
+            return fail("這個帳號已被停用，請洽管理員")
+        token = await create_session(db, user["id"], request)
+        await db.commit()
+    finally:
+        await db.close()
+    resp = RedirectResponse(_safe_next(info.get("next") or "/"), status_code=303)
+    set_cookie(resp, request, token)
+    return resp
 
 
 async def ad_admin_count(db) -> int:
-    cur = await db.execute("SELECT COUNT(*) AS c FROM users WHERE source = 'ldap' AND role = 'sysadmin' AND active = 1")
+    cur = await db.execute("SELECT COUNT(*) AS c FROM users WHERE source IN ('ldap', 'entra') AND role = 'sysadmin' AND active = 1")
     return (await cur.fetchone())["c"]
 
 
 async def upsert_ldap_user(db, info: dict, login: bool = False) -> dict:
     cur = await db.execute("SELECT * FROM users WHERE username = ?", (info["username"],))
     row = await cur.fetchone()
-    if row and row["source"] != "ldap":
+    if row and row["source"] not in ("ldap", "entra"):
         raise HTTPException(status_code=409, detail="這個帳號名稱已被本機帳號使用")
     if row:
         await db.execute(
@@ -256,7 +368,9 @@ async def list_users(_: dict = Depends(require_admin)):
             u["reports"] = sum(1 for x in rows if x.get("manager_id") == u["id"])
         cur = await db.execute("SELECT DISTINCT department FROM users WHERE department IS NOT NULL AND department != '' ORDER BY department")
         departments = [r["department"] for r in await cur.fetchall()]
-        return {"users": rows, "ad_admins": await ad_admin_count(db), "directory": ldapauth.directory_enabled(),
+        from .. import entra
+        return {"users": rows, "ad_admins": await ad_admin_count(db), "directory": ldapauth.directory_enabled() or entra.directory_enabled(),
+                "entra": entra.enabled(),
                 "ldap": ldapauth.enabled(), "roles": [{"key": k, "label": LABELS[k]} for k in ASSIGNABLE],
                 "departments": departments, "sync_manager": sysconfig.ldap().sync_manager}
     finally:
@@ -291,7 +405,7 @@ async def update_user(user_id: int, body: UserUpdate, me_: dict = Depends(requir
         active = int(body.active) if body.active is not None else row["active"]
         if role not in ASSIGNABLE:
             raise HTTPException(status_code=400, detail="權限無效")
-        was_ad_admin = row["source"] == "ldap" and row["role"] == "sysadmin" and row["active"]
+        was_ad_admin = row["source"] in ("ldap", "entra") and row["role"] == "sysadmin" and row["active"]
         if was_ad_admin and (role != "sysadmin" or not active) and await ad_admin_count(db) <= 1:
             raise HTTPException(status_code=400, detail="至少要保留一個 AD 帳號是系統管理者")
         if user_id == me_.get("id") and (role != "sysadmin" or not active):
@@ -335,7 +449,7 @@ async def people(q: str = "", user: dict = Depends(current_user)):
     try:
         cur = await db.execute(
             """SELECT id, username, display_name, department FROM users
-               WHERE active = 1 AND source = 'ldap' AND id IS NOT ? AND (? = '' OR lower(username) LIKE ? OR lower(display_name) LIKE ?)
+               WHERE active = 1 AND source IN ('ldap', 'entra') AND id IS NOT ? AND (? = '' OR lower(username) LIKE ? OR lower(display_name) LIKE ?)
                ORDER BY display_name LIMIT 20""", (user.get("id"), text, f"%{text}%", f"%{text}%"))
         out = [{**dict(r), "known": True} for r in await cur.fetchall()]
         from ..team import relations
@@ -357,6 +471,15 @@ async def people(q: str = "", user: dict = Depends(current_user)):
     if text and ldapauth.directory_enabled():
         seen = {p["username"] for p in out}
         found = await asyncio.get_running_loop().run_in_executor(None, ldapauth.search_directory, text)
+        out += [{"id": None, "username": a["username"], "display_name": a["display_name"], "department": a["department"],
+                 "known": False} for a in found if a["username"] not in seen]
+    from .. import entra
+    if text and C.AUTH and entra.directory_enabled():         # Microsoft Entra ID (read only)
+        seen = {p["username"] for p in out}
+        try:
+            found = await asyncio.get_running_loop().run_in_executor(None, entra.search_directory, text)
+        except entra.EntraError:
+            found = []
         out += [{"id": None, "username": a["username"], "display_name": a["display_name"], "department": a["department"],
                  "known": False} for a in found if a["username"] not in seen]
     return out[:20]

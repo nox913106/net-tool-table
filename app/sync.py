@@ -689,7 +689,8 @@ async def seed_dirty(db):
     from their own timestamps, so older local data never overwrites newer server edits."""
     for table, spec in TABLES.items():
         stamp = ("COALESCE(updated_at, created_at)" if table in ("tasks", "nodes")
-                 else "COALESCE(edited_at, created_at)" if table == "task_comments" else "created_at")
+                 else "COALESCE(edited_at, created_at)" if table == "task_comments"
+                 else "updated_at" if table == "task_watch" else "created_at")
         ts = f"replace(COALESCE({stamp}, '2000-01-01 00:00:00'), ' ', 'T') || '.000'"
         for f in spec["fields"]:
             await db.execute(f"""INSERT OR IGNORE INTO sync_clock (tbl, uid, field, ts, dev, seq, dirty)

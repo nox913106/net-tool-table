@@ -21,3 +21,14 @@
 .login-hint code { font-family: var(--mono); font-size: 12px; background: var(--surface-solid); border: 1px solid var(--border); border-radius: 6px; padding: 0 5px; }
 .login-dash { font-size: 13px; color: var(--accent-text); text-align: center; padding-top: 6px; border-top: 1px solid var(--border); }
 .login-dash:hover { text-decoration: underline; }
+/* Sign in with Microsoft */
+.login-ms { display: flex; align-items: center; justify-content: center; gap: 10px; text-decoration: none; }
+.ms-logo { display: grid; grid-template-columns: 8px 8px; gap: 2px; }
+.ms-logo i { width: 8px; height: 8px; display: block; }
+.ms-logo i:nth-child(1) { background: #f25022; } .ms-logo i:nth-child(2) { background: #7fba00; }
+.ms-logo i:nth-child(3) { background: #00a4ef; } .ms-logo i:nth-child(4) { background: #ffb900; }
+.login-or { display: flex; align-items: center; gap: 10px; color: var(--text-3); font-size: 12px; }
+.login-or::before, .login-or::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+.link-facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 4px 0; font-size: 14px; }
+.link-facts dt { color: var(--text-3); }
+.link-facts dd { margin: 0; font-weight: 600; word-break: break-all; }

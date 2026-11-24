@@ -118,7 +118,40 @@
           el('label', { class: 'field' }, el('span', { class: 'field-label', text: _t('帳號') }), user),
           el('label', { class: 'field' }, el('span', { class: 'field-label', text: _t('密碼') }), pass)),
         el('label', { class: 'sync-check' }, verify, el('span', { text: _t('驗證伺服器憑證（伺服器用自簽憑證時才取消）') })),
-        err);
+        err, browserLink());
+      // Microsoft account (or any sign-in): approve this computer in a browser; no password is typed here
+      function browserLink() {
+        const btn = el('button', { class: 'btn', type: 'button', html: svg('globe') + _t('改用瀏覽器登入（Microsoft 帳號）') });
+        const out = el('div', { class: 'sync-browser', hidden: true });
+        let timer = null;
+        btn.addEventListener('click', async () => {
+          err.hidden = true;
+          if (!server.value.trim()) { err.textContent = _t('請輸入伺服器網址'); err.hidden = false; server.focus(); return; }
+          btn.disabled = true;
+          try {
+            const r = await api('/api/sync/client/connect/start', { method: 'POST', body: { server: server.value, verify: verify.checked } });
+            const open = el('a', { class: 'btn btn-primary', href: r.url, target: '_blank', rel: 'noopener', html: svg('external') + _t('開啟核准頁面') });
+            out.hidden = false;
+            out.replaceChildren(el('p', { text: _t('在開啟的頁面登入（可用 Microsoft 帳號），確認代碼後按「允許連結」：') }),
+              el('div', { class: 'sync-code mono', text: r.code }), open, el('p', { class: 'hint', text: _t('等待核准…（10 分鐘內有效）') }));
+            window.open(r.url, '_blank', 'noopener');
+            const until = Date.now() + (r.expires_in || 600) * 1000;
+            clearInterval(timer);
+            timer = setInterval(async () => {
+              if (!out.isConnected || Date.now() > until) { clearInterval(timer); btn.disabled = false; return; }
+              try {
+                const p = await api('/api/sync/client/connect/poll', { method: 'POST' });
+                if (p.pending) return;
+                clearInterval(timer);
+                st = p; paintPill(); paint();
+                toast(st.error ? _t('已連結，但同步失敗：') + st.error : _t('已連線，開始同步'), !!st.error);
+                setTimeout(() => location.reload(), 1200);
+              } catch (ex) { clearInterval(timer); btn.disabled = false; err.textContent = ex.message; err.hidden = false; out.hidden = true; }
+            }, 2000);
+          } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; }
+        });
+        return el('div', { class: 'sync-alt' }, el('div', { class: 'login-or' }, el('span', { text: _t('或') })), btn, out);
+      }
       f.addEventListener('submit', async e => {
         e.preventDefault();
         go.disabled = true; err.hidden = true;

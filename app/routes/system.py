@@ -28,7 +28,7 @@ import re
 from dataclasses import replace
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -151,6 +151,70 @@ async def test_ldap(body: LdapTest):
     except Exception as e:
         steps.append(("fail", str(e)))
     return {"ok": all(s != "fail" for s, _ in steps), "steps": [{"status": s, "text": t} for s, t in steps]}
+
+
+# ------------------------------------------------------------- Microsoft Entra ID
+class EntraIn(BaseModel):
+    enabled: bool = False
+    tenant_id: str = ""
+    client_id: str = ""
+    client_secret: Optional[str] = None          # None = keep, "" = clear
+    redirect_uri: str = ""
+    allowed_groups: str = ""
+    sync_profile: bool = True
+    directory: bool = False
+    button_label: str = ""
+
+
+GUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def _entra_values(body: EntraIn) -> dict:
+    v = body.model_dump(exclude={"client_secret"})
+    v = {k: (x.strip() if isinstance(x, str) else x) for k, x in v.items()}
+    if v["tenant_id"] and not (GUID_RE.match(v["tenant_id"]) or re.match(r"^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", v["tenant_id"])):
+        raise HTTPException(status_code=400, detail="租用戶 ID 應為 GUID 或網域（例如 contoso.onmicrosoft.com）")
+    if v["client_id"] and not GUID_RE.match(v["client_id"]):
+        raise HTTPException(status_code=400, detail="應用程式（Client）ID 應為 GUID")
+    if v["redirect_uri"] and not v["redirect_uri"].startswith("https://"):
+        raise HTTPException(status_code=400, detail="重新導向 URI 必須是 https://")
+    bad = [g for g in v["allowed_groups"].replace("\n", ",").split(",") if g.strip() and not GUID_RE.match(g.strip())]
+    if bad:
+        raise HTTPException(status_code=400, detail=f"群組要填物件 ID（GUID）：{bad[0].strip()}")
+    if v["enabled"] and not (v["tenant_id"] and v["client_id"]):
+        raise HTTPException(status_code=400, detail="啟用前請填寫租用戶 ID 與應用程式 ID")
+    v["button_label"] = v["button_label"][:40]
+    return v
+
+
+@router.get("/entra")
+async def get_entra(request: Request):
+    from ..routes.auth import entra_redirect_uri
+    c = sysconfig.entra()
+    return {**c.public(), "default_redirect_uri": entra_redirect_uri(request, default_only=True)}
+
+
+@router.put("/entra")
+async def put_entra(body: EntraIn, request: Request):
+    values = _entra_values(body)
+    if values["enabled"] and not (body.client_secret or sysconfig.entra().client_secret_enc):
+        raise HTTPException(status_code=400, detail="啟用前請填寫用戶端密碼（Client secret）")
+    sysconfig.save_entra(values, body.client_secret)
+    from .. import entra
+    entra._app_token.update(value="", until=0)
+    return await get_entra(request)
+
+
+@router.post("/entra/test")
+async def test_entra(body: EntraIn):
+    """Try the form's settings without saving them: tenant, client ID + secret, directory permission."""
+    from .. import entra
+    values = _entra_values(EntraIn(**{**body.model_dump(), "enabled": False}))
+    try:
+        steps = await asyncio.get_running_loop().run_in_executor(None, entra.test, values, body.client_secret)
+        return {"ok": True, "steps": [{"status": "fail" if s.startswith("不能") else "ok", "text": s} for s in steps]}
+    except entra.EntraError as e:
+        return {"ok": False, "steps": [{"status": "fail", "text": str(e)}]}
 
 
 class SecurityIn(BaseModel):

@@ -163,6 +163,44 @@ def save_ldap(values: dict, password: Optional[str]):
     _write("_sys_ldap", data)
 
 
+# ---------------------------------------------------------- Microsoft Entra ID
+@dataclass
+class Entra:
+    enabled: bool = False
+    tenant_id: str = ""                 # directory (tenant) ID or a verified domain, e.g. contoso.onmicrosoft.com
+    client_id: str = ""                 # application (client) ID of the app registration
+    client_secret_enc: str = ""         # AES-GCM, never sent to the browser
+    redirect_uri: str = ""              # empty = https://<this site>/api/auth/entra/callback
+    allowed_groups: str = ""            # group object IDs (comma or newline separated); empty = anyone in the tenant
+    sync_profile: bool = True           # name, department, e-mail and 上級 from Entra at sign-in (read only)
+    directory: bool = False             # search Entra for @mentions / assignees (needs User.Read.All, application)
+    button_label: str = ""              # empty = 以 Microsoft 帳號登入
+
+    @property
+    def client_secret(self) -> str:
+        return decrypt(self.client_secret_enc, "entra-secret")
+
+    def public(self) -> dict:
+        d = asdict(self)
+        d.pop("client_secret_enc")
+        d["client_secret_set"] = bool(self.client_secret_enc)
+        return d
+
+
+def entra() -> Entra:
+    return _merge(Entra, _read("_sys_entra"), {})
+
+
+def save_entra(values: dict, secret: Optional[str]):
+    data = asdict(entra())
+    for k, v in values.items():
+        if k in data and k != "client_secret_enc":
+            data[k] = v
+    if secret is not None:                           # None = keep, "" = clear
+        data["client_secret_enc"] = encrypt(secret, "entra-secret") if secret else ""
+    _write("_sys_entra", data)
+
+
 # ---------------------------------------------------------- sign-in security
 @dataclass
 class Security:

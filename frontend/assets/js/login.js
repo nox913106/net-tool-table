@@ -26,8 +26,18 @@
     if (!st.auth) { location.replace(nextUrl); return; }
     $('login-hint').innerHTML = st.ldap
       ? _t("用 Windows / AD 帳號密碼登入（也可以輸入 <code>網域\\帳號</code> 或 <code>帳號@網域</code>）。")
-      : _t("尚未設定 AD 連線，目前只能用本機管理員帳號 <code>{0}</code> 登入。", TT.esc(st.local_admin));
+      : st.entra ? _t('用公司的 Microsoft 帳號登入；本機管理員帳號只在緊急時使用。')
+        : _t("尚未設定 AD 連線，目前只能用本機管理員帳號 <code>{0}</code> 登入。", TT.esc(st.local_admin));
+    if (st.entra) {                            // Microsoft Entra ID: one click, the browser goes to Microsoft's sign-in page
+      const ms = el('a', { class: 'btn login-btn login-ms', href: '/api/auth/entra/start?next=' + encodeURIComponent(nextUrl) },
+        el('span', { class: 'ms-logo', 'aria-hidden': 'true' }, el('i'), el('i'), el('i'), el('i')),
+        el('span', { text: st.entra_label || _t('以 Microsoft 帳號登入') }));
+      const or = el('div', { class: 'login-or' }, el('span', { text: st.ldap ? _t('或用 AD 帳號密碼') : _t('或用本機帳號') }));
+      $('login-form').querySelector('.login-brand').after(ms, or);
+    }
   } catch { /* ignore */ }
+  const back = new URLSearchParams(location.search).get('error');     // from the Microsoft sign-in
+  if (back) { $('login-error').textContent = back; $('login-error').hidden = false; }
 
   // The local admin's generated password must be replaced on first sign-in
   function changePasswordStep(current) {

@@ -39,6 +39,7 @@ ANON = {"id": None, "username": "local", "display_name": "本機", "role": "supe
 PUBLIC_EXACT = {
     "/login", "/dashboard", "/manifest.webmanifest", "/sw.js", "/favicon.ico",
     "/api/health", "/api/auth/login", "/api/sync/link", "/api/auth/status", "/api/public/dashboard", "/api/public/branding",
+    "/api/auth/entra/start", "/api/auth/entra/callback", "/api/sync/link/start", "/api/sync/link/poll",
 }
 PUBLIC_PREFIX = ("/assets/", "/resource/icon/")
 ADMIN_PAGES = ("/admin", "/admin.html")
