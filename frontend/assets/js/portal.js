@@ -423,7 +423,7 @@
     else if ((m = hash.match(/^#\/icon\/(.+)/))) renderIconFilter(m[1]);
     else if (hash === '#/favorites') renderFavorites();
     else if (hash === '#/recent') renderRecent();
-    else if (hash === '#/board' && boardOn()) renderBoard();
+    else if ((m = hash.match(/^#\/board(?:\?(.*))?$/)) && boardOn()) renderBoard(new URLSearchParams(m[1] || ''));
     else if (hash === '#/mine' && boardOn() && window.TTProjects) TTProjects.renderMine(view);
     else if (hash === '#/projects' && boardOn() && window.TTProjects) TTProjects.renderProjects(view);
     else if ((m = hash.match(/^#\/project\/(\d+)/)) && boardOn() && window.TTProjects) TTProjects.renderProject(view, Number(m[1]));
@@ -693,7 +693,8 @@
     }
   }
 
-  function renderBoard() {
+  /** params (links from the war room, /dashboard): user=<id> | dept=<name>, kind=ops|project, status=<column> */
+  function renderBoard(params = new URLSearchParams()) {
     const frag = document.createDocumentFragment();
     let hideClosed = !!store.get('board-hide-closed', false);
     const toggle = el('label', { class: 'switch' },
@@ -720,6 +721,9 @@
     pick.addEventListener('click', () => TTBoard.setSelecting(!TTBoard.selecting));
     // whose cards: everyone I can see / mine / (admins) one person
     let filter = auth ? store.get('board-filter', state.me.is_admin ? 'all' : 'all') : 'all';
+    if (params.get('user')) filter = `user:${params.get('user')}`;
+    else if (params.get('dept')) filter = `dept:${params.get('dept')}`;
+    else if ([...params.keys()].length) filter = 'all';
     const who = el('select', { class: 'select board-who', title: _t('顯示誰的卡片') });
     const paintWho = () => {
       const people = new Map();
@@ -738,7 +742,7 @@
     };
     who.addEventListener('change', () => { filter = who.value; store.set('board-filter', filter); board.setFilter(filter); });
     const meta = el('span');
-    let kindF = store.get('board-kind', 'all');
+    let kindF = ['all', 'ops', 'project'].includes(params.get('kind')) ? params.get('kind') : [...params.keys()].length ? 'all' : store.get('board-kind', 'all');
     const kindSeg = el('div', { class: 'segmented board-kind', role: 'group', title: _t('卡片類型') },
       ...[['all', _t('全部')], ['ops', _t('一般')], ['project', _t('專案')]].map(([v, l]) => {
         const b = el('button', { type: 'button', dataset: { v }, text: l });
@@ -774,11 +778,29 @@
       tools: el('div', { class: 'board-tools' }, auth ? who : null, kindSeg, layout, toggle, pick, add),
     }));
     const box = el('div');
-    const board = TTBoard.mount(box, { hideClosed, full: true, filter, lanes, kind: kindF });
+    const board = TTBoard.mount(box, { hideClosed: params.get('status') ? false : hideClosed, full: true, filter, lanes, kind: kindF });
+    if (params.get('status')) TTBoard.load().then(() => setTimeout(() => board.showStatus(params.get('status')), 50)).catch(() => {});
     toggle.querySelector('input').addEventListener('change', e => { hideClosed = e.target.checked; store.set('board-hide-closed', hideClosed); board.setHideClosed(hideClosed); });
     const gbox = el('div', { class: 'board-gantt' });
     let gantt = null;
-    const page = el('div', { class: 'board-page' }, frag, strip, box, gbox);
+    // opened from the war room (/dashboard): say what is filtered, with a way back to the whole board
+    const from = el('div', { class: 'board-from', hidden: ![...params.keys()].length });
+    if (!from.hidden) {
+      const ST = Object.fromEntries(TTBoard.STATUSES.map(x => [x.key, x.zh]));
+      const paintFrom = () => {
+        const uid = params.get('user');
+        const person = uid && TTBoard.tasks.flatMap(t => [t.owner, ...(t.assignees || [])]).find(x => x && String(x.id) === uid);
+        const bits = [uid ? _t("人員：{0}", person ? TT.nameOf(person) : `#${uid}`) : null,
+          params.get('dept') ? _t("部門：{0}", params.get('dept')) : null,
+          params.get('status') ? _t("狀態：{0}", ST[params.get('status')] || params.get('status')) : null,
+          params.get('kind') === 'ops' ? _t('一般維運') : params.get('kind') === 'project' ? _t('專案') : null].filter(Boolean);
+        from.replaceChildren(el('span', { class: 'board-strip-l', text: _t('戰情室') }), el('span', { text: bits.join(' · ') }),
+          el('a', { href: '#/board', text: _t('顯示全部卡片') }));
+      };
+      paintFrom();
+      TTBoard.load().then(paintFrom).catch(() => {});
+    }
+    const page = el('div', { class: 'board-page' }, frag, from, strip, box, gbox);
     setTimeout(paintStrip, 0);
     function applyMode() {
       paintLayout();

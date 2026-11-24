@@ -24,6 +24,10 @@
   try {
     const st = await api('/api/auth/status');
     if (!st.auth) { location.replace(nextUrl); return; }
+    try {                                        // already signed in (a link from the war room): straight on
+      const m = await api('/api/auth/me');
+      if (m.user && !new URLSearchParams(location.search).get('change')) { location.replace(nextUrl); return; }
+    } catch { /* not signed in */ }
     $('login-hint').innerHTML = st.ldap
       ? _t("用 Windows / AD 帳號密碼登入（也可以輸入 <code>網域\\帳號</code> 或 <code>帳號@網域</code>）。")
       : st.entra ? _t('用公司的 Microsoft 帳號登入；本機管理員帳號只在緊急時使用。')

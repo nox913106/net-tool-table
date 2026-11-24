@@ -1229,6 +1229,16 @@ const TTBoard = window.TTBoard = (() => {
         return STATUSES.filter(s => !(hideClosed && CLOSED.has(s.key))).flatMap(s => byStatus(s.key).filter(t => pass(t) && inFocus(t)));
       },
       /** Bring a card into view and flash it (the Gantt's "show on the board"). */
+      /** Unfold a column, bring it into view and flash it (links from the war room). */
+      showStatus(key) {
+        if (!STATUSES.some(s => s.key === key)) return;
+        opened.add(key);
+        render();
+        const col = root.querySelector(`.kb-list[data-status="${key}"]`)?.closest('.kb-col');
+        if (!col) return;
+        col.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        col.classList.add('kb-flash'); setTimeout(() => col.classList.remove('kb-flash'), 1600);
+      },
       flash(id) {
         const c = root.querySelector(`.kb-card[data-id="${id}"]`);
         if (!c) return false;

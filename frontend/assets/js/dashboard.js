@@ -4,7 +4,11 @@
      /dashboard                 總覽: every department
      /dashboard?dept=資訊部       鎖定一個部門 (department head)
      /dashboard?rotate=1        輪播: 總覽 → each department → … (the boss's screen); &sec=30 per page
-     &tv=1                      wall screen: larger type, no buttons, cursor hidden when still */
+     &tv=1                      wall screen: larger type, no buttons, cursor hidden when still
+     &scope=ops | project:<id>  一般維運 only, or one project's work items (all = every card)
+     &status=<key>              one status picked out (click a total; click again to clear)
+   Departments, people, statuses and projects are clickable (narrow the page, or a person's summary);
+   the ↗ links open the same thing in the board (sign-in and the board's own permissions apply). */
 'use strict';
 (async () => {
   const $ = id => document.getElementById(id);
@@ -18,7 +22,9 @@
   const GOOD_DOWN = new Set(['overdue', 'pending', 'onhold']);
   const DUE = [['overdue', _t('已過到期日'), '#e11d48'], ['today', _t('今天到期'), '#f59e0b'], ['soon', _t('3 天內'), '#3b82f6'], ['week', _t('7 天內'), '#64748b']];
   const q = new URLSearchParams(location.search);
-  const view = { dept: q.get('dept') || '', rotate: q.get('rotate') === '1', tv: q.get('tv') === '1', sec: parseInt(q.get('sec'), 10) || 0 };
+  const view = { dept: q.get('dept') || '', rotate: q.get('rotate') === '1', tv: q.get('tv') === '1', sec: parseInt(q.get('sec'), 10) || 0,
+                 scope: q.get('scope') || 'all', status: q.get('status') || '' };
+  let authOn = false;
   document.documentElement.classList.toggle('dash-tv', view.tv);
 
   let settings = {};
@@ -49,7 +55,11 @@
     if (!view.tv && document.fullscreenElement) document.exitFullscreen().catch(() => {});
     saveUrl();
   });
-  try { const st = await api('/api/auth/status'); $('dash-login').hidden = !st.auth; } catch { $('dash-login').hidden = true; }
+  try { const st = await api('/api/auth/status'); authOn = !!st.auth; $('dash-login').hidden = !st.auth; } catch { $('dash-login').hidden = true; }
+  /** a page of the app (board, project): through the sign-in page when there are accounts (it goes straight on when signed in) */
+  const appUrl = path => authOn ? '/login?next=' + encodeURIComponent(path) : path;
+  const appLink = (path, title) => el('a', { class: 'dash-go', href: appUrl(path), title, 'aria-label': title, html: svg('external') });
+  const kindParam = () => view.scope === 'ops' ? '&kind=ops' : view.scope.startsWith('project:') ? '&kind=all' : '';
 
   // wall screen: hide the pointer when it rests
   let idle;
@@ -77,6 +87,8 @@
     if (view.rotate) p.set('rotate', '1');
     else if (view.dept) p.set('dept', view.dept);
     if (view.sec) p.set('sec', view.sec);
+    if (view.scope !== 'all') p.set('scope', view.scope);
+    if (view.status) p.set('status', view.status);
     if (view.tv) p.set('tv', '1');
     history.replaceState(null, '', '/dashboard' + (p.toString() ? '?' + p : ''));
   }
@@ -94,12 +106,31 @@
       el('option', { value: '', text: mode === 'dept' ? _t('解除鎖定') : _t('鎖定部門…') }),
       ...depts.map(d => el('option', { value: d.department, text: (mode === 'dept' && d.department === view.dept ? '🔒 ' : '') + d.label, selected: d.department === view.dept && !view.rotate })));
     sel.addEventListener('change', () => { if (sel.value) { view.dept = sel.value; view.rotate = false; apply(); } else setMode('all'); });
-    $('dash-controls').replaceChildren(
+    const scopes = data?.scopes || [{ key: 'all' }, { key: 'ops' }];
+    const scopeSel = el('select', { class: 'input dash-scope-sel' + (view.scope !== 'all' ? ' is-locked' : ''), 'aria-label': _t('工作範圍'), title: _t('全部工作、一般維運，或一個專案') },
+      ...scopes.map(o => el('option', { value: o.key, selected: o.key === view.scope,
+        text: o.key === 'all' ? _t('全部工作') : o.key === 'ops' ? _t('一般維運') : _t("專案：{0}", o.label) })));
+    scopeSel.addEventListener('change', () => setScope(scopeSel.value));
+    $('dash-controls').replaceChildren(scopeSel,
       el('div', { class: 'segmented dash-seg', role: 'group' },
         seg('all', 'grid', _t('總覽'), _t('所有部門')),
         seg('rotate', 'play', _t('輪播'), _t('總覽與各部門輪流顯示（大老闆模式）'))),
       sel);
   }
+
+  function setScope(sc) {
+    view.scope = sc || 'all';
+    version = null;
+    saveUrl();
+    paintControls();
+    refresh();
+  }
+  function setStatus(st) {
+    view.status = view.status === st ? '' : st;
+    saveUrl();
+    render();
+  }
+  function lockDept(name) { view.dept = name; view.rotate = false; apply(); }
 
   function setMode(m) {
     if (m === 'all') { view.rotate = false; view.dept = ''; }
@@ -188,17 +219,59 @@
       text: (d > 0 ? '▲ ' : '▼ ') + _t("比上週 {0}", (d > 0 ? '+' : '') + d) });
   }
 
-  function tiles(totals, trend) {
-    return el('section', { class: 'dash-totals' }, ...data.statuses.map(s => {
+  function tiles(totals, trend, dep) {
+    return el('section', { class: 'dash-totals' + (view.status ? ' has-pick' : '') }, ...data.statuses.map(s => {
       const t = trend ? trend[s] : null;
-      return el('div', { class: 'dash-total', style: { '--st': LABEL[s][1] } },
+      const box = el('div', { class: 'dash-total' + (view.status === s ? ' is-pick' : ''), style: { '--st': LABEL[s][1] }, role: 'button', tabIndex: 0,
+        title: view.status === s ? _t('再點一次取消') : _t("只看「{0}」", LABEL[s][0]) },
         el('div', { class: 'dash-total-top' },
           el('span', { class: 'dash-total-n', text: totals[s] }),
-          el('span', { class: 'dash-total-l', text: LABEL[s][0] })),
-        t ? sparkline(t, LABEL[s][1]) : el('span', { class: 'dash-spark-none', text: _t('趨勢累積中') }),
+          el('span', { class: 'dash-total-l', text: LABEL[s][0] }),
+          appLink(`/#/board?status=${s}${dep ? '&dept=' + encodeURIComponent(dep.department) : ''}${kindParam()}`, _t("在看板開啟「{0}」", LABEL[s][0]))),
+        t ? sparkline(t, LABEL[s][1]) : el('span', { class: 'dash-spark-none', text: data.trend ? _t('趨勢累積中') : _t('趨勢只在「全部工作」顯示') }),
         t ? delta(t, s) : null);
+      box.addEventListener('click', e => { if (!e.target.closest('a')) setStatus(s); });
+      box.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setStatus(s); } });
+      return box;
     }));
   }
+
+  // ------------------------------------------------------------ a person's summary
+  const findPerson = id => { for (const d of data.departments) { const p = d.people.find(x => x.id === id); if (p) return [p, d]; } return [null, null]; };
+  function openPerson(id) {
+    const [p, d] = findPerson(id);
+    const ld = data.load?.people.find(r => r.id === id);
+    if (!p && !ld) return;
+    const name = p?.name || ld.name;
+    const counts = p?.counts || {};
+    const max = Math.max(1, ...data.statuses.map(s => counts[s] || 0));
+    const close = () => wrap.remove();
+    const card = el('div', { class: 'dash-drawer glass', role: 'dialog', 'aria-modal': 'true', 'aria-label': name },
+      el('header', {},
+        el('div', { class: 'dash-who' }, TT.avatar({ name, username: name }, 40),
+          el('div', {}, el('h2', { text: name }), d ? el('button', { class: 'dash-linkish', type: 'button', text: d.label, onclick: () => { close(); lockDept(d.department); } }) : null)),
+        el('button', { class: 'icon-btn', type: 'button', 'aria-label': _t('關閉'), html: svg('x'), onclick: close })),
+      el('div', { class: 'dash-drawer-sec' }, el('h3', { text: data.unit === 'item' ? _t('工作項目') : _t('卡片') }),
+        ...data.statuses.filter(s => counts[s]).map(s => el('div', { class: 'dash-drawer-row', style: { '--st': LABEL[s][1] } },
+          el('span', { text: LABEL[s][0] }), el('span', { class: 'dash-bar', style: { '--w': `${counts[s] / max * 100}%` } }, el('i', { style: { flex: 1, background: LABEL[s][1] } })),
+          el('b', { text: counts[s] }),
+          appLink(`/#/board?user=${id}&status=${s}${kindParam()}`, _t("在看板開啟「{0}」", LABEL[s][0])))),
+        data.statuses.some(s => counts[s]) ? null : empty(_t('目前沒有卡片'))),
+      p ? el('div', { class: 'dash-drawer-sec' }, el('h3', { text: _t('到期') }),
+        el('div', { class: 'dash-due-big' }, ...DUE.map(([k, t, c]) =>
+          el('div', { class: 'dash-due-n' + (p.due[k] ? '' : ' zero'), style: { '--st': c } }, el('strong', { text: p.due[k] }), el('span', { text: t }))))) : null,
+      ld ? el('div', { class: 'dash-drawer-sec' }, el('h3', { text: _t('預估工時（依到期週）') }),
+        el('div', { class: 'dash-drawer-weeks' }, ...ld.hours.map((h, i) => el('span', { class: 'dash-heat l' + (h === 0 ? 0 : h > data.load.limit ? 4 : h > data.load.limit * 0.8 ? 3 : h > data.load.limit * 0.4 ? 2 : 1) },
+          el('small', { text: i ? _t("第 {0} 週", i + 1) : _t('本週') }), String(h))))) : null,
+      el('footer', {}, el('a', { class: 'btn btn-primary', href: appUrl(`/#/board?user=${id}${kindParam()}`), html: svg('kanban') + _t('在看板查看他的卡片') }),
+        el('span', { class: 'hint', text: authOn ? _t('需要登入，依看板權限顯示') : '' })));
+    const wrap = el('div', { class: 'modal dash-modal' }, card);
+    wrap.addEventListener('mousedown', e => { if (e.target === wrap) close(); });
+    document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc); } });
+    document.body.append(wrap);
+  }
+  const personName = (id, name) => id == null ? el('span', { text: name, title: name })
+    : el('button', { class: 'dash-linkish', type: 'button', text: name, title: _t("{0} 的摘要", name), onclick: () => openPerson(id) });
 
   const panel = (cls, icon, title, extra, ...body) => el('section', { class: 'dash-panel glass ' + cls },
     el('header', {}, el('h2', { html: svg(icon) + TT.esc(title) }), extra || ''), ...body);
@@ -209,13 +282,13 @@
     const big = el('div', { class: 'dash-due-big' }, ...DUE.map(([k, t, c]) =>
       el('div', { class: 'dash-due-n' + (sums[k] ? '' : ' zero'), style: { '--st': c } }, el('strong', { text: sums[k] }), el('span', { text: t }))));
     // rows: departments on the overview, people inside a department
-    const rows = dep ? dep.people.filter(p => DUE.some(([k]) => p.due[k])).map(p => [p.name, p.due])
-      : data.departments.filter(d => DUE.some(([k]) => d.due[k])).map(d => [d.label, d.due]);
+    const rows = dep ? dep.people.filter(p => DUE.some(([k]) => p.due[k])).map(p => [p.name, p.due, () => openPerson(p.id), p.id])
+      : data.departments.filter(d => DUE.some(([k]) => d.due[k])).map(d => [d.label, d.due, () => lockDept(d.department)]);
     const max = Math.max(1, ...rows.map(([, d]) => DUE.reduce((a, [k]) => a + d[k], 0)));
-    const list = rows.length ? el('div', { class: 'dash-due-rows' }, ...rows.map(([name, d]) => {
+    const list = rows.length ? el('div', { class: 'dash-due-rows' }, ...rows.map(([name, d, go, pid]) => {
       const sum = DUE.reduce((a, [k]) => a + d[k], 0);
       return el('div', { class: 'dash-due-row' },
-        el('span', { class: 'dash-due-name', text: name, title: name }),
+        pid === null ? el('span', { class: 'dash-due-name', text: name }) : el('button', { class: 'dash-due-name dash-linkish', type: 'button', text: name, title: name, onclick: go }),
         el('span', { class: 'dash-bar', style: { '--w': `${sum / max * 100}%` } },
           ...DUE.filter(([k]) => d[k]).map(([k, t, c]) => el('i', { style: { flex: d[k], background: c }, title: `${t} ${d[k]}` }))),
         el('span', { class: 'dash-due-sum', text: sum }));
@@ -228,9 +301,12 @@
     const list = dep ? data.projects.filter(p => p.depts.includes(dep.department)) : data.projects;
     const body = list.length ? el('div', { class: 'dash-projects' }, ...list.map(p => {
       const late = p.slip > 0;
-      return el('div', { class: 'dash-project' + (late ? ' is-late' : '') },
+      const mine = view.scope === `project:${p.id}`;
+      return el('div', { class: 'dash-project' + (late ? ' is-late' : '') + (mine ? ' is-pick' : '') },
         el('div', { class: 'dash-project-head' },
-          el('strong', { text: p.label }),
+          el('button', { class: 'dash-linkish dash-project-name', type: 'button', text: p.label,
+            title: mine ? _t('回到全部工作') : _t('只看這個專案的工作'), onclick: () => setScope(mine ? 'all' : `project:${p.id}`) }),
+          appLink(`/#/project/${p.id}`, _t('開啟專案頁')),
           el('span', { class: 'dash-chip ' + (late ? 'bad' : 'good'), text: late ? _t("落後 {0} 天", p.slip) : p.slip === null ? _t('未設基準線') : _t('準時') }),
           p.problems ? el('span', { class: 'dash-chip warn', text: _t("{0} 項問題", p.problems) }) : null),
         el('div', { class: 'dash-progress' }, el('i', { style: { width: p.pct + '%' } }), el('span', { text: p.pct + '%' })),
@@ -238,32 +314,41 @@
           p.next_due ? el('span', { text: _t("下個里程碑 {0}", fmtDate(p.next_due)) + (p.next ? ` · ${p.next}` : '') }) : null,
           p.due ? el('span', { text: _t("預計完成 {0}", fmtDate(p.due)) }) : null,
           el('span', { text: _t("{0} 項未完成", p.open) }),
-          !dep ? el('span', { class: 'dash-project-depts', text: p.depts.map(d => deptOf(d)?.label || d).join('、') }) : null));
+          !dep ? el('span', { class: 'dash-project-depts' }, ...p.depts.flatMap((d, i) => [i ? '、' : '',
+            deptOf(d) ? el('button', { class: 'dash-linkish', type: 'button', text: deptOf(d).label, onclick: () => lockDept(d) }) : d])) : null));
     })) : empty(dep ? _t('這個部門沒有進行中的專案') : _t('沒有進行中的專案'));
     return panel('dash-proj', 'flag', _t('專案進度'), data.project_mode === 'anon' ? el('span', { class: 'muted', text: _t('專案名稱已隱藏') }) : null, body);
   }
 
   function deptCard(dep, wide) {
-    const max = Math.max(1, ...dep.people.map(p => p.total));
+    const pick = view.status;
+    const people = pick ? dep.people.filter(p => p.counts[pick]) : dep.people;
+    const max = Math.max(1, ...people.map(p => pick ? p.counts[pick] : p.total));
     const legend = el('div', { class: 'dash-legend' }, ...data.statuses.filter(s => dep.totals[s]).map(s =>
       el('span', { style: { '--st': LABEL[s][1] } }, el('i'), `${LABEL[s][0]} ${dep.totals[s]}`)));
-    const rows = dep.people.length ? dep.people.map(p => el('div', { class: 'dash-person' + (p.active ? '' : ' is-off') },
-      el('span', { class: 'dash-who' }, TT.avatar({ name: p.name, username: p.name }, wide ? 30 : 26), el('span', { text: p.name, title: p.name })),
-      el('span', { class: 'dash-bar', style: { '--w': `${p.total / max * 100}%` },
+    const shown = p => data.statuses.filter(s => p.counts[s] && (!pick || s === pick));
+    const rows = people.length ? people.map(p => el('div', { class: 'dash-person' + (p.active ? '' : ' is-off') },
+      el('span', { class: 'dash-who' }, TT.avatar({ name: p.name, username: p.name }, wide ? 30 : 26), personName(p.id, p.name)),
+      el('span', { class: 'dash-bar', style: { '--w': `${(pick ? p.counts[pick] : p.total) / max * 100}%` },
         title: data.statuses.filter(s => p.counts[s]).map(s => `${LABEL[s][0]} ${p.counts[s]}`).join('\n') },
-        ...data.statuses.filter(s => p.counts[s]).map(s => el('i', { style: { flex: p.counts[s], background: LABEL[s][1] } },
+        ...shown(p).map(s => el('i', { style: { flex: p.counts[s], background: LABEL[s][1] }, title: `${LABEL[s][0]} ${p.counts[s]}`,
+          onclick: () => setStatus(s) },
           wide && p.counts[s] / max > 0.08 ? el('b', { text: p.counts[s] }) : null))),
-      el('span', { class: 'dash-person-n', text: p.total }),
-      p.due.overdue ? el('span', { class: 'dash-chip bad', title: _t('逾期的卡片與子任務'), text: _t("逾期 {0}", p.due.overdue) }) : el('span'))) : [empty(_t('目前沒有卡片'))];
+      el('span', { class: 'dash-person-n', text: pick ? p.counts[pick] : p.total }),
+      p.due.overdue ? el('span', { class: 'dash-chip bad', title: _t('逾期的卡片與子任務'), text: _t("逾期 {0}", p.due.overdue) }) : el('span')))
+      : [empty(pick ? _t("沒有「{0}」的項目", LABEL[pick][0]) : _t('目前沒有卡片'))];
+    const legend2 = pick ? el('div', { class: 'dash-legend' }, el('button', { class: 'dash-chip', type: 'button', style: { '--st': LABEL[pick][1] },
+      text: _t("只看「{0}」 ✕", LABEL[pick][0]), onclick: () => setStatus(pick) })) : legend;
     const head = el('header', {},
-      el('h2', { text: dep.label }),
-      el('span', { class: 'badge', text: _t("{0} 人 · {1} 張", dep.people.length, dep.total) }));
+      wide ? el('h2', { text: dep.label }) : el('h2', {}, el('button', { class: 'dash-linkish', type: 'button', text: dep.label, title: _t("只看「{0}」", dep.label), onclick: () => lockDept(dep.department) })),
+      el('span', { class: 'badge', text: data.unit === 'item' ? _t("{0} 人 · {1} 項", dep.people.length, dep.total) : _t("{0} 人 · {1} 張", dep.people.length, dep.total) }),
+      appLink(`/#/board?dept=${encodeURIComponent(dep.department)}${pick ? '&status=' + pick : ''}${kindParam()}`, _t("在看板開啟「{0}」的卡片", dep.label)));
     if (!wide && !view.tv) {
       const lock = el('button', { class: 'icon-btn dash-lock', type: 'button', title: _t("只看「{0}」", dep.label), html: svg('lock') });
       lock.addEventListener('click', () => { view.dept = dep.department; view.rotate = false; apply(); });
       head.append(lock);
     }
-    return el('article', { class: 'dash-dept glass' + (wide ? ' is-wide' : '') }, head, legend, el('div', { class: 'dash-people' }, ...rows));
+    return el('article', { class: 'dash-dept glass' + (wide ? ' is-wide' : '') }, head, legend2, el('div', { class: 'dash-people' }, ...rows));
   }
 
   function loadPanel(dep) {
@@ -280,7 +365,7 @@
     const body = rows.length ? el('div', { class: 'dash-heat-wrap' }, el('table', { class: 'dash-heat-table' },
       el('thead', {}, el('tr', {}, el('th', { text: _t('人員') }), ...weeks.map((w, i) => el('th', { text: i ? w : _t('本週') })))),
       el('tbody', {}, ...rows.map(r => el('tr', { class: r.over ? 'is-over' : '' },
-        el('th', {}, el('span', { text: r.name }), !dep ? el('small', { text: deptOf(r.dept)?.label || r.dept }) : null),
+        el('th', {}, personName(r.id, r.name), !dep ? el('small', { text: deptOf(r.dept)?.label || r.dept }) : null),
         ...r.hours.map(cell)))))) : empty(_t('未來 6 週沒有排定到期的工作'));
     return panel('dash-load', 'users', _t('人員負載（預估工時，依到期週）'),
       el('span', { class: 'dash-heat-key' }, _t("上限 {0} 小時／週", lim), ...[1, 2, 3, 4].map(l => el('i', { class: 'dash-heat l' + l }))), body);
@@ -311,9 +396,13 @@
     $('dash-title').textContent = dep ? _t("{0} · {1}", siteTitle, dep.label) : _t("{0} · 任務進度", siteTitle);
     document.title = dep ? `${dep.label} · ${siteTitle}` : _t("任務進度 · {0}", siteTitle);
     const totals = dep ? dep.totals : data.totals;
-    const trend = dep ? dep.trend : data.trend.all;
+    const trend = dep ? dep.trend : data.trend?.all;
+    const sc = (data.scopes || []).find(o => o.key === data.scope);
+    $('dash-sub').textContent = data.scope === 'ops' ? _t('一般維運卡片：各部門、各帳號的狀態統計（不含週期工作）')
+      : sc?.label ? _t("專案「{0}」：最下層的工作項目與歸屬這個專案的卡片", sc.label)
+        : _t('各部門、各帳號的卡片狀態統計（不含週期工作）');
     const main = $('dash-main');
-    const parts = [tiles(totals, trend)];
+    const parts = [tiles(totals, trend, dep)];
     const proj = projectsPanel(dep);
     parts.push(el('div', { class: 'dash-row2' + (proj ? '' : ' one') }, duePanel(dep), proj));
     if (dep) parts.push(deptCard(dep, true));
@@ -330,7 +419,10 @@
 
   async function refresh() {
     try {
-      const d = await api('/api/public/dashboard');
+      const want = view.scope;
+      const d = await api('/api/public/dashboard?scope=' + encodeURIComponent(want));
+      if (want !== view.scope) return;              // the scope changed while this was on its way
+      if (d.scope !== view.scope) { view.scope = d.scope; saveUrl(); }   // a project that is gone: back to all
       $('dash-live').classList.remove('is-error');
       const t = new Date();
       $('dash-time').textContent = _t("更新於 {0}:{1}:{2}", pad(t.getHours()), pad(t.getMinutes()), pad(t.getSeconds()));
@@ -338,7 +430,7 @@
       const first = !data;
       version = d.version;
       data = d;
-      if (first) apply(); else { paintControls(); render(); }
+      if (first) apply(); else { paintControls(); render(true); }
     } catch (e) {
       $('dash-live').classList.add('is-error');
       $('dash-time').textContent = e.message.includes('關閉') || e.message.includes('closed') ? _t('公開看板已關閉') : _t('連線中斷，稍後重試');

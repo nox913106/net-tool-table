@@ -1693,3 +1693,7 @@ button.g-tog:focus-visible { outline: 2px solid var(--accent); outline-offset: -
 .sync-code { font-size: 22px; font-weight: 700; letter-spacing: .12em; }
 .kb-imp-people { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); font-size: 13px; }
 .kb-imp-people .err { color: var(--danger); }
+.kb-col.kb-flash { animation: kb-flash 1.6s ease; }
+.board-from { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 14px; margin-bottom: 10px; border: 1px solid var(--accent-line, var(--border));
+  border-left: 3px solid var(--accent); background: var(--accent-soft); font-size: 13px; }
+.board-from a { margin-left: auto; color: var(--accent-text); }
