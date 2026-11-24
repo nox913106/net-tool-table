@@ -799,8 +799,10 @@ const TTBoard = window.TTBoard = (() => {
     const placeholder = el('div', { class: 'kb-placeholder' });
 
     const render = () => {
+      // a board that was on the page and has been taken off stops listening; one not yet placed on the
+      // page (the data can arrive first, e.g. the standalone copy's local server) keeps rendering
       if (!root.isConnected && root.dataset.mounted) { boards.delete(render); return; }
-      root.dataset.mounted = '1';
+      if (root.isConnected) root.dataset.mounted = '1';
       const cols = STATUSES.filter(s => !(hideClosed && CLOSED.has(s.key)) && !(s.key === 'overdue' && !colItems('overdue').length));
       root.style.setProperty('--kb-cols', cols.length);
       root.classList.toggle('kb-lanes', lanes);

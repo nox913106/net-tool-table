@@ -1494,7 +1494,7 @@
           paintBoss();
           return el('div', { class: 'users-row' + (u.active ? '' : ' is-off') },
             el('span', { class: 'users-who' }, TT.avatar({ ...u, name: u.display_name }, 32),
-              el('span', {}, el('strong', { text: u.display_name || u.username }), el('small', { text: `${u.username}${u.source === 'local' ? _t(' · 本機帳號') : ''}${u.email ? ' · ' + u.email : ''}` }))),
+              el('span', {}, el('strong', { text: u.display_name || u.username }), el('small', { text: `${u.username}${u.source === 'local' ? _t(' · 本機帳號') : u.source === 'demo' ? _t(' · 示範帳號') : ''}${u.email ? ' · ' + u.email : ''}` }))),
             el('span', { text: u.department || '—' }),
             boss,
             el('span', { class: 'muted', text: _t("建 {0} · 負責 {1}", u.created_cards, u.assigned_cards) }),
@@ -2010,6 +2010,36 @@
     renderAutoBackup(auto);
     $('stage-body').append(auto, el('div', { class: 'backup-grid' },
       card('download', _t('匯出'), _t('設定、首頁版面、所有資料夾與連結、快速連結，打包成一個 JSON。可用來備份、搬家，或做成範本給別人直接套用。（圖示檔案不包含在內）'), exportBtn),
-      card('upload', _t('匯入'), _t('從 JSON 匯入。「取代全部」會先清空；「附加」會加在現有內容之後。'), appendBtn, replaceBtn, file)));
+      card('upload', _t('匯入'), _t('從 JSON 匯入。「取代全部」會先清空；「附加」會加在現有內容之後。'), appendBtn, replaceBtn, file),
+      demoCard(card)));
+  }
+
+  /** 示範資料: demo staff in 7 departments + a one-year data-centre rebuild project (app/demo.py) */
+  function demoCard(card) {
+    const loadBtn = el('button', { class: 'btn btn-primary', type: 'button', html: svg('sparkles') + _t('建立示範資料') });
+    const dropBtn = el('button', { class: 'btn btn-ghost', type: 'button', html: svg('trash') + _t('移除示範資料') });
+    const state = el('p', { class: 'hint' });
+    const paint = st => {
+      loadBtn.hidden = st.loaded; dropBtn.hidden = !st.loaded;
+      state.textContent = st.loaded ? _t("已建立：{0} 位示範人員、{1} 張卡片", st.people, st.tasks) : _t('尚未建立');
+    };
+    api('/api/system/demo').then(paint).catch(() => { state.textContent = ''; });
+    loadBtn.addEventListener('click', async () => {
+      if (!(await confirmDialog(_t('建立示範資料？'), _t('會建立 16 位示範人員（管理部、專案管理部、現場部、網路部、資安部、稽核部、會計部）、一年期的主機房改建專案與 23 張日常卡片，卡片都標上 #示範。示範人員只存在這個系統裡，不能登入，也不會寫入 AD。建議只在測試機使用。'), _t('建立'), false))) return;
+      loadBtn.disabled = true;
+      try { const r = await api('/api/system/demo', { method: 'POST' }); toast(_t("已建立示範資料：{0} 個專案項目、{1} 位人員", r.items, r.people)); paint(await api('/api/system/demo')); }
+      catch (e) { toast(e.message, true); }
+      finally { loadBtn.disabled = false; }
+    });
+    dropBtn.addEventListener('click', async () => {
+      if (!(await confirmDialog(_t('移除示範資料？'), _t('會刪除示範專案、日常卡片與示範人員（包含之後在這些卡片上的留言與工時）。其他資料不受影響。'), _t('移除'), true))) return;
+      dropBtn.disabled = true;
+      try { const r = await api('/api/system/demo', { method: 'DELETE' }); toast(_t("已移除 {0} 張卡片、{1} 位示範人員", r.tasks, r.people)); paint(await api('/api/system/demo')); }
+      catch (e) { toast(e.message, true); }
+      finally { dropBtn.disabled = false; }
+    });
+    const c = card('sparkles', _t('示範資料'), _t('測試用：7 個部門的示範人員，加上一年期的主機房改建專案（設備採購、網路架構設計、施工、設定、分期驗收、總結驗收）與各部門的日常卡片，狀態有進行中、待確認、暫緩、逾期、卡住與取消。'), loadBtn, dropBtn);
+    c.querySelector('.backup-text').append(state);
+    return c;
   }
 })();

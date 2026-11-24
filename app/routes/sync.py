@@ -545,7 +545,7 @@ async def _directory(db) -> dict:
     """Active accounts, so a standalone copy can show names and assign or @mention anyone while offline."""
     cur = await db.execute("""SELECT u.username, u.display_name, u.email, u.department, m.username FROM users u
                               LEFT JOIN users m ON m.id = u.manager_id
-                              WHERE u.active = 1 AND u.source IN ('ldap', 'entra') ORDER BY u.id LIMIT 5000""")
+                              WHERE u.active = 1 AND u.source IN ('ldap', 'entra', 'demo') ORDER BY u.id LIMIT 5000""")
     return {r[0]: {"display_name": r[1], "email": r[2], "department": r[3], "manager": r[4], "directory": True}
             for r in await cur.fetchall()}
 

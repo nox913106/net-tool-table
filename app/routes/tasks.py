@@ -755,7 +755,7 @@ async def _resolve_people(db, usernames: List[str]) -> List[dict]:
                                        "VALUES (?, 'ldap', ?, ?, 'user', 1)", (hit["username"], hit.get("display_name"), hit.get("department")))
                 cur = await db.execute("SELECT id, username, display_name, active, source FROM users WHERE id = ?", (cur.lastrowid,))
                 row = await cur.fetchone()
-        if row and row["active"] and row["source"] in ("ldap", "entra"):
+        if row and row["active"] and row["source"] in ("ldap", "entra", "demo"):
             out.append(dict(row))
     return out
 

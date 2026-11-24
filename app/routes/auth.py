@@ -231,6 +231,9 @@ async def authenticate(db, username: str, password: str, ip: str) -> dict:
     cur = await db.execute("SELECT * FROM users WHERE username = ?", (username,))
     row = await cur.fetchone()
     user = None
+    if row is not None and row["source"] == "demo":           # demo staff (app/demo.py) cannot sign in
+        record_failure(ip, username)
+        raise HTTPException(status_code=401, detail="示範帳號不能登入")
     if row is not None and row["source"] == "local":
         if verify_password(password, row["password_hash"]):
             user = dict(row)
@@ -449,7 +452,7 @@ async def people(q: str = "", user: dict = Depends(current_user)):
     try:
         cur = await db.execute(
             """SELECT id, username, display_name, department FROM users
-               WHERE active = 1 AND source IN ('ldap', 'entra') AND id IS NOT ? AND (? = '' OR lower(username) LIKE ? OR lower(display_name) LIKE ?)
+               WHERE active = 1 AND source IN ('ldap', 'entra', 'demo') AND id IS NOT ? AND (? = '' OR lower(username) LIKE ? OR lower(display_name) LIKE ?)
                ORDER BY display_name LIMIT 20""", (user.get("id"), text, f"%{text}%", f"%{text}%"))
         out = [{**dict(r), "known": True} for r in await cur.fetchall()]
         from ..team import relations

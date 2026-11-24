@@ -607,3 +607,57 @@ async def apply_status(rid: str):
     if res.get("id") != rid:
         return {"id": rid, "pending": True}
     return {**res, "pending": False}
+
+
+# ---------------------------------------------------------------- demo data (app/demo.py)
+@router.get("/demo")
+async def demo_status():
+    from .. import demo
+    from ..database import get_db
+    db = await get_db()
+    try:
+        return await demo.status(db)
+    finally:
+        await db.close()
+
+
+@router.post("/demo")
+async def demo_load(request: Request):
+    """Demo staff in 7 departments, a one-year data-centre rebuild project and everyday cards (this database only)."""
+    from .. import demo
+    from ..auth import current_user
+    from ..database import CAPTURE, get_db
+    was = CAPTURE["on"]
+    CAPTURE["on"] = False                     # no Teams change digest for a few hundred demo rows
+    try:
+        db = await get_db()
+    finally:
+        CAPTURE["on"] = was
+    try:
+        try:
+            out = await demo.load(db, current_user(request).get("id"))
+        except ValueError as e:
+            await db.rollback()
+            raise HTTPException(status_code=400, detail=str(e))
+        await db.commit()
+        return out
+    finally:
+        await db.close()
+
+
+@router.delete("/demo")
+async def demo_remove():
+    from .. import demo
+    from ..database import CAPTURE, get_db
+    was = CAPTURE["on"]
+    CAPTURE["on"] = False
+    try:
+        db = await get_db()
+    finally:
+        CAPTURE["on"] = was
+    try:
+        out = await demo.remove(db)
+        await db.commit()
+        return out
+    finally:
+        await db.close()
