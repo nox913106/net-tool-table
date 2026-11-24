@@ -4,14 +4,35 @@
 ![Python](https://img.shields.io/badge/python-3.10+-3b82f6)
 ![License](https://img.shields.io/badge/license-MIT-22c55e)
 
-可以自由組裝的連結入口網站。
-資料夾、連結、首頁版面、配色、頁首元件**全部在管理後台調整**，不用改任何程式碼——
-拿來做 IT 工具入口、部門系統入口、文件中心、個人書籤都可以。
+部門的入口網站、待辦看板與多專案管理，一套系統。可以架在伺服器上大家共用（AD 登入），也有 Windows 單機版，不在公司網路裡照樣能用，連線後自動同步回伺服器，兩邊功能相同。
 
-![首頁（深色）](docs/images/home-dark.png)
+- **入口網站**：資料夾、連結、首頁版面、配色全部在管理後台調整，不用改程式碼
+- **待辦看板**：日常維運卡片、週期工作、子任務四層、工時、留言與 @ 通知、卡住標記
+- **多專案並行**：專案與維運卡片分開又不漏看；甘特圖（里程碑、前置任務、基準線）、專案總覽、人員負載、共用時段衝突、跨專案前置延誤
+- **任務雷達**：只畫需要注意的項目；一個專案一個六角形，點進去看各階段
+- **Excel 工作進度報告**：給長官看的報表，可匯出也可改完匯入
+
+![首頁與任務雷達（深色）](docs/images/home-dark.png)
+
+| 專案總覽 | 專案頁（甘特圖） |
+|---|---|
+| ![專案總覽](docs/images/projects.png) | ![專案頁](docs/images/project-gantt.png) |
+| **人員負載（預估工時）** | **共用時段與跨專案前置** |
+| ![人員負載](docs/images/load.png) | ![時段與跨專案](docs/images/links.png) |
+| **待辦看板與專案摘要列** | **甘特圖** |
+| ![待辦看板](docs/images/board.png) | ![甘特圖](docs/images/board-gantt.png) |
+| **我的工作** | **專案通知** |
+| ![我的工作](docs/images/mine.png) | ![通知](docs/images/bell.png) |
+
+| 任務雷達 | 專案雷達（扇區＝階段） | 警示清單 |
+|---|---|---|
+| ![任務雷達](docs/images/radar.png) | ![專案雷達](docs/images/radar-project.png) | ![警示清單](docs/images/radar-alerts.png) |
 
 | 淺色主題 | 管理後台 |
 |---|---|
+| ![首頁（淺色）](docs/images/home-light.png) | ![管理後台](docs/images/admin.png) |
+
+---|---|
 | ![首頁（淺色）](docs/images/home-light.png) | ![管理後台](docs/images/admin.png) |
 
 ---
