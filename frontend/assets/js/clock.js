@@ -5,7 +5,7 @@
 'use strict';
 
 const TTClock = (() => {
-  const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
+  const WEEK = [_t('日'), _t('一'), _t('二'), _t('三'), _t('四'), _t('五'), _t('六')];
   let offset = 0;
 
   /** ISO-8601 week number (weeks start on Monday; week 1 contains the first Thursday) */
@@ -116,8 +116,8 @@ const TTClock = (() => {
     const paintDate = d => {
       const w = isoWeek(d);
       ymd.textContent = `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())}`;
-      wk.textContent = `第 ${w.week} 週 · 星期${WEEK[d.getDay()]}`;
-      date.title = `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日，星期${WEEK[d.getDay()]}\nISO 週次：${w.year} 年第 ${w.week} 週`;
+      wk.textContent = _t("第 {0} 週 · 星期{1}", w.week, WEEK[d.getDay()]);
+      date.title = _t("{0} 年 {1} 月 {2} 日，星期{3}\nISO 週次：{4} 年第 {5} 週", d.getFullYear(), d.getMonth() + 1, d.getDate(), WEEK[d.getDay()], w.year, w.week);
     };
 
     const hud = style === 'hud' ? mountHud(time, now, document.documentElement.dataset.perf === 'low') : null;
@@ -143,8 +143,8 @@ const TTClock = (() => {
       try {
         const w = await TT.api('/api/whoami');
         const title = w.local
-          ? `這台電腦的 IP（${w.host || ''}）` + ((w.all || []).length > 1 ? '\n全部：' + w.all.join('、') : '')
-          : '你的 IP（本伺服器看到的位址）';
+          ? _t("這台電腦的 IP（{0}）", w.host || '') + ((w.all || []).length > 1 ? _t('\n全部：') + w.all.join('、') : '')
+          : _t('你的 IP（本伺服器看到的位址）');
         if (w.ip) chips.push(TT.el('span', { class: 'net-chip', title },
           TT.el('span', { class: 'net-dot' }), w.ip));
       } catch { /* ignore */ }
@@ -157,7 +157,7 @@ const TTClock = (() => {
           const place = [j.city, j.country].filter(Boolean).join(', ');
           chips.push(TT.el('a', {
             class: 'net-chip', href: `https://ipinfo.io/${encodeURIComponent(j.ip)}`, target: '_blank', rel: 'noopener',
-            title: '對外 IP（ipinfo.io）', html: TT.svg('globe') + TT.esc(j.ip) + (place ? ` <span class="muted">· ${TT.esc(place)}</span>` : ''),
+            title: _t('對外 IP（ipinfo.io）'), html: TT.svg('globe') + TT.esc(j.ip) + (place ? ` <span class="muted">· ${TT.esc(place)}</span>` : ''),
           }));
         }
       } catch { /* offline / blocked */ }

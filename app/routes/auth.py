@@ -217,6 +217,26 @@ async def change_password(body: PasswordIn, user: dict = Depends(current_user)):
         await db.close()
 
 
+class LangIn(BaseModel):
+    lang: Optional[str] = None
+
+
+@router.put("/api/auth/lang")
+async def set_lang(body: LangIn, user: dict = Depends(current_user)):
+    """My interface language: zh-TW, en, or null (follow the site default)."""
+    if body.lang not in (None, "zh-TW", "en"):
+        raise HTTPException(status_code=400, detail="語言只能是 zh-TW 或 en")
+    if user.get("id") is None:
+        return {"lang": body.lang}                 # no account (standalone): the browser keeps it
+    db = await get_db()
+    try:
+        await db.execute("UPDATE users SET lang = ? WHERE id = ?", (body.lang, user["id"]))
+        await db.commit()
+        return {"lang": body.lang}
+    finally:
+        await db.close()
+
+
 # ------------------------------------------------------------- user management
 @router.get("/api/users")
 async def list_users(_: dict = Depends(require_admin)):

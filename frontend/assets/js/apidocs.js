@@ -3,7 +3,7 @@
    X-Tool-Table header, which is added here so they work from this page. */
 window.addEventListener('DOMContentLoaded', () => {
   if (typeof SwaggerUIBundle === 'undefined') {
-    document.getElementById('swagger-ui').textContent = 'Swagger UI 載入失敗，請重新整理。';
+    document.getElementById('swagger-ui').textContent = _t('Swagger UI 載入失敗，請重新整理。');
     return;
   }
   window.ui = SwaggerUIBundle({
@@ -25,7 +25,7 @@ window.addEventListener('DOMContentLoaded', () => {
     },
     onComplete: () => {
       const f = document.querySelector('.operation-filter-input');
-      if (f) f.placeholder = '搜尋 API（路徑、群組）';
+      if (f) f.placeholder = _t('搜尋 API（路徑、群組）');
     },
   });
 });

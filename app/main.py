@@ -168,7 +168,7 @@ async def branding():
         s = await read_settings(db)
     finally:
         await db.close()
-    keys = ("site_title", "site_subtitle", "favicon", "theme", "accent_color", "background", "density", "public_dashboard")
+    keys = ("site_title", "site_subtitle", "favicon", "theme", "language", "accent_color", "background", "density", "public_dashboard")
     return {k: s.get(k) for k in keys}
 
 

@@ -16,7 +16,7 @@
   const PERIOD = 6;                                    // seconds per sweep
   const start = performance.now();
   const RINGS = [                                      // [label, outer radius 0..1, class]
-    ['逾期', .24, 'crit'], ['今天', .38, 'warn'], ['3 天', .52, 'warn'], ['7 天', .67, 'ok'], ['30 天', .84, 'ok'], ['之後', 1, 'idle'],
+    [_t('逾期'), .24, 'crit'], [_t('今天'), .38, 'warn'], [_t('3 天'), .52, 'warn'], [_t('7 天'), .67, 'ok'], [_t('30 天'), .84, 'ok'], [_t('之後'), 1, 'idle'],
   ];
   const s = (tag, attrs = {}) => { const n = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); return n; };
   const hash = n => { let h = 2166136261; for (const c of String(n)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967296; };
@@ -42,10 +42,10 @@
   const PAUSED = new Set(['pending', 'onhold', 'canceled']);
   // quadrant → bearing range (clockwise from north): I top-right, II top-left, III bottom-left, IV bottom-right
   const QUADS = [
-    { key: 'high', label: 'I 高優先', from: 0 },
-    { key: 'normal', label: 'II 一般', from: 270 },
-    { key: 'low', label: 'III 低', from: 180 },
-    { key: 'paused', label: 'IV 暫停', from: 90 },
+    { key: 'high', label: _t('I 高優先'), from: 0 },
+    { key: 'normal', label: _t('II 一般'), from: 270 },
+    { key: 'low', label: _t('III 低'), from: 180 },
+    { key: 'paused', label: _t('IV 暫停'), from: 90 },
   ];
   const quadOf = t => PAUSED.has(t.status) ? 3 : t.priority === 'high' ? 0 : t.priority === 'low' ? 2 : 1;
   /** A card's open subtasks at every level, with the path from the card (for the task window). */
@@ -66,11 +66,11 @@
     });
   }
   const overdueCount = list => list.reduce((n, c) => n + (c.t.status !== 'canceled' && c.own === 0 ? 1 : 0) + c.subs.filter(x => x.ring === 0).length, 0);
-  const whenText = (ring, due) => RINGS[ring][0] === '之後' ? (due ? '到期 ' + due.replace('T', ' ') : '未設到期日') : RINGS[ring][0];
+  const whenText = (ring, due) => RINGS[ring][0] === _t('之後') ? (due ? _t('到期 ') + due.replace('T', ' ') : _t('未設到期日')) : RINGS[ring][0];
 
   const SIZE = 6.4;
   const PROB_TYPES = ['overdue', 'blocked', 'conflict', 'xdep', 'window', 'overload'];
-  const ZH = { overdue: '逾期', blocked: '卡住', conflict: '排程衝突', xdep: '跨專案前置', window: '時段衝突', overload: '超載' };
+  const ZH = { overdue: _t('逾期'), blocked: _t('卡住'), conflict: _t('排程衝突'), xdep: _t('跨專案前置'), window: _t('時段衝突'), overload: _t('超載') };
   const hexPts = r => [0, 1, 2, 3, 4, 5].map(k => { const a = Math.PI / 6 + k * Math.PI / 3; return `${(Math.cos(a) * r).toFixed(2)},${(Math.sin(a) * r).toFixed(2)}`; }).join(' ');
   const md = v => v ? `${+v.slice(5, 7)}/${+v.slice(8, 10)}` : '';
   const meId = () => (typeof TTBoard !== 'undefined' && TTBoard.meInfo?.user?.id) || null;
@@ -78,7 +78,7 @@
   function mount(host) {
     const R = 100;
     const state = { project: null, all: false, tab: 'radar', type: 'all', mine: TT.store.get('radar-mine', false) };
-    const svg = s('svg', { viewBox: '-112 -112 224 224', class: 'radar-svg', role: 'img', 'aria-label': '任務雷達：越靠近中心越緊急；只畫出有問題的項目' });
+    const svg = s('svg', { viewBox: '-112 -112 224 224', class: 'radar-svg', role: 'img', 'aria-label': _t('任務雷達：越靠近中心越緊急；只畫出有問題的項目') });
     const grid = s('g', { class: 'radar-grid' });
     const blips = s('g', { class: 'radar-blips' });
     svg.append(grid, blips, s('circle', { r: 2.6, class: 'radar-home' }));
@@ -90,7 +90,7 @@
     const crumb = el('div', { class: 'radar-crumb', hidden: true });
     const list = el('div', { class: 'radar-list', hidden: true });
     const tabs = el('div', { class: 'radar-tabs', role: 'tablist' });
-    const head = el('div', { class: 'radar-head' }, el('span', { class: 'radar-title', text: '任務雷達' }), tabs);
+    const head = el('div', { class: 'radar-head' }, el('span', { class: 'radar-title', text: _t('任務雷達') }), tabs);
     const body = el('div', { class: 'radar-body' }, scope, legend);
     host.replaceChildren(head, crumb, body, list);
 
@@ -141,9 +141,9 @@
     }
     function normalBubble(n) {
       const g = s('g', { class: 'radar-normal', transform: `translate(${-R + 4} ${R - 4})`, tabindex: '0' });
-      const t = s('text', { 'text-anchor': 'start', y: 3 }); t.textContent = state.all ? '只看問題' : `${n} 正常`;
+      const t = s('text', { 'text-anchor': 'start', y: 3 }); t.textContent = state.all ? _t('只看問題') : _t("{0} 正常", n);
       g.append(s('rect', { x: -4, y: -6, width: state.all ? 34 : 12 + String(n).length * 4 + 16, height: 12, rx: 6 }), t);
-      hover(g, state.all ? '回到只顯示有問題的項目' : `${n} 項沒有問題（點一下全部顯示）`);
+      hover(g, state.all ? _t('回到只顯示有問題的項目') : _t("{0} 項沒有問題（點一下全部顯示）", n));
       act(g, () => { state.all = !state.all; paint(); });
       return g;
     }
@@ -184,8 +184,8 @@
         const types = probs.get(`t:${t.id}`) || [];
         const cls = t.status === 'canceled' ? 'idle is-canceled' : types.includes('blocked') && r0 > 0 ? 'warn' : RINGS[r0][2];
         nodes.push(blip({ x, y, shape: 'dia', cls, a, pulse: r0 === 0 && t.status !== 'canceled',
-          label: `◆ ${t.title}　${t.status === 'canceled' ? '已取消' : whenText(own, t.due_at)}${types.length ? '　' + types.map(k => ZH[k]).join('、') : ''}`
-            + (badSubs.length ? `　有問題的子任務 ${badSubs.length}` : ''), onGo: () => TTBoard.openTask(t.id) }));
+          label: `◆ ${t.title}　${t.status === 'canceled' ? _t('已取消') : whenText(own, t.due_at)}${types.length ? '　' + types.map(k => ZH[k]).join('、') : ''}`
+            + (badSubs.length ? _t("　有問題的子任務 {0}", badSubs.length) : ''), onGo: () => TTBoard.openTask(t.id) }));
       });
       (ana?.projects || []).filter(p => !CLOSED.has(p.status)).forEach(p => {
         const due = p.next?.due;
@@ -196,7 +196,7 @@
         const hard = (p.problems.overdue || 0) + (p.problems.blocked || 0) + (p.problems.xdep || 0);
         const cls = PAUSED.has(p.status) ? 'idle' : hard || (p.slip || 0) > 3 ? 'crit' : p.problem_items || (p.slip || 0) > 0 ? 'warn' : 'ok';
         nodes.push(blip({ x, y, shape: 'hex', cls, a, n: p.problem_items || '', pulse: cls === 'crit',
-          label: `⬡ ${p.title}　${p.next ? `下個里程碑 ${p.next.title} ${md(p.next.due)}` : '沒有里程碑'}　${p.slip > 0 ? `落後 ${p.slip} 天` : '進度正常'}　問題 ${p.problem_items}（點一下看專案雷達）`,
+          label: _t("⬡ {0}　{1}　{2}　問題 {3}（點一下看專案雷達）", p.title, p.next ? _t("下個里程碑 {0} {1}", p.next.title, md(p.next.due)) : _t('沒有里程碑'), p.slip > 0 ? _t("落後 {0} 天", p.slip) : _t('進度正常'), p.problem_items),
           onGo: () => { state.project = p.id; paint(); } }));
       });
       if (normal || state.all) nodes.push(normalBubble(normal));
@@ -212,7 +212,7 @@
       const mine = rows.filter(r => r.card === pid || attached.has(r.card));
       const by = new Map(mine.map(r => [r.id, r]));
       const phases = mine.filter(r => r.card === pid && !r.parent);
-      const sectors = [...phases.map(r => ({ id: r.id, title: r.title })), ...(attached.size ? [{ id: 'att', title: '歸屬卡片' }] : [])];
+      const sectors = [...phases.map(r => ({ id: r.id, title: r.title })), ...(attached.size ? [{ id: 'att', title: _t('歸屬卡片') }] : [])];
       if (!sectors.length) sectors.push({ id: 'none', title: p.title });
       const W = 360 / sectors.length;
       grid.replaceChildren();
@@ -253,10 +253,10 @@
       });
       if (normal || state.all) nodes.push(normalBubble(normal));
       blips.replaceChildren(...nodes);
-      legend.replaceChildren(...sectors.map((sc, i) => el('span', { class: `radar-key radar-phase is-${counts.get(i) ? 'crit' : 'ok'}`, title: `${sc.title}：未完成 ${open.get(i) || 0} 項，有問題 ${counts.get(i) || 0} 項` },
+      legend.replaceChildren(...sectors.map((sc, i) => el('span', { class: `radar-key radar-phase is-${counts.get(i) ? 'crit' : 'ok'}`, title: _t("{0}：未完成 {1} 項，有問題 {2} 項", sc.title, open.get(i) || 0, counts.get(i) || 0) },
         el('span', { class: 'radar-phase-i', text: sc.id === 'att' ? '＋' : String(i + 1) }), el('span', { class: 'radar-phase-t', text: sc.title }), el('b', { text: counts.get(i) || '' }))),
-        el('span', { class: 'radar-key-help', text: '數字＝有問題的項目　◆ 里程碑' }));
-      crumb.replaceChildren((() => { const b = el('button', { type: 'button', class: 'radar-back', text: '‹ 全部' }); b.addEventListener('click', () => { state.project = null; paint(); }); return b; })(),
+        el('span', { class: 'radar-key-help', text: _t('數字＝有問題的項目　◆ 里程碑') }));
+      crumb.replaceChildren((() => { const b = el('button', { type: 'button', class: 'radar-back', text: _t('‹ 全部') }); b.addEventListener('click', () => { state.project = null; paint(); }); return b; })(),
         el('a', { href: `#/project/${pid}`, class: 'radar-crumb-t', text: `⬡ ${p.title}` }),
         el('span', { class: 'radar-crumb-s', text: p.next ? `◆ ${p.next.title} ${md(p.next.due)}` : '' }));
     }
@@ -292,13 +292,13 @@
         return b;
       });
       list.replaceChildren(
-        el('div', { class: 'radar-chips' }, chip('all', '全部'), ...PROB_TYPES.filter(k => n(k)).map(k => chip(k, ZH[k])),
-          el('label', { class: 'radar-mine' }, mineBox, '只看我的')),
-        el('div', { class: 'radar-alerts' }, ...(rowsEl.length ? rowsEl : [el('p', { class: 'radar-empty', text: ana ? '沒有警示' : '載入中…' })])));
+        el('div', { class: 'radar-chips' }, chip('all', _t('全部')), ...PROB_TYPES.filter(k => n(k)).map(k => chip(k, ZH[k])),
+          el('label', { class: 'radar-mine' }, mineBox, _t('只看我的'))),
+        el('div', { class: 'radar-alerts' }, ...(rowsEl.length ? rowsEl : [el('p', { class: 'radar-empty', text: ana ? _t('沒有警示') : _t('載入中…') })])));
     }
     function paintTabs() {
       const n = (ana?.problems || []).filter(p => !state.project || p.project === state.project).length;
-      tabs.replaceChildren(...[['radar', '雷達'], ['list', `警示 ${n}`]].map(([k, l]) => {
+      tabs.replaceChildren(...[['radar', _t('雷達')], ['list', _t("警示 {0}", n)]].map(([k, l]) => {
         const b = el('button', { type: 'button', role: 'tab', class: 'radar-tab', 'aria-selected': String(state.tab === k), text: l });
         b.addEventListener('click', () => { state.tab = k; paint(); });
         return b;
@@ -311,8 +311,8 @@
       legend.replaceChildren(...[
         ...RINGS.map(([label, , cls], i) => el('span', { class: `radar-key is-${cls}` }, el('i'), `${label} `, el('b', { text: counts[i] }))),
         el('span', { class: 'radar-key-sep' }),
-        over ? (() => { const b = el('button', { type: 'button', class: 'radar-key is-warn radar-over' }, el('i'), '超載 ', el('b', { text: over })); b.title = `${over} 人本週預估工時超過上限`; b.addEventListener('click', () => { state.tab = 'list'; state.type = 'overload'; paint(); }); return b; })() : null,
-        el('span', { class: 'radar-key-help', text: '⬡ 專案　◆ 卡片　● 子任務' })].filter(Boolean));
+        over ? (() => { const b = el('button', { type: 'button', class: 'radar-key is-warn radar-over' }, el('i'), _t('超載 '), el('b', { text: over })); b.title = _t("{0} 人本週預估工時超過上限", over); b.addEventListener('click', () => { state.tab = 'list'; state.type = 'overload'; paint(); }); return b; })() : null,
+        el('span', { class: 'radar-key-help', text: _t('⬡ 專案　◆ 卡片　● 子任務') })].filter(Boolean));
     }
 
     let shown = false;                                     // mounted before it is on the page: wait for it
@@ -340,10 +340,10 @@
   /** Floating radar in the bottom-right corner of every portal page; collapses to a small square. */
   function float() {
     if (document.querySelector('.radar-float')) return;
-    const box = el('div', { class: 'radar-float', role: 'complementary', 'aria-label': '任務雷達' });
+    const box = el('div', { class: 'radar-float', role: 'complementary', 'aria-label': _t('任務雷達') });
     const panel = el('div', { class: 'radar-panel' });
-    const min = el('button', { class: 'radar-min', type: 'button', title: '縮小', 'aria-label': '縮小任務雷達', text: '—' });
-    const mini = el('button', { class: 'radar-mini', type: 'button', title: '展開任務雷達', 'aria-label': '展開任務雷達' },
+    const min = el('button', { class: 'radar-min', type: 'button', title: _t('縮小'), 'aria-label': _t('縮小任務雷達'), text: '—' });
+    const mini = el('button', { class: 'radar-mini', type: 'button', title: _t('展開任務雷達'), 'aria-label': _t('展開任務雷達') },
       el('span', { class: 'radar-mini-scope' }, el('span', { class: 'radar-mini-sweep' })),
       el('span', { class: 'radar-mini-n', hidden: true }));
     box.append(panel, mini);
@@ -361,7 +361,7 @@
     const count = () => {
       const n = overdueCount(items());                    // overdue cards and overdue subtasks (every level)
       badge.textContent = n; badge.hidden = !n;
-      mini.title = n ? `展開任務雷達（${n} 項逾期）` : '展開任務雷達';
+      mini.title = n ? _t("展開任務雷達（{0} 項逾期）", n) : _t('展開任務雷達');
     };
     document.addEventListener('tt:tasks', count);
     count();

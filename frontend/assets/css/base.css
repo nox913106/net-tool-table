@@ -564,3 +564,5 @@ button.kb-tag:hover { border-color: hsl(var(--tag-h) 60% 55%); }
 [data-theme="dark"] .kb-tag.custom { color: color-mix(in srgb, var(--tag-c) 55%, #fff); background: color-mix(in srgb, var(--tag-c) 24%, var(--surface));
   border-color: color-mix(in srgb, var(--tag-c) 45%, transparent); }
 .kb-tag.custom.on, [data-theme="dark"] .kb-tag.custom.on { color: #fff; background: var(--tag-c); border-color: transparent; }
+.lang-btn { font: 700 12px var(--mono, ui-monospace, monospace); letter-spacing: .04em; }
+.login-lang { justify-self: end; margin-top: 4px; }

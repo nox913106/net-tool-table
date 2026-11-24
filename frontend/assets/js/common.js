@@ -36,7 +36,7 @@ const TT = (() => {
     try { data = text ? JSON.parse(text) : null; } catch { data = text; }
     if (res.status === 401 && !path.startsWith('/api/auth/') && location.pathname !== '/login') {
       location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search + location.hash);   // session expired
-      throw new Error('請重新登入');
+      throw new Error(_t('請重新登入'));
     }
     if (!res.ok) {
       const detail = data && data.detail;
@@ -337,12 +337,12 @@ const TT = (() => {
   async function launchProgram(node) {
     const st = await localStatus();
     if (!st.allowed) {
-      toast(st.enabled ? '程式只能在執行單機版的那台電腦上啟動' : '這是本機程式，只能在 Windows 單機版啟動', true);
+      toast(st.enabled ? _t('程式只能在執行單機版的那台電腦上啟動') : _t('這是本機程式，只能在 Windows 單機版啟動'), true);
       return false;
     }
     try {
       await api(`/api/launch/${node.id}`, { method: 'POST' });
-      toast(`已啟動「${node.name}」`);
+      toast(_t("已啟動「{0}」", node.name));
       return true;
     } catch (e) { toast(e.message, true); return false; }
   }
@@ -363,7 +363,7 @@ const TT = (() => {
     if (PROGRAM_EXT.test(file.name)) {
       return api('/api/local/resolve', { method: 'POST', body: { name: file.name, size: file.size } });
     }
-    throw new Error('請拖曳程式的捷徑（.lnk）、網址捷徑（.url）或執行檔（.exe）');
+    throw new Error(_t('請拖曳程式的捷徑（.lnk）、網址捷徑（.url）或執行檔（.exe）'));
   }
 
   /** Website favicon → icon library. Resolves to the icon name or '' */
@@ -385,7 +385,7 @@ const TT = (() => {
   window.addEventListener('appinstalled', () => {
     installPrompt = null;
     installListeners.forEach(f => f(false));
-    toast('已安裝為應用程式，可從開始功能表或桌面開啟');
+    toast(_t('已安裝為應用程式，可從開始功能表或桌面開啟'));
   });
   /** fn(available) is called whenever the browser offers / withdraws installation */
   function onInstallable(fn) { installListeners.add(fn); fn(!!installPrompt && !installed()); }
@@ -410,10 +410,11 @@ const TT = (() => {
     if (m.user?.must_change_password && location.pathname !== '/login') {     // first sign-in of the local admin
       location.replace('/login?change=1&next=' + encodeURIComponent(location.pathname + location.hash));
     }
+    if (m.user?.lang && m.user.lang !== TTI18n.lang) TTI18n.set(m.user.lang);      // the account's language wins
     return m;
-  }).catch(() => ({ user: { username: 'local', display_name: '本機', role: 'superadmin' }, auth: false, is_admin: true, board: { view: 'all', edit: 'all', depts: [] } })));
-  const ROLE = { superadmin: '本機最高管理員', sysadmin: '系統管理者', board_admin: '看板總管理者（RW）', board_viewer: '看板總管理者（RO）',
-    dept_admin: '部門看板管理者（RW）', dept_viewer: '部門看板管理者（RO）', user: '使用者' };
+  }).catch(() => ({ user: { username: 'local', display_name: _t('本機'), role: 'superadmin' }, auth: false, is_admin: true, board: { view: 'all', edit: 'all', depts: [] } })));
+  const ROLE = { superadmin: _t('本機最高管理員'), sysadmin: _t('系統管理者'), board_admin: _t('看板總管理者（RW）'), board_viewer: _t('看板總管理者（RO）'),
+    dept_admin: _t('部門看板管理者（RW）'), dept_viewer: _t('部門看板管理者（RO）'), user: _t('使用者') };
   const nameOf = p => (p && (p.name || p.display_name || p.username)) || '';
   function avatar(person, size = 24) {
     const name = nameOf(person) || '?';
@@ -422,6 +423,18 @@ const TT = (() => {
     const text = /[\u3400-\u9fff]/.test(name) ? name.slice(-2) : name.split(/[\s._-]+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
     return el('span', { class: 'avatar', title: name + (person?.department ? `（${person.department}）` : ''), text,
       style: { '--av': `hsl(${h} 62% 52%)`, width: size + 'px', height: size + 'px', fontSize: Math.round(size * 0.42) + 'px' } });
+  }
+
+  /** Language switch (中 ⇄ EN): saved to the account when signed in, and in this browser. Its label is in the language it switches to. */
+  function langButton(cls = 'icon-btn lang-btn') {
+    const to = TTI18n.lang === 'en' ? 'zh-TW' : 'en';
+    const b = el('button', { class: cls, type: 'button', text: to === 'en' ? 'EN' : '中',
+      title: to === 'en' ? 'Switch to English' : '切換為繁體中文', 'aria-label': to === 'en' ? 'Switch to English' : '切換為繁體中文' });
+    b.addEventListener('click', async () => {
+      try { await api('/api/auth/lang', { method: 'PUT', body: { lang: to } }); } catch (e) { /* not signed in: this browser only */ }
+      TTI18n.set(to);
+    });
+    return b;
   }
 
   /** Header user menu: name / role, admin link, public dashboard, password (local account), sign out */
@@ -447,12 +460,12 @@ const TT = (() => {
         el('div', { class: 'user-pop-head' }, avatar(u, 40),
           el('div', {}, el('strong', { text: nameOf(u) }), el('small', { text: [u.username, u.department].filter(Boolean).join(' · ') }),
             el('span', { class: `role-badge role-${u.role}`, text: ROLE[u.role] || u.role }),
-            ['dept_admin', 'dept_viewer'].includes(u.role) && info.board?.depts?.length ? el('small', { text: '管理部門：' + info.board.depts.join('、') }) : null)),
-        info.is_admin && location.pathname !== '/admin' ? item('settings', '管理後台', null, '/admin') : null,
-        location.pathname !== '/' ? item('home', '回到入口', null, '/') : null,
-        item('layout', '公開進度看板', null, '/dashboard'),
-        u.source === 'local' ? item('edit', '修改密碼', () => changePassword()) : null,
-        item('logout', '登出', async () => { try { await api('/api/auth/logout', { method: 'POST' }); } finally { location.href = '/login'; } }));
+            ['dept_admin', 'dept_viewer'].includes(u.role) && info.board?.depts?.length ? el('small', { text: _t('管理部門：') + info.board.depts.join('、') }) : null)),
+        info.is_admin && location.pathname !== '/admin' ? item('settings', _t('管理後台'), null, '/admin') : null,
+        location.pathname !== '/' ? item('home', _t('回到入口'), null, '/') : null,
+        item('layout', _t('公開進度看板'), null, '/dashboard'),
+        u.source === 'local' ? item('edit', _t('修改密碼'), () => changePassword()) : null,
+        item('logout', _t('登出'), async () => { try { await api('/api/auth/logout', { method: 'POST' }); } finally { location.href = '/login'; } }));
       document.body.append(pop);
       const r = btn.getBoundingClientRect();
       pop.style.top = `${r.bottom + 8}px`;
@@ -464,20 +477,20 @@ const TT = (() => {
 
   function changePassword() {
     const cur = el('input', { class: 'input', type: 'password', autocomplete: 'current-password' });
-    const nw = el('input', { class: 'input', type: 'password', autocomplete: 'new-password', placeholder: '至少 12 個字元' });
+    const nw = el('input', { class: 'input', type: 'password', autocomplete: 'new-password', placeholder: _t('至少 12 個字元') });
     const nw2 = el('input', { class: 'input', type: 'password', autocomplete: 'new-password' });
-    const ok = el('button', { class: 'btn btn-primary', type: 'button', text: '變更密碼' });
-    const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: '取消' });
+    const ok = el('button', { class: 'btn btn-primary', type: 'button', text: _t('變更密碼') });
+    const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: _t('取消') });
     const field = (t, i) => el('label', { class: 'field' }, el('span', { class: 'field-label', text: t }), i);
     const wrap = el('div', { class: 'modal' }, el('div', { class: 'modal-card', role: 'dialog', 'aria-modal': 'true' },
-      el('div', { class: 'modal-head' }, el('h3', { text: '修改本機管理員密碼' })),
-      el('div', { class: 'modal-body' }, field('目前的密碼', cur), field('新密碼', nw), field('再輸入一次', nw2)),
+      el('div', { class: 'modal-head' }, el('h3', { text: _t('修改本機管理員密碼') })),
+      el('div', { class: 'modal-body' }, field(_t('目前的密碼'), cur), field(_t('新密碼'), nw), field(_t('再輸入一次'), nw2)),
       el('div', { class: 'modal-foot' }, cancel, ok)));
     const close = () => wrap.remove();
     cancel.addEventListener('click', close);
     ok.addEventListener('click', async () => {
-      if (nw.value !== nw2.value) return toast('兩次輸入的新密碼不一樣', true);
-      try { await api('/api/auth/password', { method: 'POST', body: { current: cur.value, new: nw.value } }); close(); toast('密碼已變更'); }
+      if (nw.value !== nw2.value) return toast(_t('兩次輸入的新密碼不一樣'), true);
+      try { await api('/api/auth/password', { method: 'POST', body: { current: cur.value, new: nw.value } }); close(); toast(_t('密碼已變更')); }
       catch (err) { toast(err.message, true); }
     });
     document.body.append(wrap);
@@ -558,7 +571,7 @@ const TT = (() => {
   return {
     me, userMenu, avatar, nameOf, mentionInput, ROLE,
     onInstallable, installApp, installed, syncThemeColor,
-    store, api, esc, el, svg, tile, tagHue, isIconFile, iconUrl, initials, hostOf, toast, applyAppearance, cycleTheme, themePref,
+    langButton, store, api, esc, el, svg, tile, tagHue, isIconFile, iconUrl, initials, hostOf, toast, applyAppearance, cycleTheme, themePref,
     togglePerf, setFavicon, isLinkDrag, readDroppedLink, guessIcon, nameFromUrl,
     isProgram, isFileDrag, programPath, looksLikePath, localStatus, launchProgram, inspectDroppedFile, fetchSiteIcon,
   };

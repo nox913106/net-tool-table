@@ -16,24 +16,26 @@ const TTBoard = window.TTBoard = (() => {
   const { api, el, svg, toast, store } = TT;
 
   const STATUSES = [
-    { key: 'recurring', label: 'Recurring', zh: '週期工作', color: '#14b8a6' },
-    { key: 'overdue', label: 'Overdue', zh: '過期未結案', color: '#e11d48' },
-    { key: 'new', label: 'New', zh: '新建', color: '#64748b' },
-    { key: 'ongoing', label: 'On going', zh: '進行中', color: '#3b82f6' },
-    { key: 'pending', label: 'Pending', zh: '待確認', color: '#f59e0b' },
-    { key: 'onhold', label: 'On hold', zh: '暫緩', color: '#a855f7' },
-    { key: 'complete', label: 'Complete', zh: '完成', color: '#10b981' },
-    { key: 'canceled', label: 'Canceled', zh: '取消', color: '#ef4444' },
+    { key: 'recurring', label: 'Recurring', zh: _t('週期工作'), color: '#14b8a6' },
+    { key: 'overdue', label: 'Overdue', zh: _t('過期未結案'), color: '#e11d48' },
+    { key: 'new', label: 'New', zh: _t('新建'), color: '#64748b' },
+    { key: 'ongoing', label: 'On going', zh: _t('進行中'), color: '#3b82f6' },
+    { key: 'pending', label: 'Pending', zh: _t('待確認'), color: '#f59e0b' },
+    { key: 'onhold', label: 'On hold', zh: _t('暫緩'), color: '#a855f7' },
+    { key: 'complete', label: 'Complete', zh: _t('完成'), color: '#10b981' },
+    { key: 'canceled', label: 'Canceled', zh: _t('取消'), color: '#ef4444' },
   ];
+  /** "On going（進行中）" in Chinese; just "On going" in English */
+  const stName = s => TT_LANG === 'en' ? s.label : `${s.label}（${s.zh}）`;
   const STATUS = Object.fromEntries(STATUSES.map(s => [s.key, s]));
   const CLOSED = new Set(['complete', 'canceled']);
-  const PRIORITIES = [['low', '低'], ['normal', '一般'], ['high', '高']];
-  const REMINDS = [['', '不提醒'], ['0', '到期時'], ['15', '15 分鐘前'], ['60', '1 小時前'], ['1440', '1 天前'], ['2880', '2 天前'], ['10080', '1 週前']];
+  const PRIORITIES = [['low', _t('低')], ['normal', _t('一般')], ['high', _t('高')]];
+  const REMINDS = [['', _t('不提醒')], ['0', _t('到期時')], ['15', _t('15 分鐘前')], ['60', _t('1 小時前')], ['1440', _t('1 天前')], ['2880', _t('2 天前')], ['10080', _t('1 週前')]];
   const ALL_DAY_REMIND_HOUR = 9;          // all-day cards are reminded at 09:00
-  const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
+  const WEEK = [_t('日'), _t('一'), _t('二'), _t('三'), _t('四'), _t('五'), _t('六')];
   const CLOSE_PROMPT_HOUR = 18;           // all-day recurring cards ask "close it?" at 18:00 on the due day
-  const REPEATS = [['', '不重複'], ['daily', '每天'], ['weekdays', '每個工作日（一～五）'], ['weekly', '每週'], ['monthly', '每月'], ['yearly', '每年']];
-  const UNIT = { daily: '天', weekly: '週', monthly: '個月', yearly: '年' };
+  const REPEATS = [['', _t('不重複')], ['daily', _t('每天')], ['weekdays', _t('每個工作日（一～五）')], ['weekly', _t('每週')], ['monthly', _t('每月')], ['yearly', _t('每年')]];
+  const UNIT = { daily: _t('天'), weekly: _t('週'), monthly: _t('個月'), yearly: _t('年') };
 
   let tasks = [];
   let settings = {};
@@ -58,11 +60,11 @@ const TTBoard = window.TTBoard = (() => {
     const on = tagFilter && tagFilter.toLowerCase() === name.toLowerCase();
     const custom = tagColor(name);
     const c = el(onClick ? 'button' : 'span', { class: 'kb-tag' + (on ? ' on' : '') + (custom ? ' custom' : ''), type: onClick ? 'button' : null,
-      style: custom ? { '--tag-c': custom } : { '--tag-h': tagHue(name) }, title: onClick ? (on ? `取消篩選 #${name}` : `只看標籤 #${name}`) : `#${name}` },
+      style: custom ? { '--tag-c': custom } : { '--tag-h': tagHue(name) }, title: onClick ? (on ? _t("取消篩選 #{0}", name) : _t("只看標籤 #{0}", name)) : `#${name}` },
       el('span', { class: 'kb-tag-hash', text: '#' }), el('span', { text: name }));
     if (onClick) c.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); onClick(name); });
     if (onRemove) {
-      const x = el('button', { class: 'kb-tag-x', type: 'button', 'aria-label': `移除標籤 ${name}`, html: svg('x') });
+      const x = el('button', { class: 'kb-tag-x', type: 'button', 'aria-label': _t("移除標籤 {0}", name), html: svg('x') });
       x.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); onRemove(name); });
       c.append(x);
     }
@@ -95,27 +97,27 @@ const TTBoard = window.TTBoard = (() => {
     [...(t.assignees || []), ...(t.mentions || []), t.owner].forEach(p => {
       if (!p || seen.has(p.id) || withSub.has(p.id)) return;
       seen.add(p.id);
-      const why = (t.assignees || []).some(a => a.id === p.id) ? '共同負責' : (t.mentions || []).some(m => m.id === p.id) ? '@協作' : '建立者';
-      out.push({ p, kind: 'collab', status: t.status, why, counts: why !== '建立者', done: !!p.done });
+      const why = (t.assignees || []).some(a => a.id === p.id) ? _t('共同負責') : (t.mentions || []).some(m => m.id === p.id) ? _t('@協作') : _t('建立者');
+      out.push({ p, kind: 'collab', status: t.status, why, counts: why !== _t('建立者'), done: !!p.done });
     });
     return out;
   }
   /** A card with (non-canceled) subtasks is a summary task: its status is computed from them. */
   const isSummary = t => (t.subtasks?.items || []).some(s => s.status !== 'canceled');
-  const SUMMARY_HINT = '有子任務：子任務或協作人有變動時，狀態會自動更新；也可以自己改';
+  const SUMMARY_HINT = _t('有子任務：子任務或協作人有變動時，狀態會自動更新；也可以自己改');
   const openSubs = t => (t.subtasks?.items || []).filter(s => s.status !== 'complete' && s.status !== 'canceled').length;
   /** 卡住: how long a card has been stuck ("今天" / "3 天"). since is a UTC SQLite timestamp. */
   const isBlocked = t => !!t.blocked && !CLOSED.has(t.status);
   function blockedDays(since) {
     const at = Date.parse(String(since || '').replace(' ', 'T') + (/[zZ+]/.test(since || '') ? '' : 'Z'));
     const d = Number.isFinite(at) ? Math.floor((Date.now() - at) / 864e5) : 0;
-    return d > 0 ? `${d} 天` : '今天';
+    return d > 0 ? _t("{0} 天", d) : _t('今天');
   }
   /** Column load: 高負荷 from board_wip_high cards, 超量 from board_wip_over (admin setting; default ≤5 normal). */
   function wipLevel(n) {
     const high = Number(settings.board_wip_high) || 6, over = Math.max(Number(settings.board_wip_over) || 9, high + 1);
-    return n >= over ? { cls: 'over', text: '超量', tip: `${n} 張：超量（≥ ${over}）` }
-      : n >= high ? { cls: 'high', text: '高負荷', tip: `${n} 張：高負荷（${high}～${over - 1}）` } : null;
+    return n >= over ? { cls: 'over', text: _t('超量'), tip: _t("{0} 張：超量（≥ {1}）", n, over) }
+      : n >= high ? { cls: 'high', text: _t('高負荷'), tip: _t("{0} 張：高負荷（{1}～{2}）", n, high, over - 1) } : null;
   }
   const expanded = new Set();             // cards whose task tree is open
   /** Main card %: finished subtasks + collaborators who marked their part done, over all of them
@@ -166,27 +168,27 @@ const TTBoard = window.TTBoard = (() => {
     if (!selecting) { selBar?.remove(); selBar = null; return; }
     if (!selBar) {
       const count = el('strong', { class: 'kb-selbar-count' });
-      const all = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', html: svg('check') + '全選目前顯示的' });
-      const none = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '清除選取' });
-      const xls = el('button', { class: 'btn btn-sm btn-primary', type: 'button', title: '工作進度報告：一個分頁，主任務 > 子任務／協作（可在 Excel 左側 +／− 折疊），可直接列印', html: svg('download') + '匯出報告' });
-      const imp = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', title: '把匯出的報告（可在 Excel 修改、新增列）匯回看板，先預覽再套用', html: svg('upload') + '匯入報告…' });
-      const done = el('button', { class: 'icon-btn', type: 'button', title: '結束選取（Esc）', 'aria-label': '結束選取', html: svg('x') });
+      const all = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', html: svg('check') + _t('全選目前顯示的') });
+      const none = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: _t('清除選取') });
+      const xls = el('button', { class: 'btn btn-sm btn-primary', type: 'button', title: _t('工作進度報告：一個分頁，主任務 > 子任務／協作（可在 Excel 左側 +／− 折疊），可直接列印'), html: svg('download') + _t('匯出報告') });
+      const imp = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', title: _t('把匯出的報告（可在 Excel 修改、新增列）匯回看板，先預覽再套用'), html: svg('upload') + _t('匯入報告…') });
+      const done = el('button', { class: 'icon-btn', type: 'button', title: _t('結束選取（Esc）'), 'aria-label': _t('結束選取'), html: svg('x') });
       all.addEventListener('click', () => shownIds().forEach(i => toggleSelect(i, true)));
       none.addEventListener('click', () => [...selection].forEach(i => toggleSelect(i, false)));
       xls.addEventListener('click', async () => {
-        if (!selection.size) { toast('先勾選要匯出的卡片', true); return; }
+        if (!selection.size) { toast(_t('先勾選要匯出的卡片'), true); return; }
         xls.disabled = true;
         try { await exportXlsx([...selection]); } finally { xls.disabled = false; }
       });
       imp.addEventListener('click', () => importXlsx());
       done.addEventListener('click', () => setSelecting(false));
-      selBar = el('div', { class: 'kb-selbar', role: 'toolbar', 'aria-label': '已選取的卡片' },
-        el('span', { class: 'kb-selbar-text' }, count, el('span', { class: 'hint', text: '點卡片或欄位標題的方框勾選' })),
+      selBar = el('div', { class: 'kb-selbar', role: 'toolbar', 'aria-label': _t('已選取的卡片') },
+        el('span', { class: 'kb-selbar-text' }, count, el('span', { class: 'hint', text: _t('點卡片或欄位標題的方框勾選') })),
         all, none, el('span', { class: 'spacer' }), imp, xls, done);
       selBar.count = count;
       document.body.append(selBar);
     }
-    selBar.count.textContent = `已選 ${selection.size} 張`;
+    selBar.count.textContent = _t("已選 {0} 張", selection.size);
   }
   document.addEventListener('keydown', e => { if (selecting && e.key === 'Escape' && !document.querySelector('.modal:not([hidden])')) setSelecting(false); });
 
@@ -207,25 +209,25 @@ const TTBoard = window.TTBoard = (() => {
       const a = el('a', { href: url, download: name });
       document.body.append(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 30000);
-      toast(`已匯出 ${ids.length} 張卡片：${name}`);
-    } catch (e) { toast('匯出失敗：' + e.message, true); }
+      toast(_t("已匯出 {0} 張卡片：{1}", ids.length, name));
+    } catch (e) { toast(_t('匯出失敗：') + e.message, true); }
   }
 
   /** Import a report (same layout as the export): pick a file → preview what changes → apply. */
   function importXlsx() {
     if (selecting) setSelecting(false);          // the selection bar would sit on top of the dialog
-    const KIND = { card: '主任務', sub: '子任務', collab: '協作' };
-    const ACT = { create: ['新增', 'create'], update: ['更新', 'update'], unchanged: ['不變', 'same'], error: ['錯誤', 'error'], skip: ['略過', 'skip'] };
+    const KIND = { card: _t('主任務'), sub: _t('子任務'), collab: _t('協作') };
+    const ACT = { create: [_t('新增'), 'create'], update: [_t('更新'), 'update'], unchanged: [_t('不變'), 'same'], error: [_t('錯誤'), 'error'], skip: [_t('略過'), 'skip'] };
     const input = el('input', { type: 'file', accept: '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', hidden: true });
-    const pickBtn = el('button', { class: 'btn', type: 'button', html: svg('upload') + '選擇 Excel 檔…' });
-    const fileName = el('span', { class: 'hint', text: '用「匯出報告」產生的檔案；可在 Excel 修改狀態、日期、負責人，或新增列（系統ID 留空＝新增）' });
+    const pickBtn = el('button', { class: 'btn', type: 'button', html: svg('upload') + _t('選擇 Excel 檔…') });
+    const fileName = el('span', { class: 'hint', text: _t('用「匯出報告」產生的檔案；可在 Excel 修改狀態、日期、負責人，或新增列（系統ID 留空＝新增）') });
     const body = el('div', { class: 'kb-imp-body' });
-    const apply = el('button', { class: 'btn btn-primary', type: 'button', disabled: true, html: svg('check') + '套用' });
-    const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: '關閉' });
+    const apply = el('button', { class: 'btn btn-primary', type: 'button', disabled: true, html: svg('check') + _t('套用') });
+    const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: _t('關閉') });
     let file = null;
     const wrap = el('div', { class: 'modal' },
-      el('div', { class: 'modal-card kb-imp', role: 'dialog', 'aria-modal': 'true', 'aria-label': '匯入報告' },
-        el('div', { class: 'modal-head' }, el('h3', { html: svg('upload') + '匯入工作進度報告' })),
+      el('div', { class: 'modal-card kb-imp', role: 'dialog', 'aria-modal': 'true', 'aria-label': _t('匯入報告') },
+        el('div', { class: 'modal-head' }, el('h3', { html: svg('upload') + _t('匯入工作進度報告') })),
         el('div', { class: 'modal-body' }, el('div', { class: 'kb-imp-pick' }, pickBtn, fileName, input), body),
         el('div', { class: 'modal-foot' }, cancel, apply)));
     const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey, true); };
@@ -258,20 +260,20 @@ const TTBoard = window.TTBoard = (() => {
           el('td', { class: 'notes' }, ...notes));
       });
       body.replaceChildren(
-        el('div', { class: 'kb-imp-sum' }, r.applied ? el('strong', { text: '已套用：' }) : el('strong', { text: '預覽：' }), chips,
-          el('span', { class: 'hint', text: r.applied ? '' : (c.error ? '有錯誤的列不會匯入（底下的子任務一併略過），可以修正後重新選檔' : '確認無誤後按「套用」') })),
+        el('div', { class: 'kb-imp-sum' }, r.applied ? el('strong', { text: _t('已套用：') }) : el('strong', { text: _t('預覽：') }), chips,
+          el('span', { class: 'hint', text: r.applied ? '' : (c.error ? _t('有錯誤的列不會匯入（底下的子任務一併略過），可以修正後重新選檔') : _t('確認無誤後按「套用」')) })),
         el('div', { class: 'kb-imp-table' }, el('table', {},
-          el('thead', {}, el('tr', {}, ...['列', '類型', '項目', '動作', '內容'].map(h => el('th', { text: h })))),
+          el('thead', {}, el('tr', {}, ...[_t('列'), _t('類型'), _t('項目'), _t('動作'), _t('內容')].map(h => el('th', { text: h })))),
           el('tbody', {}, ...rows))));
       apply.disabled = r.applied || !todo;
-      apply.innerHTML = svg('check') + (r.applied ? '已套用' : `套用 ${todo} 筆`);
+      apply.innerHTML = svg('check') + (r.applied ? _t('已套用') : _t("套用 {0} 筆", todo));
     }
     input.addEventListener('change', async () => {
       file = input.files[0];
       input.value = '';
       if (!file) return;
       fileName.textContent = file.name;
-      body.replaceChildren(el('p', { class: 'hint', text: '讀取中…' }));
+      body.replaceChildren(el('p', { class: 'hint', text: _t('讀取中…') }));
       apply.disabled = true;
       try { paint(await send(false)); }
       catch (e) { body.replaceChildren(el('p', { class: 'kb-imp-error', text: e.message })); }
@@ -283,8 +285,8 @@ const TTBoard = window.TTBoard = (() => {
         paint(r);
         await load(true);
         const n = r.rows.filter(o => o.done).length;
-        toast(`已匯入 ${n} 筆` + (r.counts.error ? `，${r.counts.error} 筆有錯誤` : ''), !!r.counts.error);
-      } catch (e) { toast('匯入失敗：' + e.message, true); apply.disabled = false; }
+        toast(_t("已匯入 {0} 筆", n) + (r.counts.error ? _t("，{0} 筆有錯誤", r.counts.error) : ''), !!r.counts.error);
+      } catch (e) { toast(_t('匯入失敗：') + e.message, true); apply.disabled = false; }
     });
     document.body.append(wrap);
   }
@@ -338,7 +340,7 @@ const TTBoard = window.TTBoard = (() => {
   async function moveTo(id, status, index) {
     const t = tasks.find(x => x.id === id);
     if (!t) return;
-    if (status === 'complete' && t.status !== 'complete' && openSubs(t) && !confirm(`「${t.title}」還有 ${openSubs(t)} 個子任務沒完成，仍要把整張卡片改成 Complete？`)) {
+    if (status === 'complete' && t.status !== 'complete' && openSubs(t) && !confirm(_t("「{0}」還有 {1} 個子任務沒完成，仍要把整張卡片改成 Complete？", t.title, openSubs(t)))) {
       changed(); return;
     }
     const col = byStatus(status).filter(x => x.id !== id);
@@ -350,7 +352,7 @@ const TTBoard = window.TTBoard = (() => {
     try {
       const r = await api('/api/tasks/reorder', { method: 'POST', body: { status, ids: col.map(x => x.id) } });
       if (r.created && r.created.length) { await load(true); announceNext(t); }
-      else if (status === 'complete' && !wasClosed) toast(`「${t.title}」完成 🎉`);
+      else if (status === 'complete' && !wasClosed) toast(_t("「{0}」完成 🎉", t.title));
     } catch (err) { toast(err.message, true); load(true); }
   }
 
@@ -368,7 +370,7 @@ const TTBoard = window.TTBoard = (() => {
       .then(async r => {
         if (r.moved.length || r.restored.length) {
           await load(true);
-          if (r.moved.length) toast(`⏰ ${r.moved.length} 張卡片已過期未結案，移到「過期未結案」`);
+          if (r.moved.length) toast(_t("⏰ {0} 張卡片已過期未結案，移到「過期未結案」", r.moved.length));
         }
       })
       .catch(() => {})
@@ -380,12 +382,12 @@ const TTBoard = window.TTBoard = (() => {
   async function complete(t) {
     const r = await api(`/api/tasks/${t.id}/complete`, { method: 'POST', body: { today: isoDate(now()) } });
     await load(true);
-    if (r.next) announceNext(r.task, r.next); else toast(`「${t.title}」完成 🎉`);
+    if (r.next) announceNext(r.task, r.next); else toast(_t("「{0}」完成 🎉", t.title));
     return r;
   }
   function announceNext(t, next) {
     next = next || tasks.find(x => x.id === (tasks.find(y => y.id === t.id) || t).next_id);
-    toast(next ? `「${t.title}」已結案；下一次 ${fmt(next.due_at, true)} 已排入「週期工作」` : `「${t.title}」完成 🎉`);
+    toast(next ? _t("「{0}」已結案；下一次 {1} 已排入「週期工作」", t.title, fmt(next.due_at, true)) : _t("「{0}」完成 🎉", t.title));
   }
 
   // ----------------------------------------------------------------- dates
@@ -459,13 +461,13 @@ const TTBoard = window.TTBoard = (() => {
   function repeatText(rule, every = 1, dueAt = null) {
     if (!rule) return '';
     const kind = rule.split(':')[0];
-    const each = every > 1 ? `每 ${every} ${UNIT[kind] || ''}` : { daily: '每天', weekly: '每週', monthly: '每月', yearly: '每年' }[kind];
-    if (kind === 'weekdays') return '每個工作日';
+    const each = every > 1 ? _t("每 {0} {1}", every, UNIT[kind] || '') : { daily: _t('每天'), weekly: _t('每週'), monthly: _t('每月'), yearly: _t('每年') }[kind];
+    if (kind === 'weekdays') return _t('每個工作日');
     if (kind === 'weekly') {
       const days = (rule.split(':')[1] || '').split(',').filter(Boolean).map(Number);
       return each + (days.length ? days.map(x => WEEK[x % 7]).join('、') : '');
     }
-    if (kind === 'monthly') { const day = rule.split(':')[1] || (dueAt ? Number(dueAt.slice(8, 10)) : ''); return `${each} ${day} 日`; }
+    if (kind === 'monthly') { const day = rule.split(':')[1] || (dueAt ? Number(dueAt.slice(8, 10)) : ''); return _t("{0} {1} 日", each, day); }
     if (kind === 'yearly' && dueAt) { const p = parse(dueAt).date; return `${each} ${p.getMonth() + 1}/${p.getDate()}`; }
     return each;
   }
@@ -485,26 +487,26 @@ const TTBoard = window.TTBoard = (() => {
       const p = parse(t.due_at);
       const days = dayDiff(p.date, at);
       const time = p.allDay ? '' : ` ${hm(p.date)} `;
-      if (closed) { out.due = 'done'; out.dueText = `${fmt(t.due_at)} 到期`; }
+      if (closed) { out.due = 'done'; out.dueText = _t("{0} 到期", fmt(t.due_at)); }
       else if (at > dueMoment(t.due_at)) {
         out.due = 'overdue';
         const late = dayDiff(at, p.date);
-        out.dueText = late >= 1 ? `逾期 ${late} 天` : `已逾期（${hm(p.date)}）`;
+        out.dueText = late >= 1 ? _t("逾期 {0} 天", late) : _t("已逾期（{0}）", hm(p.date));
       }
-      else if (days === 0) { out.due = 'today'; out.dueText = `今天${time}到期`; }
-      else if (days === 1) { out.due = 'soon'; out.dueText = `明天${time}到期`; }
-      else if (days <= soonDays) { out.due = 'soon'; out.dueText = `${days} 天後到期`; }
-      else { out.due = 'later'; out.dueText = `${fmt(t.due_at)} 到期`; }
+      else if (days === 0) { out.due = 'today'; out.dueText = _t("今天{0}到期", time); }
+      else if (days === 1) { out.due = 'soon'; out.dueText = _t("明天{0}到期", time); }
+      else if (days <= soonDays) { out.due = 'soon'; out.dueText = _t("{0} 天後到期", days); }
+      else { out.due = 'later'; out.dueText = _t("{0} 到期", fmt(t.due_at)); }
     }
     if (t.start_at && !closed) {
       const p = parse(t.start_at);
       if (at < p.date) {
         const d = dayDiff(p.date, at);
         out.start = 'waiting';
-        out.startText = d === 0 ? `今天 ${hm(p.date)} 開始` : d === 1 ? '明天開始' : d <= 7 ? `${d} 天後開始` : `${fmt(t.start_at)} 開始`;
+        out.startText = d === 0 ? _t("今天 {0} 開始", hm(p.date)) : d === 1 ? _t('明天開始') : d <= 7 ? _t("{0} 天後開始", d) : _t("{0} 開始", fmt(t.start_at));
       } else if (t.status === 'new') {
         out.start = 'due';
-        out.startText = '該開始了';
+        out.startText = _t('該開始了');
       }
     }
     return out;
@@ -520,10 +522,10 @@ const TTBoard = window.TTBoard = (() => {
         const t = { id: card.id, sub: sub.id, title: `${sub.title}（${card.title}）`, status: sub.status, due_at: sub.due_at, start_at: sub.start_at, remind: sub.remind ?? null };
         const tm = timing(t, at);
         const rm = remindMoment(t);
-        if (tm.due === 'overdue') list.push({ t, card, kind: 'overdue', text: '子任務' + tm.dueText, rank: 0 });
-        else if (rm && at >= rm) list.push({ t, card, kind: 'remind', text: '子任務' + (tm.dueText || `${fmt(t.due_at)} 到期`), rank: 1 });
-        else if (tm.due === 'today') list.push({ t, card, kind: 'today', text: '子任務' + tm.dueText, rank: 2 });
-        else if (tm.start === 'due') list.push({ t, card, kind: 'start', text: `子任務開始日 ${fmt(t.start_at)}，還在 New`, rank: 3 });
+        if (tm.due === 'overdue') list.push({ t, card, kind: 'overdue', text: _t('子任務') + tm.dueText, rank: 0 });
+        else if (rm && at >= rm) list.push({ t, card, kind: 'remind', text: _t('子任務') + (tm.dueText || _t("{0} 到期", fmt(t.due_at))), rank: 1 });
+        else if (tm.due === 'today') list.push({ t, card, kind: 'today', text: _t('子任務') + tm.dueText, rank: 2 });
+        else if (tm.start === 'due') list.push({ t, card, kind: 'start', text: _t("子任務開始日 {0}，還在 New", fmt(t.start_at)), rank: 3 });
       }
     }
     for (const t of tasks) {
@@ -531,14 +533,14 @@ const TTBoard = window.TTBoard = (() => {
       const tm = timing(t, at);
       const rm = remindMoment(t);
       if (tm.due === 'overdue') list.push({ t, kind: 'overdue', text: tm.dueText, rank: 0 });
-      else if (rm && at >= rm) list.push({ t, kind: 'remind', text: tm.dueText || `${fmt(t.due_at)} 到期`, rank: 1 });
+      else if (rm && at >= rm) list.push({ t, kind: 'remind', text: tm.dueText || _t("{0} 到期", fmt(t.due_at)), rank: 1 });
       else if (tm.due === 'today') list.push({ t, kind: 'today', text: tm.dueText, rank: 2 });
-      else if (tm.start === 'due') list.push({ t, kind: 'start', text: `開始日 ${fmt(t.start_at)}，還在 New`, rank: 3 });
+      else if (tm.start === 'due') list.push({ t, kind: 'start', text: _t("開始日 {0}，還在 New", fmt(t.start_at)), rank: 3 });
     }
     return list.sort((a, b) => a.rank - b.rank || (dueMoment(a.t.due_at) || 0) - (dueMoment(b.t.due_at) || 0));
   }
   const alertKey = a => [a.t.id + (a.t.sub ? `.${a.t.sub}` : ''), a.kind, a.t.due_at || '', a.t.start_at || '', a.t.remind ?? ''].join('|');
-  const KIND = { overdue: '已逾期', remind: '到期提醒', today: '今天到期', start: '該開始了' };
+  const KIND = { overdue: _t('已逾期'), remind: _t('到期提醒'), today: _t('今天到期'), start: _t('該開始了') };
 
   let firstCheck = true;
   function refreshAlerts() {
@@ -596,12 +598,12 @@ const TTBoard = window.TTBoard = (() => {
     const rows = el('div', { class: 'kb-od-list' });
     const paintRows = () => {
       const open = overdueOpen().filter(t => list.some(x => x.id === t.id));
-      if (!open.length) { close(); toast('過期的卡片都結案了 🎉'); return; }
+      if (!open.length) { close(); toast(_t('過期的卡片都結案了 🎉')); return; }
       count.textContent = open.length;
       rows.replaceChildren(...open.map(t => {
         const tm = timing(t);
-        const doneBtn = el('button', { class: 'btn btn-sm btn-primary', type: 'button', html: svg('check') + '結案' });
-        const openBtn = el('button', { class: 'btn btn-sm', type: 'button', html: svg('edit') + '開啟' });
+        const doneBtn = el('button', { class: 'btn btn-sm btn-primary', type: 'button', html: svg('check') + _t('結案') });
+        const openBtn = el('button', { class: 'btn btn-sm', type: 'button', html: svg('edit') + _t('開啟') });
         doneBtn.addEventListener('click', async () => {
           doneBtn.disabled = openBtn.disabled = true;
           try { await complete(t); paintRows(); } catch (err) { toast(err.message, true); doneBtn.disabled = openBtn.disabled = false; }
@@ -612,21 +614,21 @@ const TTBoard = window.TTBoard = (() => {
             el('strong', {}, t.priority === 'high' ? el('span', { class: 'kb-flag', html: svg('flag') }) : null, t.title),
             el('span', { class: 'kb-od-meta' },
               el('span', { class: 'kb-chip due-overdue', html: svg('clock') + `<span>${tm.dueText}</span>` }),
-              el('span', { text: `到期 ${fmt(t.due_at, true)} · ${STATUS[t.status]?.zh || ''}` }))),
+              el('span', { text: _t("到期 {0} · {1}", fmt(t.due_at, true), STATUS[t.status]?.zh || '') }))),
           el('div', { class: 'kb-od-actions' }, openBtn, doneBtn));
       }));
     };
     const count = el('span', { class: 'badge badge-alert' });
-    const ok = el('button', { class: 'btn btn-primary', type: 'button', text: '知道了' });
-    const goBoard = el('a', { class: 'btn btn-ghost', href: '/#/board', html: svg('kanban') + '開啟看板' });
+    const ok = el('button', { class: 'btn btn-primary', type: 'button', text: _t('知道了') });
+    const goBoard = el('a', { class: 'btn btn-ghost', href: '/#/board', html: svg('kanban') + _t('開啟看板') });
     const time = settings.board_overdue_remind_time || '09:30';
     const wrap = el('div', { class: 'modal kb-close kb-od' },
-      el('div', { class: 'modal-card kb-close-card kb-od-card', role: 'alertdialog', 'aria-modal': 'true', 'aria-label': '過期未結案提醒' },
-        el('div', { class: 'modal-head' }, el('h3', { html: svg('bell') + '過期未結案提醒' }), count),
+      el('div', { class: 'modal-card kb-close-card kb-od-card', role: 'alertdialog', 'aria-modal': 'true', 'aria-label': _t('過期未結案提醒') },
+        el('div', { class: 'modal-head' }, el('h3', { html: svg('bell') + _t('過期未結案提醒') }), count),
         el('div', { class: 'modal-body' },
-          el('p', { class: 'kb-close-q', text: '這些卡片已經過了到期日，還沒結案：' }),
+          el('p', { class: 'kb-close-q', text: _t('這些卡片已經過了到期日，還沒結案：') }),
           rows,
-          el('p', { class: 'hint', text: `每天 ${time} 會再提醒一次，直到結案為止。若要延後，請在卡片裡改到期日。` })),
+          el('p', { class: 'hint', text: _t("每天 {0} 會再提醒一次，直到結案為止。若要延後，請在卡片裡改到期日。", time) })),
         el('div', { class: 'modal-foot' }, goBoard, el('span', { class: 'spacer' }), ok)));
     function close() {
       if (!wrap.isConnected) return;
@@ -643,7 +645,7 @@ const TTBoard = window.TTBoard = (() => {
     paintRows();
     setTimeout(() => ok.focus(), 30);
     if (canNotify()) {
-      const n = new Notification(`過期未結案：${list.length} 張卡片`, {
+      const n = new Notification(_t("過期未結案：{0} 張卡片", list.length), {
         body: list.slice(0, 4).map(t => `• ${t.title}（${timing(t).dueText}）`).join('\n') + (list.length > 4 ? '\n…' : ''),
         tag: 'tt-overdue-daily', icon: '/assets/app/icon-192.png', requireInteraction: true,
       });
@@ -655,21 +657,21 @@ const TTBoard = window.TTBoard = (() => {
     const tm = timing(t);
     const next = nextDue(t.due_at, t.repeat, t.repeat_every || 1);
     const waiting = dueForClose().length - 1;
-    const later = el('button', { class: 'btn btn-ghost', type: 'button', html: svg('clock') + '1 小時後再問' });
-    const open = el('button', { class: 'btn', type: 'button', html: svg('edit') + '開啟卡片' });
-    const done = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + '結案並排下一次' });
+    const later = el('button', { class: 'btn btn-ghost', type: 'button', html: svg('clock') + _t('1 小時後再問') });
+    const open = el('button', { class: 'btn', type: 'button', html: svg('edit') + _t('開啟卡片') });
+    const done = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + _t('結案並排下一次') });
     const wrap = el('div', { class: 'modal kb-close' },
-      el('div', { class: 'modal-card kb-close-card', role: 'alertdialog', 'aria-modal': 'true', 'aria-label': '週期工作到期' },
-        el('div', { class: 'modal-head' }, el('h3', { html: svg('repeat') + '週期工作到期' })),
+      el('div', { class: 'modal-card kb-close-card', role: 'alertdialog', 'aria-modal': 'true', 'aria-label': _t('週期工作到期') },
+        el('div', { class: 'modal-head' }, el('h3', { html: svg('repeat') + _t('週期工作到期') })),
         el('div', { class: 'modal-body' },
           el('div', { class: 'kb-close-title' }, t.priority === 'high' ? el('span', { class: 'kb-flag', html: svg('flag') }) : null, el('strong', { text: t.title })),
           t.description ? el('p', { class: 'kb-close-desc', text: t.description }) : null,
           el('div', { class: 'kb-chips' },
             el('span', { class: `kb-chip due-${tm.due || 'later'}`, html: svg('clock') + `<span>${tm.dueText || fmt(t.due_at)}</span>` }),
             el('span', { class: 'kb-chip repeat', html: svg('repeat') + `<span>${repeatText(t.repeat, t.repeat_every, t.due_at)}</span>` })),
-          el('p', { class: 'kb-close-q', text: '這一次完成了嗎？' }),
-          el('p', { class: 'hint', text: `結案後這張會移到「Complete」，並自動複製一張到「週期工作」，到期日 ${fmt(next, true)}。` }),
-          waiting > 0 ? el('p', { class: 'hint', text: `還有 ${waiting} 張週期工作等你確認。` }) : null),
+          el('p', { class: 'kb-close-q', text: _t('這一次完成了嗎？') }),
+          el('p', { class: 'hint', text: _t("結案後這張會移到「Complete」，並自動複製一張到「週期工作」，到期日 {0}。", fmt(next, true)) }),
+          waiting > 0 ? el('p', { class: 'hint', text: _t("還有 {0} 張週期工作等你確認。", waiting) }) : null),
         el('div', { class: 'modal-foot' }, later, el('span', { class: 'spacer' }), open, done)));
 
     const close = () => {
@@ -681,11 +683,11 @@ const TTBoard = window.TTBoard = (() => {
     };
     const onKey = e => { if (e.key === 'Escape') { snooze(t, 60); close(); } };
     prompting = { id: t.id, due: t.due_at, close };
-    later.addEventListener('click', () => { snooze(t, 60); close(); toast('1 小時後會再問一次'); });
+    later.addEventListener('click', () => { snooze(t, 60); close(); toast(_t('1 小時後會再問一次')); });
     open.addEventListener('click', () => { snooze(t, 10); close(); openEditor(t); });
     done.addEventListener('click', async () => {
       [done, later, open].forEach(b => { b.disabled = true; });
-      done.innerHTML = svg('check') + '處理中…';
+      done.innerHTML = svg('check') + _t('處理中…');
       try { await complete(t); close(); } catch (err) { toast(err.message, true); [done, later, open].forEach(b => { b.disabled = false; }); }
     });
     document.addEventListener('keydown', onKey);
@@ -697,7 +699,7 @@ const TTBoard = window.TTBoard = (() => {
     const key = `${t.id}|${t.due_at}`;
     const told = store.get('board-close-told', []);
     if (canNotify() && !told.includes(key)) {
-      const n = new Notification(`週期工作到期：${t.title}`, { body: '這一次完成了嗎？點這裡結案並排下一次。', tag: 'tt-close-' + key, icon: '/assets/app/icon-192.png', requireInteraction: true });
+      const n = new Notification(_t("週期工作到期：{0}", t.title), { body: _t('這一次完成了嗎？點這裡結案並排下一次。'), tag: 'tt-close-' + key, icon: '/assets/app/icon-192.png', requireInteraction: true });
       n.onclick = () => { window.focus(); n.close(); };
       store.set('board-close-told', [...told.slice(-50), key]);
     }
@@ -714,7 +716,7 @@ const TTBoard = window.TTBoard = (() => {
     const open = () => { window.focus(); if (location.pathname === '/') location.hash = '#/board'; else location.href = '/#/board'; };
     // on page load, one summary instead of a burst
     if (firstCheck && fresh.length > 1) {
-      const title = `${fresh.length} 個待辦需要注意`;
+      const title = _t("{0} 個待辦需要注意", fresh.length);
       const body = fresh.slice(0, 4).map(a => `${KIND[a.kind]}：${a.t.title}`).join('\n') + (fresh.length > 4 ? '\n…' : '');
       if (canNotify()) { const n = new Notification(title, { body, tag: 'tt-board-summary', icon: '/assets/app/icon-192.png' }); n.onclick = open; }
       else toast(`🔔 ${title}`);
@@ -753,7 +755,7 @@ const TTBoard = window.TTBoard = (() => {
   async function openTask(id) {
     let t = tasks.find(x => x.id === id);
     if (!t) { await load(true); t = tasks.find(x => x.id === id); }
-    if (t) openEditor(t); else toast('這張卡片已被刪除，或你已經看不到它了', true);
+    if (t) openEditor(t); else toast(_t('這張卡片已被刪除，或你已經看不到它了'), true);
   }
 
   async function init(s) {
@@ -814,7 +816,7 @@ const TTBoard = window.TTBoard = (() => {
         const c = column(s);
         if (empty(s)) {
           c.classList.add('kb-col-empty');
-          c.title = `${s.label}（${s.zh}）：沒有卡片，點一下展開`;
+          c.title = _t("{0}（{1}）：沒有卡片，點一下展開", s.label, s.zh);
           c.tabIndex = 0;
           const unfold = () => { opened.add(s.key); render(); };
           c.addEventListener('click', unfold);
@@ -824,7 +826,7 @@ const TTBoard = window.TTBoard = (() => {
           c.addEventListener('dragleave', e => { if (!c.contains(e.relatedTarget)) c.classList.remove('drop-over'); });
           c.addEventListener('drop', e => { if (!drag) return; e.preventDefault(); const id = drag.id; drag = null; moveTo(id, s.key, 0); });
         } else if (opened.has(s.key) && !colItems(s.key).length && focusId == null) {
-          const fold = el('button', { class: 'kb-col-fold', type: 'button', title: '收合這一欄', 'aria-label': '收合這一欄', html: svg('chevron-left') });
+          const fold = el('button', { class: 'kb-col-fold', type: 'button', title: _t('收合這一欄'), 'aria-label': _t('收合這一欄'), html: svg('chevron-left') });
           fold.addEventListener('click', e => { e.stopPropagation(); opened.delete(s.key); render(); });
           c.querySelector('.kb-col-head').append(fold);
         }
@@ -840,20 +842,20 @@ const TTBoard = window.TTBoard = (() => {
     function column(s) {
       const items = colItems(s.key);
       const list = el('div', { class: 'kb-list', dataset: { status: s.key } }, items.map(card));
-      if (!items.length) list.append(el('div', { class: 'kb-empty', text: s.key === 'recurring' ? '重複性工作會排在這裡' : CLOSED.has(s.key) ? '—' : '拖曳卡片到這裡' }));
-      if (s.key === 'overdue' && items.length) list.prepend(el('p', { class: 'kb-col-note', text: '過了到期日還沒結案的卡片。拖到其他欄就不會再被移回來。' }));
-      const add = el('button', { class: 'kb-add', type: 'button', html: svg('plus') + '<span>新增卡片</span>' });
+      if (!items.length) list.append(el('div', { class: 'kb-empty', text: s.key === 'recurring' ? _t('重複性工作會排在這裡') : CLOSED.has(s.key) ? '—' : _t('拖曳卡片到這裡') }));
+      if (s.key === 'overdue' && items.length) list.prepend(el('p', { class: 'kb-col-note', text: _t('過了到期日還沒結案的卡片。拖到其他欄就不會再被移回來。') }));
+      const add = el('button', { class: 'kb-add', type: 'button', html: svg('plus') + _t('<span>新增卡片</span>') });
       add.addEventListener('click', () => s.key === 'recurring'
         ? openEditor(null, { status: 'recurring', repeat: 'weekly' })
         : quickAdd(col, s.key, add));
       const col = el('section', { class: 'kb-col', dataset: { status: s.key }, style: { '--st': s.color } },
         el('header', { class: 'kb-col-head' },
           el('span', { class: 'kb-dot' }),
-          el('span', { class: 'kb-name' }, el('strong', { text: s.label }), el('span', { class: 'kb-zh' }, s.zh,
+          el('span', { class: 'kb-name' }, el('strong', { text: s.label }), el('span', { class: 'kb-zh' }, TT_LANG === 'en' ? null : s.zh,
             ...(() => { const w = !CLOSED.has(s.key) && s.key !== 'recurring' ? wipLevel(items.length) : null;
               return w ? [el('span', { class: `kb-wip is-${w.cls}`, title: w.tip, text: w.text })] : []; })())),
           selecting && items.length ? (() => {
-            const lab = el('label', { class: 'kb-col-select', title: '全選這一欄' }, el('input', { type: 'checkbox' }));
+            const lab = el('label', { class: 'kb-col-select', title: _t('全選這一欄') }, el('input', { type: 'checkbox' }));
             // read the wanted state once: each toggleSelect repaints this box (partly ticked after the first card)
             lab.querySelector('input').addEventListener('change', e => { const on = e.target.checked; items.forEach(t => toggleSelect(t.id, on)); });
             return lab;
@@ -894,10 +896,10 @@ const TTBoard = window.TTBoard = (() => {
       if (!tagBar) tagBar = el('div', { class: 'kb-tagbar' });
       if (!tagBar.isConnected && root.isConnected) root.before(tagBar);
       const n = tasks.filter(t => tagPass(t) && !(hideClosed && CLOSED.has(t.status))).length;
-      const clear = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', html: svg('x') + '清除' });
+      const clear = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', html: svg('x') + _t('清除') });
       clear.addEventListener('click', () => setTagFilter(null));
-      tagBar.replaceChildren(el('span', { class: 'kb-tagbar-label', text: '篩選標籤' }), tagChip(tagFilter, { onClick: () => setTagFilter(null) }),
-        el('span', { class: 'hint', text: `${n} 張卡片` }), el('span', { class: 'spacer' }), clear);
+      tagBar.replaceChildren(el('span', { class: 'kb-tagbar-label', text: _t('篩選標籤') }), tagChip(tagFilter, { onClick: () => setTagFilter(null) }),
+        el('span', { class: 'hint', text: _t("{0} 張卡片", n) }), el('span', { class: 'spacer' }), clear);
     }
 
     // ------------------------------------------------ people bar (focus mode)
@@ -928,18 +930,18 @@ const TTBoard = window.TTBoard = (() => {
       if (focusId != null && !counts.has(focusId)) focusId = null;
       const pills = people.map(({ p, n, blocked }) => {
         const b = el('button', { class: 'kb-person-pill' + (focusId === p.id ? ' on' : focusId != null ? ' off' : ''), type: 'button',
-          title: `${TT.nameOf(p)}：` + STATUSES.filter(s => n[s.key]).map(s => `${s.zh} ${n[s.key]}`).join('、') + '（主責、子任務、協作都算）' },
-          TT.avatar(p, 26), el('span', { class: 'kb-pp-name', text: TT.nameOf(p) + (p.id === me ? '（我）' : '') }),
+          title: `${TT.nameOf(p)}：` + STATUSES.filter(s => n[s.key]).map(s => `${s.zh} ${n[s.key]}`).join('、') + _t('（主責、子任務、協作都算）') },
+          TT.avatar(p, 26), el('span', { class: 'kb-pp-name', text: TT.nameOf(p) + (p.id === me ? _t('（我）') : '') }),
           team.has(p.id) && !Object.keys(n).length ? el('span', { class: 'kb-pp-zero', text: '0' }) : null,
           el('span', { class: 'kb-pp-counts' }, ...STATUSES.filter(s => n[s.key]).map(s => el('span', { class: 'kb-pp-sq', style: { '--c': s.color }, text: n[s.key] })),
-            ...(blocked ? [el('span', { class: 'kb-pp-blocked', title: `${blocked} 張主責卡片卡住`, text: `⛔${blocked}` })] : [])));
+            ...(blocked ? [el('span', { class: 'kb-pp-blocked', title: _t("{0} 張主責卡片卡住", blocked), text: `⛔${blocked}` })] : [])));
         b.addEventListener('click', () => setFocus(focusId === p.id ? null : p.id));
         return b;
       });
-      const clear = focusId != null ? el('button', { class: 'btn btn-sm', type: 'button', html: svg('x') + '取消專注（Esc）' }) : null;
+      const clear = focusId != null ? el('button', { class: 'btn btn-sm', type: 'button', html: svg('x') + _t('取消專注（Esc）') }) : null;
       clear?.addEventListener('click', () => setFocus(null));
       const teamN = people.filter(x => team.has(x.p.id)).length;
-      peopleBar.replaceChildren(...[el('span', { class: 'kb-pp-label', text: focusId != null ? '專注：' : teamN ? `點人員專注（下級 ${teamN} 人）：` : '點人員專注：' }), ...pills,
+      peopleBar.replaceChildren(...[el('span', { class: 'kb-pp-label', text: focusId != null ? _t('專注：') : teamN ? _t("點人員專注（下級 {0} 人）：", teamN) : _t('點人員專注：') }), ...pills,
         el('span', { class: 'spacer' }), clear || el('span', { class: 'kb-pp-legend' }, ...STATUSES.filter(s => !(hideClosed && CLOSED.has(s.key))).map(s => el('span', {}, el('i', { style: { '--c': s.color } }), s.zh)))].filter(Boolean));
     }
     function setFocus(id) {
@@ -961,12 +963,12 @@ const TTBoard = window.TTBoard = (() => {
       if (meInfo.people && me != null) add({ id: me, username: meInfo.user.username, name: meInfo.user.display_name || meInfo.user.username, department: meInfo.user.department });
       if (filter === 'all' || filter === 'team') (meInfo.team || []).forEach(add);   // the team shows even with nothing on it
       const visible = cols.flatMap(s => colItems(s.key));
-      visible.forEach(t => add(laneOf(t) || { id: 'none', name: '未指派' }));
+      visible.forEach(t => add(laneOf(t) || { id: 'none', name: _t('未指派') }));
       if (filter.startsWith('user:')) [...people.keys()].forEach(k => { if (String(k) !== filter.slice(5)) people.delete(k); });
       const teamSet = new Set((meInfo.team || []).map(p => p.id));
       const rank = p => p.id === me ? 0 : teamSet.has(p.id) ? 1 : p.id === 'none' ? 3 : 2;
       const order = [...people.values()].sort((a, b) => rank(a) - rank(b) || TT.nameOf(a).localeCompare(TT.nameOf(b), 'zh-Hant'));
-      const head = el('div', { class: 'kb-lane kb-lane-head' }, el('div', { class: 'kb-lane-who' }, el('strong', { text: '人員' })),
+      const head = el('div', { class: 'kb-lane kb-lane-head' }, el('div', { class: 'kb-lane-who' }, el('strong', { text: _t('人員') })),
         ...cols.map(s => el('div', { class: 'kb-lane-col', style: { '--st': s.color } }, el('span', { class: 'kb-dot' }), el('strong', { text: s.label }), el('span', { class: 'kb-zh', text: s.zh }),
           el('span', { class: 'kb-count', text: colItems(s.key).length }))));
       const rows = order.map(p => {
@@ -974,18 +976,18 @@ const TTBoard = window.TTBoard = (() => {
         const overdue = mineCards.filter(t => timing(t).due === 'overdue').length;
         const open = mineCards.filter(t => !CLOSED.has(t.status)).length;
         const addBtn = p.id !== 'none' && (p.id === me || meInfo.board?.edit !== 'own' || meInfo.board?.team_edit)
-          ? el('button', { class: 'kb-link-btn', type: 'button', title: p.id === me ? '新增我的卡片' : `新增卡片並指派給 ${TT.nameOf(p)}`, html: svg('plus') + '<span>新增</span>' }) : null;
+          ? el('button', { class: 'kb-link-btn', type: 'button', title: p.id === me ? _t('新增我的卡片') : _t("新增卡片並指派給 {0}", TT.nameOf(p)), html: svg('plus') + _t('<span>新增</span>') }) : null;
         addBtn?.addEventListener('click', () => openEditor(null, { status: 'new', assignees: p.id === me ? [] : [{ id: p.id, username: p.username, name: TT.nameOf(p), department: p.department }] }));
         const who = el('div', { class: 'kb-lane-who' },
           p.id === 'none' ? el('span', { class: 'kb-lane-none', html: svg('user') }) : TT.avatar(p, 30),
-          el('div', { class: 'kb-lane-name' }, el('strong', { text: TT.nameOf(p) + (p.id === me ? '（我）' : '') }),
-            el('small', { text: [p.department, teamSet.has(p.id) ? '下級' : null].filter(Boolean).join(' · ') || ' ' }),
-            el('span', { class: 'kb-lane-stats' }, el('span', { text: `${open} 進行` }), overdue ? el('span', { class: 'is-late', text: `${overdue} 逾期` }) : null)),
+          el('div', { class: 'kb-lane-name' }, el('strong', { text: TT.nameOf(p) + (p.id === me ? _t('（我）') : '') }),
+            el('small', { text: [p.department, teamSet.has(p.id) ? _t('下級') : null].filter(Boolean).join(' · ') || ' ' }),
+            el('span', { class: 'kb-lane-stats' }, el('span', { text: _t("{0} 進行", open) }), overdue ? el('span', { class: 'is-late', text: _t("{0} 逾期", overdue) }) : null)),
           addBtn);
         return el('div', { class: 'kb-lane' + (overdue ? ' has-late' : ''), dataset: { person: p.id } }, who,
           ...cols.map(s => laneCell(s, mineCards.filter(t => t.status === s.key).sort((a, b) => a.sort_order - b.sort_order || a.id - b.id))));
       });
-      root.replaceChildren(head, ...(rows.length ? rows : [el('p', { class: 'hint kb-lane-empty', text: '沒有卡片' })]));
+      root.replaceChildren(head, ...(rows.length ? rows : [el('p', { class: 'hint kb-lane-empty', text: _t('沒有卡片') })]));
     }
     function laneCell(s, items) {
       const list = el('div', { class: 'kb-list kb-lane-cell', dataset: { status: s.key } }, items.map(card));
@@ -1022,56 +1024,56 @@ const TTBoard = window.TTBoard = (() => {
     function card(t) {
       const tm = timing(t);
       const chips = [];
-      if (tm.start) chips.push(el('span', { class: `kb-chip start-${tm.start}`, title: `開始：${fmt(t.start_at, true)}`, html: svg('play') + `<span>${tm.startText}</span>` }));
-      if (tm.due) chips.push(el('span', { class: `kb-chip due-${tm.due}`, title: `到期：${fmt(t.due_at, true)}`, html: svg('clock') + `<span>${tm.dueText}</span>` }));
-      if (t.repeat) chips.push(el('span', { class: 'kb-chip repeat', title: `重複：${repeatText(t.repeat, t.repeat_every, t.due_at)}`, html: svg('repeat') + `<span>${repeatText(t.repeat, t.repeat_every, t.due_at)}</span>` }));
+      if (tm.start) chips.push(el('span', { class: `kb-chip start-${tm.start}`, title: _t("開始：{0}", fmt(t.start_at, true)), html: svg('play') + `<span>${tm.startText}</span>` }));
+      if (tm.due) chips.push(el('span', { class: `kb-chip due-${tm.due}`, title: _t("到期：{0}", fmt(t.due_at, true)), html: svg('clock') + `<span>${tm.dueText}</span>` }));
+      if (t.repeat) chips.push(el('span', { class: 'kb-chip repeat', title: _t("重複：{0}", repeatText(t.repeat, t.repeat_every, t.due_at)), html: svg('repeat') + `<span>${repeatText(t.repeat, t.repeat_every, t.due_at)}</span>` }));
       if (t.due_at && t.remind !== null && t.remind !== undefined && !CLOSED.has(t.status)) {
         const rm = remindMoment(t);
-        chips.push(el('span', { class: 'kb-chip remind', title: `提醒：${fmtMoment(rm)}`, html: svg('bell') }));
+        chips.push(el('span', { class: 'kb-chip remind', title: _t("提醒：{0}", fmtMoment(rm)), html: svg('bell') }));
       }
       const sub = t.subtasks;
       if (sub?.total) {
         const counted = sub.total - sub.canceled;
         const pct = counted ? Math.round(sub.done / counted * 100) : 0;
         chips.push(el('span', { class: 'kb-chip kb-chip-sub' + (counted && sub.done === counted ? ' all-done' : ''),
-          title: `子任務 ${sub.done}/${counted} 完成（${pct}%）` + (sub.spent || sub.estimate ? `\n工時 ${fmtMin(sub.spent)}${sub.estimate ? ` / 預估 ${fmtMin(sub.estimate)}` : ''}` : '')
-            + (sub.start || sub.end ? `\n期間 ${sub.start ? fmt(sub.start) : '—'} → ${sub.end ? fmt(sub.end) : '—'}` : ''),
+          title: _t("子任務 {0}/{1} 完成（{2}%）", sub.done, counted, pct) + (sub.spent || sub.estimate ? _t("\n工時 {0}{1}", fmtMin(sub.spent), sub.estimate ? _t(" / 預估 {0}", fmtMin(sub.estimate)) : '') : '')
+            + (sub.start || sub.end ? _t("\n期間 {0} → {1}", sub.start ? fmt(sub.start) : '—', sub.end ? fmt(sub.end) : '—') : ''),
           style: { '--pct': `${pct}%` }, html: svg('check') + `<span>${sub.done}/${counted}</span>` }));
       }
-      if (sub?.timer) chips.push(el('span', { class: 'kb-chip kb-chip-timer', title: `計時中：${sub.timer.title}`, html: svg('clock') + '<span>計時中</span>' }));
-      if (t.images?.length) chips.push(el('span', { class: 'kb-chip', title: `${t.images.length} 張圖片`, html: svg('image') + `<span>${t.images.length}</span>` }));
-      if (t.files?.length) chips.push(el('span', { class: 'kb-chip', title: '附件：' + t.files.map(f => f.name).join('、'), html: svg('paperclip') + `<span>${t.files.length}</span>` }));
+      if (sub?.timer) chips.push(el('span', { class: 'kb-chip kb-chip-timer', title: _t("計時中：{0}", sub.timer.title), html: svg('clock') + _t('<span>計時中</span>') }));
+      if (t.images?.length) chips.push(el('span', { class: 'kb-chip', title: _t("{0} 張圖片", t.images.length), html: svg('image') + `<span>${t.images.length}</span>` }));
+      if (t.files?.length) chips.push(el('span', { class: 'kb-chip', title: _t('附件：') + t.files.map(f => f.name).join('、'), html: svg('paperclip') + `<span>${t.files.length}</span>` }));
       const c = el('article', {
         class: `kb-card prio-${t.priority}` + (isProject(t) ? ' is-project' : '') + (tm.due ? ` is-${tm.due}` : '') + (tm.start === 'due' ? ' is-start' : '') + (CLOSED.has(t.status) ? ' is-closed' : '') + (isBlocked(t) ? ' is-blocked' : ''),
         draggable: t.can_edit === false || selecting ? 'false' : 'true', tabindex: '0', dataset: { id: t.id },
-        title: t.can_edit === false ? '唯讀：你可以檢視與留言' : null,
+        title: t.can_edit === false ? _t('唯讀：你可以檢視與留言') : null,
       },
         selecting ? (() => {
           const box = el('input', { type: 'checkbox', checked: selection.has(t.id), tabindex: '-1' });
           box.addEventListener('change', () => toggleSelect(t.id, box.checked));
-          return el('label', { class: 'kb-select', title: '選取' }, box);
+          return el('label', { class: 'kb-select', title: _t('選取') }, box);
         })() : null,
         t.images?.length ? el('div', { class: 'kb-cover' }, el('img', { src: t.images[0].url, alt: '', loading: 'lazy', draggable: 'false' })) : null,
         el('div', { class: 'kb-card-title' },
-          t.priority === 'high' ? el('span', { class: 'kb-flag', title: '高優先', html: svg('flag') }) : null,
+          t.priority === 'high' ? el('span', { class: 'kb-flag', title: _t('高優先'), html: svg('flag') }) : null,
           el('span', { text: t.title }),
-          t.team ? el('span', { class: 'kb-team-tag', title: '下級的卡片（你是上級，可以' + (meInfo.board?.team_edit ? '檢視、留言與增刪修）' : '檢視與留言）'), text: '下級' }) : null),
+          t.team ? el('span', { class: 'kb-team-tag', title: _t('下級的卡片（你是上級，可以') + (meInfo.board?.team_edit ? _t('檢視、留言與增刪修）') : _t('檢視與留言）')), text: _t('下級') }) : null),
         t.tags?.length ? el('div', { class: 'kb-tags' }, t.tags.map(x => tagChip(x, { onClick: setTagFilter }))) : null,
         isProject(t) ? projectBlock(t) : null,
         !isProject(t) && t.project_id ? (() => {
           const pj = tasks.find(x => x.id === t.project_id);
-          const a = el('a', { class: 'kb-belongs', href: `#/project/${t.project_id}`, title: '歸屬的專案：點一下開啟專案頁', text: `↳ ${pj ? pj.title : '專案'}` });
+          const a = el('a', { class: 'kb-belongs', href: `#/project/${t.project_id}`, title: _t('歸屬的專案：點一下開啟專案頁'), text: `↳ ${pj ? pj.title : _t('專案')}` });
           a.addEventListener('click', e => e.stopPropagation());
           return a;
         })() : null,
-        isBlocked(t) ? el('div', { class: 'kb-blocked-bar', title: `卡住（${t.blocked.by || ''} 標記）：${t.blocked.reason}`,
-          text: `⛔ 卡住 ${blockedDays(t.blocked.since)}：${t.blocked.reason}` }) : null,
+        isBlocked(t) ? el('div', { class: 'kb-blocked-bar', title: _t("卡住（{0} 標記）：{1}", t.blocked.by || '', t.blocked.reason),
+          text: _t("⛔ 卡住 {0}：{1}", blockedDays(t.blocked.since), t.blocked.reason) }) : null,
         t.description ? el('p', { class: 'kb-card-desc', text: t.description }) : null,
         chips.length ? el('div', { class: 'kb-chips' }, chips) : null,
         (() => {
           const pr = progressOf(t);
           if (!pr) return null;
-          return el('div', { class: 'kb-progress' + (pr.pct === 100 ? ' full' : ''), title: `完成 ${pr.done} / ${pr.total}（子任務 ${pr.subs}${pr.collab ? `、協作 ${pr.collab}` : ''}）` },
+          return el('div', { class: 'kb-progress' + (pr.pct === 100 ? ' full' : ''), title: _t("完成 {0} / {1}（子任務 {2}{3}）", pr.done, pr.total, pr.subs, pr.collab ? _t("、協作 {0}", pr.collab) : '') },
             el('span', { class: 'kb-progress-bar' }, el('span', { style: { width: pr.pct + '%' } })),
             el('span', { class: 'kb-progress-text', text: `${pr.pct}%` }));
         })(),
@@ -1082,9 +1084,9 @@ const TTBoard = window.TTBoard = (() => {
         c.classList.add('kb-card-part');
         const mine = involvement(t).filter(x => x.p.id === focusId);
         const name = TT.nameOf(mine[0]?.p || {});
-        c.prepend(el('div', { class: 'kb-part-head' }, el('span', { class: 'kb-part-badge', text: '協作' }), el('span', { text: `主責：${TT.nameOf(lead || {})}` })));
-        const what = mine.map(x => x.kind === 'sub' ? `子任務「${x.sub.title}」` : x.why).join('、');
-        c.querySelector('.kb-tree-bar')?.before(el('div', { class: 'kb-part-note', text: `${name} 在這個任務：${what}` }));
+        c.prepend(el('div', { class: 'kb-part-head' }, el('span', { class: 'kb-part-badge', text: _t('協作') }), el('span', { text: _t("主責：{0}", TT.nameOf(lead || {})) })));
+        const what = mine.map(x => x.kind === 'sub' ? _t("子任務「{0}」", x.sub.title) : x.why).join('、');
+        c.querySelector('.kb-tree-bar')?.before(el('div', { class: 'kb-part-note', text: _t("{0} 在這個任務：{1}", name, what) }));
       }
       if (selection.has(t.id)) c.classList.add('is-selected');
       if (t.team) c.classList.add('is-team');
@@ -1126,10 +1128,10 @@ const TTBoard = window.TTBoard = (() => {
       if (!subs.length && !collab.length) return null;
       const open = expanded.has(t.id);
       const done = subs.filter(s => s.status === 'complete').length;
-      const btn = el('button', { class: 'kb-tree-toggle' + (open ? ' open' : ''), type: 'button', title: open ? '收合任務樹' : '展開任務樹：子任務與協作人' },
-        el('span', { text: [subs.length ? `子任務 ${done}/${subs.length}` : null, collab.length ? `協作 ${collab.filter(x => x.done).length}/${collab.filter(x => x.counts).length || collab.length}` : null].filter(Boolean).join(' · ') }),
+      const btn = el('button', { class: 'kb-tree-toggle' + (open ? ' open' : ''), type: 'button', title: open ? _t('收合任務樹') : _t('展開任務樹：子任務與協作人') },
+        el('span', { text: [subs.length ? _t("子任務 {0}/{1}", done, subs.length) : null, collab.length ? _t("協作 {0}/{1}", collab.filter(x => x.done).length, collab.filter(x => x.counts).length || collab.length) : null].filter(Boolean).join(' · ') }),
         el('span', { class: 'kb-tree-caret', text: '⧉' }));
-      btn.title = '開啟任務視窗：子任務由左至右展開（工時、留言、下層子任務）';
+      btn.title = _t('開啟任務視窗：子任務由左至右展開（工時、留言、下層子任務）');
       btn.addEventListener('click', e => { e.stopPropagation(); openNavigator(t); });
       btn.addEventListener('mousedown', e => e.stopPropagation());
       const bar = el('div', { class: 'kb-tree-bar' }, btn);
@@ -1142,22 +1144,22 @@ const TTBoard = window.TTBoard = (() => {
           return el('div', { class: 'kb-tree-node' + (focusId != null && s.assignee?.id === focusId ? ' me' : '') + (tm.due === 'overdue' ? ' late' : '') },
             el('span', { class: 'kb-tree-branch', text: i === last ? '└' : '├' }),
             el('div', { class: 'kb-tree-sub' },
-              el('div', { class: 'kb-tree-row' }, el('span', { class: 'kb-tree-st', style: { '--c': st.color }, text: st.label }), el('span', { class: 'kb-tree-kind', text: '子任務' })),
+              el('div', { class: 'kb-tree-row' }, el('span', { class: 'kb-tree-st', style: { '--c': st.color }, text: st.label }), el('span', { class: 'kb-tree-kind', text: _t('子任務') })),
               el('div', { class: 'kb-tree-title', text: s.title }),
               el('div', { class: 'kb-tree-row' },
-                s.assignee ? el('span', { class: 'kb-tree-who' }, TT.avatar(s.assignee, 18), el('span', { text: TT.nameOf(s.assignee) })) : el('span', { class: 'hint', text: '未指派' }),
+                s.assignee ? el('span', { class: 'kb-tree-who' }, TT.avatar(s.assignee, 18), el('span', { text: TT.nameOf(s.assignee) })) : el('span', { class: 'hint', text: _t('未指派') }),
                 s.due_at ? el('span', { class: `kb-chip due-${tm.due || ''}`, html: svg('clock') + `<span>${tm.dueText || fmt(s.due_at)}</span>` }) : null,
                 s.estimate || s.spent ? el('span', { class: 'kb-chip', html: svg('clock') + `<span>${fmtMin(s.spent)}${s.estimate ? ' / ' + fmtMin(s.estimate) : ''}</span>` }) : null)));
         }),
         ...collab.map((x, i) => {
           const can = x.counts && (x.p.id === meInfo.user?.id || t.can_edit !== false);
-          const box = x.counts ? el('label', { class: 'kb-collab-done' + (x.done ? ' on' : ''), title: can ? '標記這位協作人的部分已完成（計入主卡完成度）' : '協作人或能編輯卡片的人可以標記' },
-            el('input', { type: 'checkbox', checked: x.done, disabled: !can }), el('span', { text: x.done ? '已完成' : '完成' })) : null;
+          const box = x.counts ? el('label', { class: 'kb-collab-done' + (x.done ? ' on' : ''), title: can ? _t('標記這位協作人的部分已完成（計入主卡完成度）') : _t('協作人或能編輯卡片的人可以標記') },
+            el('input', { type: 'checkbox', checked: x.done, disabled: !can }), el('span', { text: x.done ? _t('已完成') : _t('完成') })) : null;
           box?.querySelector('input').addEventListener('change', e => setCollabDone(t, x.p, e.target.checked));
           return el('div', { class: 'kb-tree-node collab' + (focusId != null && x.p.id === focusId ? ' me' : '') + (x.done ? ' done' : '') },
             el('span', { class: 'kb-tree-branch', text: subs.length + i === last ? '└' : '├' }),
             el('div', { class: 'kb-tree-sub kb-tree-collab' },
-              el('div', { class: 'kb-tree-row' }, el('span', { class: 'kb-part-badge', text: '協作' }), el('span', { class: 'hint', text: x.why }), el('span', { class: 'spacer' }), box),
+              el('div', { class: 'kb-tree-row' }, el('span', { class: 'kb-part-badge', text: _t('協作') }), el('span', { class: 'hint', text: x.why }), el('span', { class: 'spacer' }), box),
               el('div', { class: 'kb-tree-row' }, el('span', { class: 'kb-tree-who' }, TT.avatar(x.p, 18), el('span', { text: TT.nameOf(x.p) })))));
         }),
       ];
@@ -1171,16 +1173,16 @@ const TTBoard = window.TTBoard = (() => {
       const people = t.assignees?.length ? t.assignees : t.owner ? [t.owner] : [];
       if (!people.length && !t.comments && !t.mentions?.length) return null;
       return el('div', { class: 'kb-people' },
-        t.comments ? el('span', { class: 'kb-meta', title: `${t.comments} 則留言`, html: svg('message') + t.comments }) : null,
-        t.mentions?.length ? el('span', { class: 'kb-meta', title: '協作：' + t.mentions.map(TT.nameOf).join('、'), html: '@' + t.mentions.length }) : null,
+        t.comments ? el('span', { class: 'kb-meta', title: _t("{0} 則留言", t.comments), html: svg('message') + t.comments }) : null,
+        t.mentions?.length ? el('span', { class: 'kb-meta', title: _t('協作：') + t.mentions.map(TT.nameOf).join('、'), html: '@' + t.mentions.length }) : null,
         el('span', { class: 'spacer' }),
-        el('span', { class: 'avatars' + (t.assignees?.length ? '' : ' is-owner'), title: (t.assignees?.length ? '負責：' : '建立：') + people.map(TT.nameOf).join('、') },
+        el('span', { class: 'avatars' + (t.assignees?.length ? '' : ' is-owner'), title: (t.assignees?.length ? _t('負責：') : _t('建立：')) + people.map(TT.nameOf).join('、') },
           people.slice(0, 4).map(p => TT.avatar(p, 22))));
     }
 
     function quickAdd(col, status, btn) {
-      const input = el('input', { class: 'input kb-quick', placeholder: '輸入標題，Enter 新增（Esc 取消）', maxlength: '200' });
-      const more = el('button', { class: 'btn btn-ghost btn-sm', type: 'button', text: '更多設定…' });
+      const input = el('input', { class: 'input kb-quick', placeholder: _t('輸入標題，Enter 新增（Esc 取消）'), maxlength: '200' });
+      const more = el('button', { class: 'btn btn-ghost btn-sm', type: 'button', text: _t('更多設定…') });
       const box = el('div', { class: 'kb-quick-box' }, input, more);
       btn.replaceWith(box);
       input.focus();
@@ -1235,7 +1237,7 @@ const TTBoard = window.TTBoard = (() => {
   const IMAGE_TYPES = /^image\/(png|jpeg|gif|webp)$/;
   const FILE_EXT = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'md', 'json', 'yaml', 'yml', 'toml', 'txt', 'py', 'rs', 'mmd', 'mermaid'];
   const ACCEPT = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', ...FILE_EXT.map(e => '.' + e)].join(',');
-  const ACCEPT_TEXT = '圖片（PNG、JPG、GIF、WebP，10 MB 內）、PDF、Word、Excel、PowerPoint、md、json、yaml、toml、txt、py、rs、mermaid（25 MB 內）';
+  const ACCEPT_TEXT = _t('圖片（PNG、JPG、GIF、WebP，10 MB 內）、PDF、Word、Excel、PowerPoint、md、json、yaml、toml、txt、py、rs、mermaid（25 MB 內）');
   const extOf = name => ((name || '').includes('.') ? name.split('.').pop().toLowerCase() : '');
   const isImageFile = f => IMAGE_TYPES.test(f.type);
   const sizeText = n => (n == null ? '' : n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(n < 10240 ? 1 : 0)} KB` : `${(n / 1048576).toFixed(1)} MB`);
@@ -1245,7 +1247,7 @@ const TTBoard = window.TTBoard = (() => {
   function attachFiles(list) {
     const files = [...(list || [])].filter(f => f && f.kind !== 'string').map(f => (f.getAsFile ? f.getAsFile() : f)).filter(Boolean);
     const ok = files.filter(f => (isImageFile(f) ? f.size <= IMAGE_MAX : FILE_EXT.includes(extOf(f.name)) && f.size <= FILE_MAX));
-    if (files.length > ok.length) toast(`略過 ${files.length - ok.length} 個檔案。可以加入：${ACCEPT_TEXT}`, true);
+    if (files.length > ok.length) toast(_t("略過 {0} 個檔案。可以加入：{1}", files.length - ok.length, ACCEPT_TEXT), true);
     return ok;
   }
 
@@ -1270,12 +1272,12 @@ const TTBoard = window.TTBoard = (() => {
     const images = list.filter(x => x.kind !== 'file');
     const files = list.filter(x => x.kind === 'file');
     const removeBtn = item => {
-      const x = el('button', { type: 'button', class: 'kb-thumb-x', 'aria-label': '移除附件', title: '移除', html: svg('x') });
+      const x = el('button', { type: 'button', class: 'kb-thumb-x', 'aria-label': _t('移除附件'), title: _t('移除'), html: svg('x') });
       x.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); onRemove(item); });
       return x;
     };
     const grid = images.length ? el('div', { class: `kb-thumbs size-${size}` }, images.map((im, i) => {
-      const pic = el('img', { src: im.url || im.preview, alt: im.name || '圖片', loading: 'lazy', draggable: 'false' });
+      const pic = el('img', { src: im.url || im.preview, alt: im.name || _t('圖片'), loading: 'lazy', draggable: 'false' });
       const t = el('div', { class: 'kb-thumb' + (im.uploading ? ' is-uploading' : ''), title: im.name || '' }, pic);
       pic.addEventListener('click', e => { e.stopPropagation(); viewImages(images, i); });
       if (onRemove && !im.uploading) t.append(removeBtn(im));
@@ -1284,14 +1286,14 @@ const TTBoard = window.TTBoard = (() => {
     const rows = files.length ? el('div', { class: 'kb-files' }, files.map(f => {
       const ext = extOf(f.name);
       const badge = el('span', { class: 'kb-file-ext', style: { '--ext': EXT_COLOR[ext] || 'var(--text-3)' }, text: (ext || 'file').slice(0, 4).toUpperCase() });
-      const body = el('span', { class: 'kb-file-text' }, el('span', { class: 'kb-file-name', text: f.name || '檔案' }),
-        el('small', { text: f.uploading ? '上傳中…' : sizeText(f.size) }));
+      const body = el('span', { class: 'kb-file-text' }, el('span', { class: 'kb-file-name', text: f.name || _t('檔案') }),
+        el('small', { text: f.uploading ? _t('上傳中…') : sizeText(f.size) }));
       const open = f.url
-        ? el('a', { class: 'kb-file-open', href: f.url, target: '_blank', rel: 'noopener', title: `開啟 ${f.name || ''}` }, badge, body)
+        ? el('a', { class: 'kb-file-open', href: f.url, target: '_blank', rel: 'noopener', title: _t("開啟 {0}", f.name || '') }, badge, body)
         : el('span', { class: 'kb-file-open' }, badge, body);
       const row = el('div', { class: 'kb-file' + (f.url ? ' has-link' : '') + (f.uploading ? ' is-uploading' : '') }, open);
       if (f.url) {
-        const dl = el('a', { class: 'kb-file-dl', href: f.url + '?download=1', download: f.name || '', title: '下載', 'aria-label': '下載', html: svg('download') });
+        const dl = el('a', { class: 'kb-file-dl', href: f.url + '?download=1', download: f.name || '', title: _t('下載'), 'aria-label': _t('下載'), html: svg('download') });
         dl.addEventListener('click', e => e.stopPropagation());
         row.append(dl);
       }
@@ -1307,17 +1309,17 @@ const TTBoard = window.TTBoard = (() => {
     let i = start;
     const pic = el('img', { class: 'kb-viewer-img', alt: '' });
     const count = el('span', { class: 'kb-viewer-count' });
-    const open = el('a', { class: 'btn btn-sm', target: '_blank', rel: 'noopener', html: svg('external') + '原圖' });
-    const prev = el('button', { class: 'icon-btn kb-viewer-nav prev', type: 'button', 'aria-label': '上一張', html: '‹' });
-    const next = el('button', { class: 'icon-btn kb-viewer-nav next', type: 'button', 'aria-label': '下一張', html: '›' });
-    const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': '關閉', html: svg('x') });
-    const box = el('div', { class: 'kb-viewer', role: 'dialog', 'aria-modal': 'true', 'aria-label': '圖片' },
+    const open = el('a', { class: 'btn btn-sm', target: '_blank', rel: 'noopener', html: svg('external') + _t('原圖') });
+    const prev = el('button', { class: 'icon-btn kb-viewer-nav prev', type: 'button', 'aria-label': _t('上一張'), html: '‹' });
+    const next = el('button', { class: 'icon-btn kb-viewer-nav next', type: 'button', 'aria-label': _t('下一張'), html: '›' });
+    const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': _t('關閉'), html: svg('x') });
+    const box = el('div', { class: 'kb-viewer', role: 'dialog', 'aria-modal': 'true', 'aria-label': _t('圖片') },
       el('div', { class: 'kb-viewer-bar' }, count, el('span', { class: 'spacer' }), open, closeBtn),
       list.length > 1 ? prev : null, pic, list.length > 1 ? next : null);
     const show = () => {
       const im = list[i];
       pic.src = im.url || im.preview;
-      pic.alt = im.name || '圖片';
+      pic.alt = im.name || _t('圖片');
       open.href = im.url || im.preview;
       count.textContent = (im.name ? im.name + '　' : '') + (list.length > 1 ? `${i + 1} / ${list.length}` : '');
     };
@@ -1357,8 +1359,8 @@ const TTBoard = window.TTBoard = (() => {
     if (!x.base_due && !x.base_start) return '';
     const md = v => v ? `${+v.slice(5, 7)}/${+v.slice(8, 10)}` : '—';
     const slip = x.base_due && x.due_at ? dayNum(x.due_at) - dayNum(x.base_due) : null;
-    return `原定 ${x.milestone || x.base_start === x.base_due ? md(x.base_due) : `${md(x.base_start)}–${md(x.base_due)}`}`
-      + (slip == null ? '' : slip > 0 ? `，延誤 ${slip} 天` : slip < 0 ? `，提前 ${-slip} 天` : '，準時');
+    return _t("原定 {0}", x.milestone || x.base_start === x.base_due ? md(x.base_due) : `${md(x.base_start)}–${md(x.base_due)}`)
+      + (slip == null ? '' : slip > 0 ? _t("，延誤 {0} 天", slip) : slip < 0 ? _t("，提前 {0} 天", -slip) : _t('，準時'));
   }
   /** Milestone, predecessors, actual start and baseline of a card ("t:id") or subtask ("s:id").
    *  opts: { key, item, editable, card (for the baseline buttons), onChange(body) → saves at once; omitted → value() } */
@@ -1371,31 +1373,31 @@ const TTBoard = window.TTBoard = (() => {
     const emit = part => { Object.assign(changed, part); opts.onChange?.(part); };
     const box = el('div', { class: 'kb-sched' });
     const ms = el('label', { class: 'kb-sched-ms' }, el('input', { type: 'checkbox', checked: milestone, disabled: !editable }),
-      el('span', { html: svg('flag') + '里程碑' }), el('small', { class: 'hint', text: '只看到期日，甘特圖畫成菱形' }));
+      el('span', { html: svg('flag') + _t('里程碑') }), el('small', { class: 'hint', text: _t('只看到期日，甘特圖畫成菱形') }));
     ms.querySelector('input').addEventListener('change', e => { milestone = e.target.checked; emit({ milestone }); });
     const chips = el('div', { class: 'kb-dep-chips' });
     const paintChips = () => {
       chips.replaceChildren(...deps.map((d, i) => {
         const lag = el('input', { class: 'input input-sm kb-dep-lag', type: 'number', min: '-365', max: '365', value: String(d.lag || 0), disabled: !editable,
-          title: '前置完成後間隔幾天才開始（0 = 隔天就開始；可為負數）' });
+          title: _t('前置完成後間隔幾天才開始（0 = 隔天就開始；可為負數）') });
         lag.addEventListener('change', () => { deps[i].lag = parseInt(lag.value, 10) || 0; emit({ deps: deps.map(({ key: k, lag: l }) => ({ key: k, lag: l })) }); });
-        const x = editable ? el('button', { class: 'kb-person-x', type: 'button', 'aria-label': '移除前置任務', html: svg('x') }) : null;
+        const x = editable ? el('button', { class: 'kb-person-x', type: 'button', 'aria-label': _t('移除前置任務'), html: svg('x') }) : null;
         x?.addEventListener('click', () => { deps.splice(i, 1); paintChips(); emit({ deps: deps.map(({ key: k, lag: l }) => ({ key: k, lag: l })) }); });
-        return el('span', { class: 'kb-dep-chip' }, el('span', { class: 'kb-dep-kind', text: d.key.startsWith('t:') ? '卡' : '子' }),
-          el('span', { class: 'kb-dep-title', text: d.title || d.key }), el('span', { class: 'hint', text: '+' }), lag, el('span', { class: 'hint', text: '天' }), x);
+        return el('span', { class: 'kb-dep-chip' }, el('span', { class: 'kb-dep-kind', text: d.key.startsWith('t:') ? _t('卡') : _t('子') }),
+          el('span', { class: 'kb-dep-title', text: d.title || d.key }), el('span', { class: 'hint', text: '+' }), lag, el('span', { class: 'hint', text: _t('天') }), x);
       }));
-      if (!deps.length) chips.append(el('span', { class: 'hint', text: '沒有前置任務' }));
+      if (!deps.length) chips.append(el('span', { class: 'hint', text: _t('沒有前置任務') }));
     };
     paintChips();
-    const find = editable ? el('input', { class: 'input input-sm kb-dep-find', placeholder: '＋ 前置任務：輸入名稱搜尋卡片或子任務' }) : null;
+    const find = editable ? el('input', { class: 'input input-sm kb-dep-find', placeholder: _t('＋ 前置任務：輸入名稱搜尋卡片或子任務') }) : null;
     const sug = el('div', { class: 'kb-dep-sug', hidden: true });
     let pool = null;
     async function candidates() {
       if (pool) return pool;
       const rows = await ganttRows().catch(() => []);
       const byCard = new Map(tasks.map(t => [t.id, t]));
-      pool = [...tasks.map(t => ({ key: `t:${t.id}`, title: t.title, where: '卡片' })),
-        ...rows.map(r => ({ key: `s:${r.id}`, title: r.title, where: `「${byCard.get(r.card)?.title || '卡片'}」的子任務` }))]
+      pool = [...tasks.map(t => ({ key: `t:${t.id}`, title: t.title, where: _t('卡片') })),
+        ...rows.map(r => ({ key: `s:${r.id}`, title: r.title, where: _t("「{0}」的子任務", byCard.get(r.card)?.title || _t('卡片')) }))]
         .filter(x => x.key !== key);
       return pool;
     }
@@ -1418,28 +1420,28 @@ const TTBoard = window.TTBoard = (() => {
     find?.addEventListener('blur', () => setTimeout(() => { sug.hidden = true; }, 150));
     find?.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); sug.hidden = true; } });
     const wins = settings.board_windows || [];
-    const winSel = el('select', { class: 'select input-sm kb-win-sel', disabled: !editable, title: '這項工作要用的共用時段（停電、維護窗口）；排進凍結期也在這裡標記' },
-      el('option', { value: '', text: '不使用共用時段' }),
+    const winSel = el('select', { class: 'select input-sm kb-win-sel', disabled: !editable, title: _t('這項工作要用的共用時段（停電、維護窗口）；排進凍結期也在這裡標記') },
+      el('option', { value: '', text: _t('不使用共用時段') }),
       ...wins.map(w => el('option', { value: w.id, selected: w.id === item.win,
-        text: `${w.title}（${w.from.slice(5).replace('-', '/')}${w.to !== w.from ? '–' + w.to.slice(5).replace('-', '/') : ''}${w.kind === 'freeze' ? '，凍結期' : `，可容納 ${w.capacity}`}）` })));
-    if (item.win && !wins.some(w => w.id === item.win)) winSel.append(el('option', { value: item.win, selected: true, text: '（已刪除的時段）' }));
+        text: `${w.title}（${w.from.slice(5).replace('-', '/')}${w.to !== w.from ? '–' + w.to.slice(5).replace('-', '/') : ''}${w.kind === 'freeze' ? _t('，凍結期') : _t("，可容納 {0}", w.capacity)}）` })));
+    if (item.win && !wins.some(w => w.id === item.win)) winSel.append(el('option', { value: item.win, selected: true, text: _t('（已刪除的時段）') }));
     winSel.addEventListener('change', () => emit({ win: winSel.value }));
-    const st = el('input', { class: 'input input-sm', type: 'date', value: started.slice(0, 10), disabled: !editable, title: '第一次改成進行中或第一次記工時時自動記錄，也可以修正' });
+    const st = el('input', { class: 'input input-sm', type: 'date', value: started.slice(0, 10), disabled: !editable, title: _t('第一次改成進行中或第一次記工時時自動記錄，也可以修正') });
     st.addEventListener('change', () => { started = st.value; emit({ started_at: started || null }); });
-    const base = el('span', { class: 'kb-sched-base', text: baselineText(item) || '還沒有設定基準線' });
+    const base = el('span', { class: 'kb-sched-base', text: baselineText(item) || _t('還沒有設定基準線') });
     let baseBtns = null;
     if (opts.card && editable) {
-      const set = el('button', { class: 'kb-link-btn', type: 'button', html: svg('flag') + `<span>${item.base_due || item.base_start ? '重設基準線' : '設定基準線'}</span>`,
-        title: '把這張卡片與所有子任務目前的開始／到期日存成原定日期，之後可以看延誤天數' });
-      const clear = item.base_due || item.base_start ? el('button', { class: 'kb-link-btn', type: 'button', html: svg('x') + '<span>清除</span>' }) : null;
+      const set = el('button', { class: 'kb-link-btn', type: 'button', html: svg('flag') + `<span>${item.base_due || item.base_start ? _t('重設基準線') : _t('設定基準線')}</span>`,
+        title: _t('把這張卡片與所有子任務目前的開始／到期日存成原定日期，之後可以看延誤天數') });
+      const clear = item.base_due || item.base_start ? el('button', { class: 'kb-link-btn', type: 'button', html: svg('x') + _t('<span>清除</span>') }) : null;
       const run = async clearIt => {
-        if (!clearIt && (item.base_due || item.base_start) && !confirm('用目前的日期取代原本的基準線？')) return;
+        if (!clearIt && (item.base_due || item.base_start) && !confirm(_t('用目前的日期取代原本的基準線？'))) return;
         try {
           const fresh = await api(`/api/tasks/${opts.card.id}/baseline`, { method: 'POST', body: { clear: !!clearIt } });
           Object.assign(item, { base_start: fresh.base_start, base_due: fresh.base_due });
-          base.textContent = baselineText(fresh) || '還沒有設定基準線';
+          base.textContent = baselineText(fresh) || _t('還沒有設定基準線');
           ganttCache.at = 0; load(true).catch(() => {}); opts.onBaseline?.();
-          toast(clearIt ? '已清除基準線' : '已設定基準線（卡片與所有子任務）');
+          toast(clearIt ? _t('已清除基準線') : _t('已設定基準線（卡片與所有子任務）'));
         } catch (e) { toast(e.message, true); }
       };
       set.addEventListener('click', () => run(false));
@@ -1448,10 +1450,10 @@ const TTBoard = window.TTBoard = (() => {
     }
     box.append(...[
       el('div', { class: 'kb-sched-row' }, ms),
-      el('div', { class: 'kb-sched-row' }, el('span', { class: 'kb-sched-label', html: svg('link') + '前置任務' }), el('div', { class: 'kb-dep-box' }, chips, find, sug)),
-      wins.length || item.win ? el('div', { class: 'kb-sched-row' }, el('span', { class: 'kb-sched-label', html: svg('zap') + '共用時段' }), winSel) : null,
-      el('div', { class: 'kb-sched-row' }, el('span', { class: 'kb-sched-label', html: svg('play') + '實際開始' }), st,
-        el('span', { class: 'kb-sched-label', html: svg('calendar') + '基準線' }), base, baseBtns)].filter(Boolean));
+      el('div', { class: 'kb-sched-row' }, el('span', { class: 'kb-sched-label', html: svg('link') + _t('前置任務') }), el('div', { class: 'kb-dep-box' }, chips, find, sug)),
+      wins.length || item.win ? el('div', { class: 'kb-sched-row' }, el('span', { class: 'kb-sched-label', html: svg('zap') + _t('共用時段') }), winSel) : null,
+      el('div', { class: 'kb-sched-row' }, el('span', { class: 'kb-sched-label', html: svg('play') + _t('實際開始') }), st,
+        el('span', { class: 'kb-sched-label', html: svg('calendar') + _t('基準線') }), base, baseBtns)].filter(Boolean));
     return { el: box, value: () => ({ ...changed }) };
   }
 
@@ -1463,16 +1465,16 @@ const TTBoard = window.TTBoard = (() => {
     const md = v => v ? `${+v.slice(5, 7)}/${+v.slice(8, 10)}` : '';
     return el('div', { class: 'kb-proj' },
       el('div', { class: 'kb-proj-row' },
-        el('span', { class: 'kb-proj-badge', text: '◇ 專案' }),
-        h?.rank ? el('span', { class: 'kb-proj-rank', title: '主管排序', text: `#${h.rank}` }) : null,
-        slip != null ? el('span', { class: 'kb-chip ' + (slip > 0 ? 'due-overdue' : 'kb-chip-ok'), text: slip > 0 ? `落後 ${slip} 天` : slip < 0 ? `提前 ${-slip} 天` : '準時' }) : null,
-        h?.problem_items ? el('span', { class: 'kb-chip due-overdue', title: Object.entries(h.problems).filter(([, n]) => n).map(([k, n]) => `${PROBLEM_ZH[k]} ${n}`).join('、'), text: `問題 ${h.problem_items}` }) : null),
+        el('span', { class: 'kb-proj-badge', text: _t('◇ 專案') }),
+        h?.rank ? el('span', { class: 'kb-proj-rank', title: _t('主管排序'), text: `#${h.rank}` }) : null,
+        slip != null ? el('span', { class: 'kb-chip ' + (slip > 0 ? 'due-overdue' : 'kb-chip-ok'), text: slip > 0 ? _t("落後 {0} 天", slip) : slip < 0 ? _t("提前 {0} 天", -slip) : _t('準時') }) : null,
+        h?.problem_items ? el('span', { class: 'kb-chip due-overdue', title: Object.entries(h.problems).filter(([, n]) => n).map(([k, n]) => `${PROBLEM_ZH[k]} ${n}`).join('、'), text: _t("問題 {0}", h.problem_items) }) : null),
       h?.next ? el('div', { class: 'kb-proj-next', text: `◆ ${h.next.title} ${md(h.next.due)}` }) : null,
       el('div', { class: 'kb-proj-row' },
         el('span', { class: 'kb-proj-bar' }, el('i', { style: { width: `${h?.pct ?? 0}%` } })), el('span', { class: 'kb-proj-pct', text: `${h?.pct ?? 0}%` })),
-      mine ? el('div', { class: 'kb-proj-mine', text: `我在這個專案的工作 ${mine} 項 ›` }) : null);
+      mine ? el('div', { class: 'kb-proj-mine', text: _t("我在這個專案的工作 {0} 項 ›", mine) }) : null);
   }
-  const PROBLEM_ZH = { overdue: '逾期', blocked: '卡住', conflict: '排程衝突', xdep: '跨專案前置', window: '時段衝突', overload: '超載' };
+  const PROBLEM_ZH = { overdue: _t('逾期'), blocked: _t('卡住'), conflict: _t('排程衝突'), xdep: _t('跨專案前置'), window: _t('時段衝突'), overload: _t('超載') };
 
   function openSubtaskEditor(card, c, onSaved) {
     const s = c.task;
@@ -1481,11 +1483,11 @@ const TTBoard = window.TTBoard = (() => {
     const [sd, stt] = split(s.start_at);
     const [dd, dtt] = split(s.due_at);
     const title = el('input', { class: 'input kb-title-input', value: s.title || '', maxlength: '200', disabled: !edit });
-    const desc = el('textarea', { class: 'textarea', rows: '4', placeholder: '細節、步驟、注意事項…', disabled: !c.can_edit_body });
+    const desc = el('textarea', { class: 'textarea', rows: '4', placeholder: _t('細節、步驟、注意事項…'), disabled: !c.can_edit_body });
     desc.value = c.body && c.body.trim() !== (s.title || '').trim() ? c.body : '';
     if (meInfo.people && c.can_edit_body) TT.mentionInput(desc);
     const status = el('select', { class: 'select', disabled: !s.can_update },
-      STATUSES.filter(x => x.key !== 'recurring' && x.key !== 'overdue').map(x => el('option', { value: x.key, text: `${x.label}（${x.zh}）` })));
+      STATUSES.filter(x => x.key !== 'recurring' && x.key !== 'overdue').map(x => el('option', { value: x.key, text: stName(x) })));
     status.value = s.status;
     let priority = s.priority || 'normal';
     const prio = el('div', { class: 'segmented', role: 'group' }, PRIORITIES.map(([v, label]) => {
@@ -1496,12 +1498,12 @@ const TTBoard = window.TTBoard = (() => {
     const paintPrio = () => prio.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === priority)));
     paintPrio();
     const startD = el('input', { class: 'input', type: 'date', value: sd, disabled: !edit });
-    const startT = el('input', { class: 'input kb-time', type: 'time', value: stt, disabled: !edit, title: '時間（選填）' });
+    const startT = el('input', { class: 'input kb-time', type: 'time', value: stt, disabled: !edit, title: _t('時間（選填）') });
     const dueD = el('input', { class: 'input', type: 'date', value: dd, disabled: !edit });
-    const dueT = el('input', { class: 'input kb-time', type: 'time', value: dtt, disabled: !edit, title: '時間（選填；不填＝當天結束前）' });
+    const dueT = el('input', { class: 'input kb-time', type: 'time', value: dtt, disabled: !edit, title: _t('時間（選填；不填＝當天結束前）') });
     const remind = el('select', { class: 'select', disabled: !edit }, REMINDS.map(([v, l]) => el('option', { value: v, text: l })));
     remind.value = s.remind == null ? '' : String(s.remind);
-    const est = el('input', { class: 'input', type: 'number', min: '0', max: '1000', step: '0.5', placeholder: '小時', disabled: !edit,
+    const est = el('input', { class: 'input', type: 'number', min: '0', max: '1000', step: '0.5', placeholder: _t('小時'), disabled: !edit,
       value: s.estimate_minutes ? String(+(s.estimate_minutes / 60).toFixed(2)) : '' });
     const value = (d, tm) => d.value ? d.value + (tm.value ? 'T' + tm.value : '') : null;
     const hint = el('p', { class: 'hint kb-remind-hint' });
@@ -1509,7 +1511,7 @@ const TTBoard = window.TTBoard = (() => {
       const due = value(dueD, dueT);
       remind.disabled = !edit || !due;
       const rm = due ? remindMoment({ due_at: due, remind: remind.value === '' ? null : Number(remind.value) }) : null;
-      hint.textContent = due ? `到期：${fmt(due, true)}${due.includes('T') ? '' : '（當天結束前）'} · ${rm ? '提醒：' + fmtMoment(rm) : '不提醒'}` : '沒有到期日就不會提醒';
+      hint.textContent = due ? _t("到期：{0}{1} · {2}", fmt(due, true), due.includes('T') ? '' : _t('（當天結束前）'), rm ? _t('提醒：') + fmtMoment(rm) : _t('不提醒')) : _t('沒有到期日就不會提醒');
     };
     [startD, startT, dueD, dueT, remind].forEach(x => x.addEventListener('input', paintHint));
     paintHint();
@@ -1519,10 +1521,10 @@ const TTBoard = window.TTBoard = (() => {
     const who = el('div', { class: 'kb-assignees' });
     const paintWho = () => {
       const chip = assignee ? el('span', { class: 'kb-person' }, TT.avatar(assignee, 22), el('span', { text: TT.nameOf(assignee) }),
-        s.can_assign ? (() => { const x = el('button', { type: 'button', class: 'kb-person-x', 'aria-label': '取消指派', html: svg('x') }); x.addEventListener('click', () => { assignee = null; paintWho(); }); return x; })() : null) : null;
-      const inp = s.can_assign ? TT.mentionInput(el('input', { class: 'input kb-assign-input', placeholder: assignee ? '改派給…' : '輸入姓名或帳號，指派負責人…' }),
+        s.can_assign ? (() => { const x = el('button', { type: 'button', class: 'kb-person-x', 'aria-label': _t('取消指派'), html: svg('x') }); x.addEventListener('click', () => { assignee = null; paintWho(); }); return x; })() : null) : null;
+      const inp = s.can_assign ? TT.mentionInput(el('input', { class: 'input kb-assign-input', placeholder: assignee ? _t('改派給…') : _t('輸入姓名或帳號，指派負責人…') }),
         { onPick: p => { assignee = { username: p.username, name: TT.nameOf(p), department: p.department }; paintWho(); } }) : null;
-      who.replaceChildren(...[chip || (inp ? null : el('span', { class: 'hint', text: '未指派' })), inp].filter(Boolean));
+      who.replaceChildren(...[chip || (inp ? null : el('span', { class: 'hint', text: _t('未指派') })), inp].filter(Boolean));
     };
     paintWho();
 
@@ -1530,12 +1532,12 @@ const TTBoard = window.TTBoard = (() => {
     let files = (c.images || []).map(x => ({ ...x }));
     const filesBox = el('div', { class: 'kb-images' });
     const paintFiles = () => {
-      const add = c.can_edit_body ? el('button', { class: 'btn btn-sm kb-img-add', type: 'button', html: svg('paperclip') + '加入檔案' }) : null;
+      const add = c.can_edit_body ? el('button', { class: 'btn btn-sm kb-img-add', type: 'button', html: svg('paperclip') + _t('加入檔案') }) : null;
       add?.addEventListener('click', () => pickFiles(addFiles));
       filesBox.replaceChildren(...[
         files.length ? thumbs(files, { onRemove: c.can_edit_body ? removeFile : null }) : null,
-        add ? el('div', { class: 'kb-img-tools' }, add, el('span', { class: 'hint', text: '也可以貼上（Ctrl+V）或拖進來；加入後立即儲存' })) : null,
-        !add && !files.length ? el('span', { class: 'hint', text: '沒有附件' }) : null].filter(Boolean));
+        add ? el('div', { class: 'kb-img-tools' }, add, el('span', { class: 'hint', text: _t('也可以貼上（Ctrl+V）或拖進來；加入後立即儲存') })) : null,
+        !add && !files.length ? el('span', { class: 'hint', text: _t('沒有附件') }) : null].filter(Boolean));
     };
     async function addFiles(list) {
       for (const f of list) {
@@ -1551,7 +1553,7 @@ const TTBoard = window.TTBoard = (() => {
       }
     }
     async function removeFile(im) {
-      if (!confirm(`移除「${im.name || '這個附件'}」？`)) return;
+      if (!confirm(_t("移除「{0}」？", im.name || _t('這個附件')))) return;
       try { await api(`/api/tasks/${card.id}/images/${im.id}`, { method: 'DELETE' }); files = files.filter(x => x !== im); changed = true; paintFiles(); }
       catch (e) { toast(e.message, true); }
     }
@@ -1560,28 +1562,28 @@ const TTBoard = window.TTBoard = (() => {
 
     const field = (label, ...ctl) => el('label', { class: 'field' }, el('span', { class: 'field-label', text: label }), ...ctl);
     const sched = scheduleBlock({ key: `s:${c.id}`, item: { ...s, deps: s.deps || [] }, editable: !!edit });
-    const ok = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + '儲存' });
-    const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: edit || c.can_edit_body ? '取消' : '關閉' });
-    const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': '關閉', html: svg('x') });
+    const ok = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + _t('儲存') });
+    const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: edit || c.can_edit_body ? _t('取消') : _t('關閉') });
+    const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': _t('關閉'), html: svg('x') });
     const spent = s.spent_minutes || 0;
     const wrap = el('div', { class: 'modal kb-sub-modal' },
-      el('div', { class: 'modal-card kb-editor', role: 'dialog', 'aria-modal': 'true', 'aria-label': '子任務' },
-        el('div', { class: 'modal-head' }, el('h3', { html: svg('check') + (edit ? '編輯子任務' : '檢視子任務') }), closeBtn),
+      el('div', { class: 'modal-card kb-editor', role: 'dialog', 'aria-modal': 'true', 'aria-label': _t('子任務') },
+        el('div', { class: 'modal-head' }, el('h3', { html: svg('check') + (edit ? _t('編輯子任務') : _t('檢視子任務')) }), closeBtn),
         el('div', { class: 'modal-body' },
-          el('p', { class: 'hint kb-sub-of', text: `「${card.title}」的子任務` }),
-          !edit && !c.can_edit_body ? el('div', { class: 'kb-readonly', html: svg('lock') + '<span>唯讀：只有能編輯卡片的人或子任務負責人可以修改。</span>' }) : null,
-          field('標題', title),
-          field('說明', desc),
-          el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('paperclip') + '附件' }), filesBox),
-          meInfo.people ? el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('user') + '負責人' }), who) : null,
-          el('div', { class: 'kb-row' }, field('狀態', status), el('div', { class: 'field' }, el('span', { class: 'field-label', text: '優先順序' }), prio)),
+          el('p', { class: 'hint kb-sub-of', text: _t("「{0}」的子任務", card.title) }),
+          !edit && !c.can_edit_body ? el('div', { class: 'kb-readonly', html: svg('lock') + _t('<span>唯讀：只有能編輯卡片的人或子任務負責人可以修改。</span>') }) : null,
+          field(_t('標題'), title),
+          field(_t('說明'), desc),
+          el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('paperclip') + _t('附件') }), filesBox),
+          meInfo.people ? el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('user') + _t('負責人') }), who) : null,
+          el('div', { class: 'kb-row' }, field(_t('狀態'), status), el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('優先順序') }), prio)),
           el('div', { class: 'kb-row' },
-            el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('play') + '開始日' }), el('div', { class: 'kb-dt' }, startD, startT)),
-            el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('clock') + '到期日' }), el('div', { class: 'kb-dt' }, dueD, dueT))),
-          el('div', { class: 'kb-row' }, field('提醒', remind), field('預估工時（小時）', est)),
-          el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('calendar') + '排程（甘特圖）' }), sched.el),
+            el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('play') + _t('開始日') }), el('div', { class: 'kb-dt' }, startD, startT)),
+            el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('clock') + _t('到期日') }), el('div', { class: 'kb-dt' }, dueD, dueT))),
+          el('div', { class: 'kb-row' }, field(_t('提醒'), remind), field(_t('預估工時（小時）'), est)),
+          el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('calendar') + _t('排程（甘特圖）') }), sched.el),
           hint,
-          el('p', { class: 'hint', text: `已記錄工時 ${fmtMin(spent)}${s.estimate_minutes ? ` / 預估 ${fmtMin(s.estimate_minutes)}` : ''}（計時與明細在卡片的子任務區）` })),
+          el('p', { class: 'hint', text: _t("已記錄工時 {0}{1}（計時與明細在卡片的子任務區）", fmtMin(spent), s.estimate_minutes ? _t(" / 預估 {0}", fmtMin(s.estimate_minutes)) : '') })),
         el('div', { class: 'modal-foot' }, el('span', { class: 'spacer' }), cancel, edit || c.can_edit_body || s.can_update ? ok : null)));
 
     const close = async () => {
@@ -1613,9 +1615,9 @@ const TTBoard = window.TTBoard = (() => {
       if (okFiles.length) addFiles(okFiles);
     });
     ok.addEventListener('click', async () => {
-      if (edit && !title.value.trim()) { toast('請輸入標題', true); title.focus(); return; }
+      if (edit && !title.value.trim()) { toast(_t('請輸入標題'), true); title.focus(); return; }
       const start = value(startD, startT), due = value(dueD, dueT);
-      if (start && due && start.slice(0, 10) > due.slice(0, 10)) { toast('開始日不能晚於到期日', true); return; }
+      if (start && due && start.slice(0, 10) > due.slice(0, 10)) { toast(_t('開始日不能晚於到期日'), true); return; }
       const body = {};
       if (s.can_update && status.value !== s.status) body.status = status.value;
       if (edit) {
@@ -1630,7 +1632,7 @@ const TTBoard = window.TTBoard = (() => {
         if (m !== (s.estimate_minutes || null)) body.estimate_minutes = m;
         Object.assign(body, sched.value());
         if (body.milestone ?? s.milestone) delete body.start_at;
-        if ((body.milestone ?? s.milestone) && !(body.due_at ?? s.due_at)) { toast('里程碑需要到期日', true); return; }
+        if ((body.milestone ?? s.milestone) && !(body.due_at ?? s.due_at)) { toast(_t('里程碑需要到期日'), true); return; }
       }
       if (s.can_assign && (assignee?.username || '') !== (s.assignee?.username || '')) body.assignee = assignee?.username || '';
       const oldDesc = c.body && c.body.trim() !== (s.title || '').trim() ? c.body : '';
@@ -1642,7 +1644,7 @@ const TTBoard = window.TTBoard = (() => {
         changed = true;
         if (body.due_at && body.remind !== null && (body.remind ?? s.remind) != null) askPermission(true);
         await close();
-        toast('子任務已儲存');
+        toast(_t('子任務已儲存'));
       } catch (e) { toast(e.message, true); ok.disabled = false; }
     });
     document.body.append(wrap);
@@ -1657,8 +1659,8 @@ const TTBoard = window.TTBoard = (() => {
     const [sd, st] = split(t.start_at);
     const [dd, dt] = split(t.due_at);
 
-    const title = el('input', { class: 'input kb-title-input', value: t.title, maxlength: '200', placeholder: '要做什麼？' });
-    const desc = el('textarea', { class: 'textarea', rows: '4', placeholder: meInfo.people ? '細節、連結、注意事項（選填）。輸入 @ 可以找同事一起協作' : '細節、連結、注意事項（選填）' });
+    const title = el('input', { class: 'input kb-title-input', value: t.title, maxlength: '200', placeholder: _t('要做什麼？') });
+    const desc = el('textarea', { class: 'textarea', rows: '4', placeholder: meInfo.people ? _t('細節、連結、注意事項（選填）。輸入 @ 可以找同事一起協作') : _t('細節、連結、注意事項（選填）') });
     desc.value = t.description || '';
     if (meInfo.people) TT.mentionInput(desc);
 
@@ -1675,12 +1677,12 @@ const TTBoard = window.TTBoard = (() => {
       changed();
     };
     function paintImages() {
-      const add = canImage ? el('button', { class: 'btn btn-sm kb-img-add', type: 'button', html: svg('paperclip') + '加入檔案' }) : null;
+      const add = canImage ? el('button', { class: 'btn btn-sm kb-img-add', type: 'button', html: svg('paperclip') + _t('加入檔案') }) : null;
       add?.addEventListener('click', () => pickFiles(addCardImages));
       imgBox.replaceChildren(...[
         cardImages.length ? thumbs(cardImages, { onRemove: canImage ? removeCardImage : null }) : null,
-        canImage ? el('div', { class: 'kb-img-tools' }, add, el('span', { class: 'hint', text: '圖片、PDF、Office、md／json／yaml／toml／txt／py／rs／mermaid；也可以貼上（Ctrl+V）或拖進這個視窗' + (task ? '，加入後立即儲存' : '') })) : null,
-        !canImage && !cardImages.length ? el('span', { class: 'hint', text: '沒有附件' }) : null].filter(Boolean));
+        canImage ? el('div', { class: 'kb-img-tools' }, add, el('span', { class: 'hint', text: _t('圖片、PDF、Office、md／json／yaml／toml／txt／py／rs／mermaid；也可以貼上（Ctrl+V）或拖進這個視窗') + (task ? _t('，加入後立即儲存') : '') })) : null,
+        !canImage && !cardImages.length ? el('span', { class: 'hint', text: _t('沒有附件') }) : null].filter(Boolean));
     }
     async function addCardImages(files) {
       for (const f of files) {
@@ -1695,7 +1697,7 @@ const TTBoard = window.TTBoard = (() => {
     }
     async function removeCardImage(im) {
       if (task && im.id) {
-        if (!confirm(`移除「${im.name || '這個附件'}」？`)) return;
+        if (!confirm(_t("移除「{0}」？", im.name || _t('這個附件')))) return;
         try { await api(`/api/tasks/${task.id}/images/${im.id}`, { method: 'DELETE' }); }
         catch (e) { toast(e.message, true); return; }
       }
@@ -1711,16 +1713,16 @@ const TTBoard = window.TTBoard = (() => {
     const readOnly = !!task && task.can_edit === false;          // RO managers: view + comment
     // --- tags: type and press Enter (or pick a suggestion); Backspace in an empty box removes the last one
     let tagList = [...(t.tags || [])];
-    const tagInput = el('input', { class: 'kb-tag-input', type: 'text', maxlength: '24', placeholder: '輸入標籤後按 Enter', autocomplete: 'off', list: 'kb-tag-list' });
+    const tagInput = el('input', { class: 'kb-tag-input', type: 'text', maxlength: '24', placeholder: _t('輸入標籤後按 Enter'), autocomplete: 'off', list: 'kb-tag-list' });
     const tagData = el('datalist', { id: 'kb-tag-list' });
     const tagBox = el('div', { class: 'kb-tag-edit' });
     const tagSug = el('div', { class: 'kb-tag-sugs' });
     function addTag(raw) {
       const v = String(raw || '').trim().replace(/^[#＃]+/, '').replace(/\s+/g, ' ').trim();
       if (!v) return;
-      if (v.length > 24) { toast('標籤最多 24 個字', true); return; }
+      if (v.length > 24) { toast(_t('標籤最多 24 個字'), true); return; }
       if (tagList.some(x => x.toLowerCase() === v.toLowerCase())) return;
-      if (tagList.length >= 8) { toast('一張卡片最多 8 個標籤', true); return; }
+      if (tagList.length >= 8) { toast(_t('一張卡片最多 8 個標籤'), true); return; }
       tagList.push(v);
       paintTags();
     }
@@ -1729,10 +1731,10 @@ const TTBoard = window.TTBoard = (() => {
       const used = new Set(tagList.map(x => x.toLowerCase()));
       const free = knownTags().filter(x => !used.has(x.toLowerCase()));
       tagData.replaceChildren(...free.map(x => el('option', { value: x })));
-      tagSug.replaceChildren(...(free.length ? [el('span', { class: 'hint', text: '常用：' }), ...free.slice(0, 8).map(x => {
+      tagSug.replaceChildren(...(free.length ? [el('span', { class: 'hint', text: _t('常用：') }), ...free.slice(0, 8).map(x => {
         const b = tagChip(x, { onClick: () => { addTag(x); tagInput.focus(); } });
         b.classList.add('kb-tag-sug');
-        b.title = `加上 #${x}`;
+        b.title = _t("加上 #{0}", x);
         return b;
       })] : []));
     }
@@ -1750,16 +1752,16 @@ const TTBoard = window.TTBoard = (() => {
 
     let assignees = (t.assignees || []).map(p => ({ ...p }));
     const assignBox = el('div', { class: 'kb-assignees' });
-    const assignInput = canAssign ? TT.mentionInput(el('input', { class: 'input kb-assign-input', placeholder: '輸入姓名或帳號，指派負責人…' }), {
+    const assignInput = canAssign ? TT.mentionInput(el('input', { class: 'input kb-assign-input', placeholder: _t('輸入姓名或帳號，指派負責人…') }), {
       onPick: p => { if (!assignees.some(a => a.username === p.username)) assignees.push({ username: p.username, name: TT.nameOf(p), department: p.department }); paintAssignees(); },
     }) : null;
     function paintAssignees() {
       assignBox.replaceChildren(...assignees.map(p => el('span', { class: 'kb-person' }, TT.avatar(p, 22), el('span', { text: TT.nameOf(p) }),
-        canAssign ? (() => { const x = el('button', { type: 'button', class: 'kb-person-x', 'aria-label': '移除', html: svg('x') }); x.addEventListener('click', () => { assignees = assignees.filter(a => a.username !== p.username); paintAssignees(); }); return x; })() : null)),
-        ...(assignInput ? [assignInput] : assignees.length ? [] : [el('span', { class: 'hint', text: task ? '未指派（只有管理員可以指派）' : '新卡片會指派給你自己' })]));
+        canAssign ? (() => { const x = el('button', { type: 'button', class: 'kb-person-x', 'aria-label': _t('移除'), html: svg('x') }); x.addEventListener('click', () => { assignees = assignees.filter(a => a.username !== p.username); paintAssignees(); }); return x; })() : null)),
+        ...(assignInput ? [assignInput] : assignees.length ? [] : [el('span', { class: 'hint', text: task ? _t('未指派（只有管理員可以指派）') : _t('新卡片會指派給你自己') })]));
     }
     paintAssignees();
-    const status = el('select', { class: 'select' }, STATUSES.map(s => el('option', { value: s.key, text: `${s.label}（${s.zh}）` })));
+    const status = el('select', { class: 'select' }, STATUSES.map(s => el('option', { value: s.key, text: stName(s) })));
     status.value = t.status;
     const summary = !!task && isSummary(t) && t.status !== 'canceled';
 
@@ -1773,9 +1775,9 @@ const TTBoard = window.TTBoard = (() => {
     paintPrio();
 
     const startD = el('input', { class: 'input', type: 'date', value: sd });
-    const startT = el('input', { class: 'input kb-time', type: 'time', value: st, title: '時間（選填）' });
+    const startT = el('input', { class: 'input kb-time', type: 'time', value: st, title: _t('時間（選填）') });
     const dueD = el('input', { class: 'input', type: 'date', value: dd });
-    const dueT = el('input', { class: 'input kb-time', type: 'time', value: dt, title: '時間（選填；不填＝當天結束前）' });
+    const dueT = el('input', { class: 'input kb-time', type: 'time', value: dt, title: _t('時間（選填；不填＝當天結束前）') });
     const remind = el('select', { class: 'select' }, REMINDS.map(([v, l]) => el('option', { value: v, text: l })));
     remind.value = t.remind === null || t.remind === undefined ? '' : String(t.remind);
     const hint = el('p', { class: 'hint kb-remind-hint' });
@@ -1786,9 +1788,9 @@ const TTBoard = window.TTBoard = (() => {
     repeatSel.value = ruleKind;
     const every = el('input', { class: 'input kb-every', type: 'number', min: '1', max: '365', value: t.repeat_every || 1 });
     const everyUnit = el('span', { class: 'kb-every-unit' });
-    const everyBox = el('label', { class: 'kb-every-box' }, el('span', { text: '每' }), every, everyUnit);
+    const everyBox = el('label', { class: 'kb-every-box' }, el('span', { text: _t('每') }), every, everyUnit);
     let weekDays = ruleKind === 'weekly' && t.repeat.includes(':') ? t.repeat.split(':')[1].split(',').map(Number) : [];
-    const weekBox = el('div', { class: 'kb-weekdays', role: 'group', 'aria-label': '星期' }, [1, 2, 3, 4, 5, 6, 7].map(d => {
+    const weekBox = el('div', { class: 'kb-weekdays', role: 'group', 'aria-label': _t('星期') }, [1, 2, 3, 4, 5, 6, 7].map(d => {
       const b = el('button', { type: 'button', class: 'kb-wd', dataset: { d }, text: WEEK[d % 7] });
       b.addEventListener('click', () => {
         weekDays = weekDays.includes(d) ? weekDays.filter(x => x !== d) : [...weekDays, d].sort((a, c) => a - c);
@@ -1817,11 +1819,11 @@ const TTBoard = window.TTBoard = (() => {
       const due = value(dueD, dueT);
       const rule = ruleValue();
       if (!k) repeatHint.textContent = '';
-      else if (!due) repeatHint.textContent = '⚠ 重複需要到期日：下一次依到期日推算';
+      else if (!due) repeatHint.textContent = _t('⚠ 重複需要到期日：下一次依到期日推算');
       else {
         const n = Math.max(1, Number(every.value) || 1);
         const next = nextDue(due, rule === 'monthly' ? `monthly:${Number(due.slice(8, 10))}` : rule, n);
-        repeatHint.textContent = `${repeatText(rule === 'monthly' ? `monthly:${Number(due.slice(8, 10))}` : rule, n, due)}。到期時會問你是否結案；結案後下一張（${fmt(next, true)}）會自動排進「週期工作」。`;
+        repeatHint.textContent = _t("{0}。到期時會問你是否結案；結案後下一張（{1}）會自動排進「週期工作」。", repeatText(rule === 'monthly' ? `monthly:${Number(due.slice(8, 10))}` : rule, n, due), fmt(next, true));
       }
     }
     repeatSel.addEventListener('change', () => { paintRepeat(); });
@@ -1836,15 +1838,15 @@ const TTBoard = window.TTBoard = (() => {
     const plus = n => { const d = now(); d.setDate(d.getDate() + n); return iso(d); };
     const nextMonday = () => { const d = now(); d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7)); return iso(d); };
     const dueChips = el('div', { class: 'kb-date-chips' },
-      shortcut('今天', () => { dueD.value = plus(0); }),
-      shortcut('明天', () => { dueD.value = plus(1); }),
-      shortcut('下週一', () => { dueD.value = nextMonday(); }),
-      shortcut('一週後', () => { dueD.value = plus(7); }),
-      shortcut('清除', () => { dueD.value = ''; dueT.value = ''; }));
+      shortcut(_t('今天'), () => { dueD.value = plus(0); }),
+      shortcut(_t('明天'), () => { dueD.value = plus(1); }),
+      shortcut(_t('下週一'), () => { dueD.value = nextMonday(); }),
+      shortcut(_t('一週後'), () => { dueD.value = plus(7); }),
+      shortcut(_t('清除'), () => { dueD.value = ''; dueT.value = ''; }));
     const startChips = el('div', { class: 'kb-date-chips' },
-      shortcut('今天', () => { startD.value = plus(0); }),
-      shortcut('明天', () => { startD.value = plus(1); }),
-      shortcut('清除', () => { startD.value = ''; startT.value = ''; }));
+      shortcut(_t('今天'), () => { startD.value = plus(0); }),
+      shortcut(_t('明天'), () => { startD.value = plus(1); }),
+      shortcut(_t('清除'), () => { startD.value = ''; startT.value = ''; }));
 
     const value = (d, tm) => d.value ? d.value + (tm.value ? 'T' + tm.value : '') : null;
     function paintHint() {
@@ -1853,12 +1855,12 @@ const TTBoard = window.TTBoard = (() => {
       const r = remind.value === '' ? null : Number(remind.value);
       const parts = [];
       const s = value(startD, startT);
-      if (s) parts.push(`開始：${fmt(s, true)}`);
+      if (s) parts.push(_t("開始：{0}", fmt(s, true)));
       if (due) {
-        parts.push(`到期：${fmt(due, true)}${due.includes('T') ? '' : '（當天結束前）'}`);
+        parts.push(_t("到期：{0}{1}", fmt(due, true), due.includes('T') ? '' : _t('（當天結束前）')));
         const rm = remindMoment({ due_at: due, remind: r });
-        parts.push(rm ? `提醒：${fmtMoment(rm)}` : '不提醒');
-      } else parts.push('沒有到期日就不會提醒');
+        parts.push(rm ? _t("提醒：{0}", fmtMoment(rm)) : _t('不提醒'));
+      } else parts.push(_t('沒有到期日就不會提醒'));
       hint.textContent = parts.join(' · ');
     }
     [startD, startT, dueD, dueT, remind].forEach(x => x.addEventListener('input', () => { paintHint(); paintRepeat(); }));
@@ -1869,35 +1871,35 @@ const TTBoard = window.TTBoard = (() => {
     const sched = scheduleBlock({ key: task ? `t:${task.id}` : null, item: { ...t, deps: t.deps || [] }, editable: !readOnly, card: task || null });
     // kind: everyday card or project; an everyday card may belong to a project
     let kind = t.kind || 'ops';
-    const kindSeg = el('div', { class: 'segmented', role: 'group', 'aria-label': '卡片類型' },
-      ...[['ops', '一般（維運）'], ['project', '專案']].map(([v, l]) => {
+    const kindSeg = el('div', { class: 'segmented', role: 'group', 'aria-label': _t('卡片類型') },
+      ...[['ops', _t('一般（維運）')], ['project', _t('專案')]].map(([v, l]) => {
         const b = el('button', { type: 'button', dataset: { v }, text: l, disabled: readOnly });
         b.addEventListener('click', () => { kind = v; paintKind(); });
         return b;
       }));
-    const projSel = el('select', { class: 'select', disabled: readOnly, 'aria-label': '歸屬專案' },
-      el('option', { value: '', text: '不歸屬任何專案' }),
+    const projSel = el('select', { class: 'select', disabled: readOnly, 'aria-label': _t('歸屬專案') },
+      el('option', { value: '', text: _t('不歸屬任何專案') }),
       ...tasks.filter(x => isProject(x) && x.id !== task?.id).map(x => el('option', { value: x.id, text: x.title, selected: x.id === t.project_id })));
-    const projField = el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('layout') + '歸屬專案' }), projSel,
-      el('span', { class: 'hint', text: '這張卡片也會出現在該專案的甘特圖與專案看板' }));
+    const projField = el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('layout') + _t('歸屬專案') }), projSel,
+      el('span', { class: 'hint', text: _t('這張卡片也會出現在該專案的甘特圖與專案看板') }));
     const kindHint = el('span', { class: 'hint' });
     const paintKind = () => {
       kindSeg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === kind)));
       projField.hidden = kind === 'project';
-      kindHint.textContent = kind === 'project' ? '專案有自己的專案頁（甘特圖、專案看板、清單），在待辦看板上以一張專案卡出現' : '';
+      kindHint.textContent = kind === 'project' ? _t('專案有自己的專案頁（甘特圖、專案看板、清單），在待辦看板上以一張專案卡出現') : '';
     };
     paintKind();
-    const ok = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + (task ? '儲存' : '新增') });
-    const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: '取消' });
-    const del = task && task.can_delete !== false ? el('button', { class: 'btn btn-danger kb-del', type: 'button', html: svg('trash') + '刪除' }) : null;
-    const xlsBtn = task ? el('button', { class: 'btn btn-ghost', type: 'button', title: '把這張卡片（含子任務、留言、工時）匯出成 Excel', html: svg('download') + 'Excel' }) : null;
-    const navBtn = task ? el('button', { class: 'btn btn-ghost', type: 'button', title: '任務視窗：子任務由左至右展開，最多四層', html: svg('layout') + '任務視窗' }) : null;
+    const ok = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + (task ? _t('儲存') : _t('新增')) });
+    const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: _t('取消') });
+    const del = task && task.can_delete !== false ? el('button', { class: 'btn btn-danger kb-del', type: 'button', html: svg('trash') + _t('刪除') }) : null;
+    const xlsBtn = task ? el('button', { class: 'btn btn-ghost', type: 'button', title: _t('把這張卡片（含子任務、留言、工時）匯出成 Excel'), html: svg('download') + 'Excel' }) : null;
+    const navBtn = task ? el('button', { class: 'btn btn-ghost', type: 'button', title: _t('任務視窗：子任務由左至右展開，最多四層'), html: svg('layout') + _t('任務視窗') }) : null;
     navBtn?.addEventListener('click', () => { close(); openNavigator(task); });
     xlsBtn?.addEventListener('click', () => exportXlsx([task.id]));
-    const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': '關閉', html: svg('x') });
-    const meta = task ? el('p', { class: 'hint', text: (task.owner ? `${TT.nameOf(task.owner)} 建立於 ` : '建立於 ') + (task.created_at?.slice(0, 16) || '')
-      + (task.completed_at ? ` · 完成於 ${task.completed_at.slice(0, 16)}` : '')
-      + (task.mentions?.length ? ` · 協作：${task.mentions.map(TT.nameOf).join('、')}` : '') }) : null;
+    const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': _t('關閉'), html: svg('x') });
+    const meta = task ? el('p', { class: 'hint', text: (task.owner ? _t("{0} 建立於 ", TT.nameOf(task.owner)) : _t('建立於 ')) + (task.created_at?.slice(0, 16) || '')
+      + (task.completed_at ? _t(" · 完成於 {0}", task.completed_at.slice(0, 16)) : '')
+      + (task.mentions?.length ? _t(" · 協作：{0}", task.mentions.map(TT.nameOf).join('、')) : '') }) : null;
 
     // --- comments → threads + subtasks (existing cards). The card is the summary task;
     //     a top-level comment can become a subtask with its own status, dates, assignee and time log.
@@ -1907,10 +1909,10 @@ const TTBoard = window.TTBoard = (() => {
     if (task) {
       const listBox = el('div', { class: 'kb-comment-list' });
       const rollBox = el('div', { class: 'kb-rollup' });
-      const input = el('textarea', { class: 'textarea kb-comment-input', rows: '2', placeholder: meInfo.people ? '留言…（輸入 @ 提到同事，他會收到通知）' : '留言…' });
+      const input = el('textarea', { class: 'textarea kb-comment-input', rows: '2', placeholder: meInfo.people ? _t('留言…（輸入 @ 提到同事，他會收到通知）') : _t('留言…') });
       if (meInfo.people) TT.mentionInput(input);
-      const send = el('button', { class: 'btn btn-sm btn-primary', type: 'button', html: svg('message') + '送出' });
-      const attach = el('button', { class: 'btn btn-sm kb-comment-attach', type: 'button', title: '附加圖片或檔案（也可以貼上或拖曳）', 'aria-label': '附加檔案', html: svg('paperclip') });
+      const send = el('button', { class: 'btn btn-sm btn-primary', type: 'button', html: svg('message') + _t('送出') });
+      const attach = el('button', { class: 'btn btn-sm kb-comment-attach', type: 'button', title: _t('附加圖片或檔案（也可以貼上或拖曳）'), 'aria-label': _t('附加檔案'), html: svg('paperclip') });
       const pendingBox = el('div', { class: 'kb-comment-pending' });
       let pending = [];
       const paintPending = () => {
@@ -1942,10 +1944,10 @@ const TTBoard = window.TTBoard = (() => {
       const orderBtn = el('button', { class: 'btn btn-sm btn-ghost kb-comment-order', type: 'button' });
       const viewBtn = el('button', { class: 'btn btn-sm btn-ghost kb-comment-order', type: 'button' });
       const paintOrder = () => {
-        orderBtn.innerHTML = svg('clock') + (newestFirst ? '最新在上' : '最舊在上');
-        orderBtn.title = newestFirst ? '目前依留言時間遞減（新→舊），點一下改為遞增' : '目前依留言時間遞增（舊→新），點一下改為遞減';
-        viewBtn.innerHTML = svg('check') + (onlyTasks ? '只看子任務' : '全部留言');
-        viewBtn.title = onlyTasks ? '目前只列出子任務，點一下顯示全部留言' : '點一下只列出子任務';
+        orderBtn.innerHTML = svg('clock') + (newestFirst ? _t('最新在上') : _t('最舊在上'));
+        orderBtn.title = newestFirst ? _t('目前依留言時間遞減（新→舊），點一下改為遞增') : _t('目前依留言時間遞增（舊→新），點一下改為遞減');
+        viewBtn.innerHTML = svg('check') + (onlyTasks ? _t('只看子任務') : _t('全部留言'));
+        viewBtn.title = onlyTasks ? _t('目前只列出子任務，點一下顯示全部留言') : _t('點一下只列出子任務');
       };
       paintOrder();
       orderBtn.addEventListener('click', () => {
@@ -1977,10 +1979,10 @@ const TTBoard = window.TTBoard = (() => {
       };
       const delBtn = (c, isRoot) => {
         if (!c.can_delete) return null;
-        const x = el('button', { class: 'kb-comment-del', type: 'button', title: isRoot && c.replies?.length ? '刪除留言（連同回覆）' : '刪除留言', html: svg('trash') });
+        const x = el('button', { class: 'kb-comment-del', type: 'button', title: isRoot && c.replies?.length ? _t('刪除留言（連同回覆）') : _t('刪除留言'), html: svg('trash') });
         x.addEventListener('click', async () => {
-          const what = c.task ? `子任務「${c.task.title}」（含工時記錄${c.replies?.length ? '與回覆' : ''}）` : c.replies?.length ? `這則留言與 ${c.replies.length} 則回覆` : '這則留言';
-          if ((c.task || c.replies?.length) && !confirm(`刪除${what}？`)) return;
+          const what = c.task ? _t("子任務「{0}」（含工時記錄{1}）", c.task.title, c.replies?.length ? _t('與回覆') : '') : c.replies?.length ? _t("這則留言與 {0} 則回覆", c.replies.length) : _t('這則留言');
+          if ((c.task || c.replies?.length) && !confirm(_t("刪除{0}？", what))) return;
           try { await api(`/api/tasks/${task.id}/comments/${c.id}`, { method: 'DELETE' }); await loadComments(); load(true); } catch (e) { toast(e.message, true); }
         });
         return x;
@@ -1997,20 +1999,20 @@ const TTBoard = window.TTBoard = (() => {
         const box = el('div', { class: `kb-sub st-${s.status}`, style: { '--st': st.color } });
         const edit = s.can_edit;
         // row 1: status + title
-        const stSel = el('select', { class: 'select kb-sub-status', title: '子任務狀態', disabled: !s.can_update },
-          STATUSES.filter(x => x.key !== 'recurring' && x.key !== 'overdue').map(x => el('option', { value: x.key, text: `${x.label}（${x.zh}）` })));
+        const stSel = el('select', { class: 'select kb-sub-status', title: _t('子任務狀態'), disabled: !s.can_update },
+          STATUSES.filter(x => x.key !== 'recurring' && x.key !== 'overdue').map(x => el('option', { value: x.key, text: stName(x) })));
         stSel.value = s.status;
         stSel.addEventListener('change', () => subPut(c, { status: stSel.value }));
-        const titleIn = el('input', { class: 'input kb-sub-title', value: s.title || '', maxlength: '200', disabled: !edit, title: '子任務名稱' });
+        const titleIn = el('input', { class: 'input kb-sub-title', value: s.title || '', maxlength: '200', disabled: !edit, title: _t('子任務名稱') });
         titleIn.addEventListener('change', () => { if (titleIn.value.trim() && titleIn.value.trim() !== s.title) subPut(c, { title: titleIn.value.trim() }); else titleIn.value = s.title; });
         titleIn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); titleIn.blur(); } });
         const tm = timing({ status: s.status, due_at: s.due_at, start_at: s.start_at });
         const dueChip = tm.due && tm.due !== 'later' ? el('span', { class: `kb-chip due-${tm.due}`, html: svg('clock') + `<span>${tm.dueText}</span>` }) : null;
-        const editBtn = el('button', { class: 'kb-link-btn kb-sub-edit', type: 'button', title: edit ? '編輯子任務（說明、附件、時間、提醒…）' : '檢視子任務', html: svg(edit ? 'edit' : 'external') + `<span>${edit ? '編輯' : '檢視'}</span>` });
+        const editBtn = el('button', { class: 'kb-link-btn kb-sub-edit', type: 'button', title: edit ? _t('編輯子任務（說明、附件、時間、提醒…）') : _t('檢視子任務'), html: svg(edit ? 'edit' : 'external') + `<span>${edit ? _t('編輯') : _t('檢視')}</span>` });
         editBtn.addEventListener('click', () => openSubtaskEditor(task, c, async () => { await loadComments(); load(true); }));
-        box.append(el('div', { class: 'kb-sub-row' }, el('span', { class: 'kb-lv', title: `第 ${level} 層（主卡為 L1）`, text: `L${level}` }), stSel,
-          s.priority === 'high' ? el('span', { class: 'kb-flag', title: '高優先', html: svg('flag') }) : null, titleIn,
-          s.due_at && s.remind != null && !CLOSED.has(s.status) ? el('span', { class: 'kb-chip remind', title: `提醒：${fmtMoment(remindMoment(s))}`, html: svg('bell') }) : null,
+        box.append(el('div', { class: 'kb-sub-row' }, el('span', { class: 'kb-lv', title: _t("第 {0} 層（主卡為 L1）", level), text: `L${level}` }), stSel,
+          s.priority === 'high' ? el('span', { class: 'kb-flag', title: _t('高優先'), html: svg('flag') }) : null, titleIn,
+          s.due_at && s.remind != null && !CLOSED.has(s.status) ? el('span', { class: 'kb-chip remind', title: _t("提醒：{0}", fmtMoment(remindMoment(s))), html: svg('bell') }) : null,
           dueChip, editBtn));
 
         // row 2: assignee, start, due, estimate
@@ -2020,28 +2022,28 @@ const TTBoard = window.TTBoard = (() => {
           const paintWho = () => {
             const chip = s.assignee
               ? el('span', { class: 'kb-person' }, TT.avatar(s.assignee, 20), el('span', { text: TT.nameOf(s.assignee) }),
-                s.can_assign ? (() => { const x = el('button', { type: 'button', class: 'kb-person-x', 'aria-label': '取消指派', html: svg('x') }); x.addEventListener('click', () => subPut(c, { assignee: '' })); return x; })() : null)
+                s.can_assign ? (() => { const x = el('button', { type: 'button', class: 'kb-person-x', 'aria-label': _t('取消指派'), html: svg('x') }); x.addEventListener('click', () => subPut(c, { assignee: '' })); return x; })() : null)
               : null;
-            const pickBtn = s.can_assign ? el('button', { class: 'kb-link-btn', type: 'button', html: svg('user') + `<span>${s.assignee ? '改派' : '指派'}</span>` }) : null;
+            const pickBtn = s.can_assign ? el('button', { class: 'kb-link-btn', type: 'button', html: svg('user') + `<span>${s.assignee ? _t('改派') : _t('指派')}</span>` }) : null;
             pickBtn?.addEventListener('click', () => {
-              const inp = TT.mentionInput(el('input', { class: 'input input-sm kb-sub-assign', placeholder: '輸入姓名或帳號…' }), { onPick: p => subPut(c, { assignee: p.username }) });
+              const inp = TT.mentionInput(el('input', { class: 'input input-sm kb-sub-assign', placeholder: _t('輸入姓名或帳號…') }), { onPick: p => subPut(c, { assignee: p.username }) });
               inp.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); paintWho(); } });
               inp.addEventListener('blur', () => setTimeout(() => inp.isConnected && paintWho(), 200));
               who.replaceChildren(inp);
               inp.focus();
             });
-            who.replaceChildren(...[chip || el('span', { class: 'hint', text: '未指派' }), pickBtn].filter(Boolean));
+            who.replaceChildren(...[chip || el('span', { class: 'hint', text: _t('未指派') }), pickBtn].filter(Boolean));
           };
           paintWho();
-          fields.append(el('label', { class: 'kb-sub-field' }, el('span', { html: svg('user') + '負責' }), who));
+          fields.append(el('label', { class: 'kb-sub-field' }, el('span', { html: svg('user') + _t('負責') }), who));
         }
         const dateIn = (key, label, icon) => {
           if (!edit) return el('label', { class: 'kb-sub-field' }, el('span', { html: svg(icon) + label }), el('span', { class: 'kb-sub-ro', text: s[key] ? fmt(s[key], true) : '—' }));
-          const inp = el('input', { class: 'input input-sm', type: 'date', value: (s[key] || '').slice(0, 10), title: s[key]?.includes('T') ? `時間 ${s[key].slice(11, 16)}（在「編輯」裡修改）` : '' });
+          const inp = el('input', { class: 'input input-sm', type: 'date', value: (s[key] || '').slice(0, 10), title: s[key]?.includes('T') ? _t("時間 {0}（在「編輯」裡修改）", s[key].slice(11, 16)) : '' });
           inp.addEventListener('change', () => subPut(c, { [key]: inp.value ? inp.value + (s[key]?.includes('T') ? s[key].slice(10) : '') : null }));
           return el('label', { class: 'kb-sub-field' }, el('span', { html: svg(icon) + label }), inp);
         };
-        fields.append(dateIn('start_at', '開始', 'play'), dateIn('due_at', '到期', 'clock'));
+        fields.append(dateIn('start_at', _t('開始'), 'play'), dateIn('due_at', _t('到期'), 'clock'));
         const est = !edit ? el('span', { class: 'kb-sub-ro', text: s.estimate_minutes ? fmtMin(s.estimate_minutes) : '—' })
           : el('input', { class: 'input input-sm kb-sub-est', type: 'number', min: '0', max: '1000', step: '0.5', placeholder: '—',
             value: s.estimate_minutes ? String(+(s.estimate_minutes / 60).toFixed(2)) : '' });
@@ -2049,7 +2051,7 @@ const TTBoard = window.TTBoard = (() => {
           const h = parseFloat(est.value);
           subPut(c, { estimate_minutes: Number.isFinite(h) && h > 0 ? Math.round(h * 60) : null });
         });
-        fields.append(el('label', { class: 'kb-sub-field' }, el('span', { html: svg('calendar') + (edit ? '預估（小時）' : '預估') }), est));
+        fields.append(el('label', { class: 'kb-sub-field' }, el('span', { html: svg('calendar') + (edit ? _t('預估（小時）') : _t('預估')) }), est));
         box.append(fields);
 
         // row 3: time tracking
@@ -2060,7 +2062,7 @@ const TTBoard = window.TTBoard = (() => {
         const running = s.my_timer;
         const clock = running ? el('span', { class: 'kb-timer-clock', dataset: { elapsed: running.elapsed } }) : null;
         const timerBtn = s.can_update && (running || !CLOSED.has(s.status))
-          ? el('button', { class: 'btn btn-sm ' + (running ? 'btn-danger' : ''), type: 'button', html: running ? '■ 停止' : '▶ 開始計時' }) : null;
+          ? el('button', { class: 'btn btn-sm ' + (running ? 'btn-danger' : ''), type: 'button', html: running ? _t('■ 停止') : _t('▶ 開始計時') }) : null;
         timerBtn?.addEventListener('click', async () => {
           timerBtn.disabled = true;
           try {
@@ -2071,19 +2073,19 @@ const TTBoard = window.TTBoard = (() => {
           catch (e) { toast(e.message, true); }
           await loadComments(); load(true);
         });
-        const addBtn = s.can_update ? linkBtn('記錄工時', 'plus', () => { openTime = openTime === c.id ? null : c.id; paint(); }) : null;
+        const addBtn = s.can_update ? linkBtn(_t('記錄工時'), 'plus', () => { openTime = openTime === c.id ? null : c.id; paint(); }) : null;
         const othersRunning = s.entries.filter(e => e.running && !(running && e.id === running.id));
-        const logBtn = s.entries.length ? linkBtn(`明細（${s.entries.length}）`, 'list', () => { openLogs.has(c.id) ? openLogs.delete(c.id) : openLogs.add(c.id); paint(); }) : null;
+        const logBtn = s.entries.length ? linkBtn(_t("明細（{0}）", s.entries.length), 'list', () => { openLogs.has(c.id) ? openLogs.delete(c.id) : openLogs.add(c.id); paint(); }) : null;
         box.append(el('div', { class: 'kb-sub-time' },
-          el('span', { class: 'kb-sub-hours', html: svg('clock') + `<span>已記錄 <b>${fmtMin(spent)}</b>${s.estimate_minutes ? ` / 預估 ${fmtMin(s.estimate_minutes)}` : ''}</span>` }),
-          bar, othersRunning.length ? el('span', { class: 'hint', text: `${othersRunning.map(e => TT.nameOf(e.user || {})).join('、')} 計時中` }) : null,
+          el('span', { class: 'kb-sub-hours', html: svg('clock') + _t("<span>已記錄 <b>{0}</b>{1}</span>", fmtMin(spent), s.estimate_minutes ? _t(" / 預估 {0}", fmtMin(s.estimate_minutes)) : '') }),
+          bar, othersRunning.length ? el('span', { class: 'hint', text: _t("{0} 計時中", othersRunning.map(e => TT.nameOf(e.user || {})).join('、')) }) : null,
           el('span', { class: 'spacer' }), clock, timerBtn, addBtn, logBtn));
         if (openTime === c.id) box.append(timeForm(c));
         if (editTime && editTime.cid === c.id) box.append(timeForm(c, editTime.entry, editTime.prompt));
         if (openLogs.has(c.id) && s.entries.length) {
           box.append(el('div', { class: 'kb-time-log' }, s.entries.map(e => {
-            const x = e.can_delete && !e.running ? el('button', { class: 'kb-comment-del', type: 'button', title: '刪除這筆工時', html: svg('trash') }) : null;
-            const ed = e.can_delete && !e.running ? el('button', { class: 'kb-comment-del', type: 'button', title: '修改這筆工時（說明、時數、日期）', html: svg('edit') }) : null;
+            const x = e.can_delete && !e.running ? el('button', { class: 'kb-comment-del', type: 'button', title: _t('刪除這筆工時'), html: svg('trash') }) : null;
+            const ed = e.can_delete && !e.running ? el('button', { class: 'kb-comment-del', type: 'button', title: _t('修改這筆工時（說明、時數、日期）'), html: svg('edit') }) : null;
             ed?.addEventListener('click', () => { editTime = { cid: c.id, entry: e }; openTime = null; paint(); });
             x?.addEventListener('click', async () => {
               try { await api(`/api/tasks/${task.id}/comments/${c.id}/time/${e.id}`, { method: 'DELETE' }); await loadComments(); load(true); } catch (err) { toast(err.message, true); }
@@ -2091,28 +2093,28 @@ const TTBoard = window.TTBoard = (() => {
             return el('div', { class: 'kb-time-row' },
               el('span', { class: 'kb-time-date', text: e.work_date ? e.work_date.slice(5).replace('-', '/') : '' }),
               meInfo.people && e.user ? el('span', { class: 'kb-time-user', text: TT.nameOf(e.user) }) : null,
-              el('b', { text: e.running ? '計時中…' : fmtMin(e.minutes) }),
-              el('span', { class: 'kb-time-note' + (e.note ? '' : ' is-empty'), text: e.note || (e.running ? '' : '（沒有說明）') }), ed, x);
+              el('b', { text: e.running ? _t('計時中…') : fmtMin(e.minutes) }),
+              el('span', { class: 'kb-time-note' + (e.note ? '' : ' is-empty'), text: e.note || (e.running ? '' : _t('（沒有說明）')) }), ed, x);
           })));
         }
-        if (s.completed_at && s.status === 'complete') box.append(el('p', { class: 'hint kb-sub-done', text: `完成於 ${s.completed_at.slice(0, 16)}` }));
+        if (s.completed_at && s.status === 'complete') box.append(el('p', { class: 'hint kb-sub-done', text: _t("完成於 {0}", s.completed_at.slice(0, 16)) }));
         return box;
       }
 
       /** New entry, or (entry given) fix one — after stopping the timer it opens by itself with the note focused. */
       function timeForm(c, entry = null, prompt = false) {
         const mins = entry ? entry.minutes || 0 : 60;
-        const h = el('input', { class: 'input input-sm', type: 'number', min: '0', max: '24', step: '1', value: String(Math.floor(mins / 60)), 'aria-label': '小時' });
-        const m = el('input', { class: 'input input-sm', type: 'number', min: '0', max: '59', step: '5', value: String(mins % 60), 'aria-label': '分鐘' });
+        const h = el('input', { class: 'input input-sm', type: 'number', min: '0', max: '24', step: '1', value: String(Math.floor(mins / 60)), 'aria-label': _t('小時') });
+        const m = el('input', { class: 'input input-sm', type: 'number', min: '0', max: '59', step: '5', value: String(mins % 60), 'aria-label': _t('分鐘') });
         const day = el('input', { class: 'input input-sm', type: 'date', value: entry?.work_date || isoDay(now()) });
         const note = el('input', { class: 'input input-sm kb-time-note-in', maxlength: '200', value: entry?.note || '',
-          placeholder: entry ? '這段時間做了什麼？例如：編寫腳本、測試、與廠商確認' : '做了什麼（選填）' });
-        const ok = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: entry ? '儲存' : '記錄' });
-        const skip = entry ? el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: prompt ? '略過' : '取消' }) : null;
+          placeholder: entry ? _t('這段時間做了什麼？例如：編寫腳本、測試、與廠商確認') : _t('做了什麼（選填）') });
+        const ok = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: entry ? _t('儲存') : _t('記錄') });
+        const skip = entry ? el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: prompt ? _t('略過') : _t('取消') }) : null;
         skip?.addEventListener('click', () => { editTime = null; paint(); });
         ok.addEventListener('click', async () => {
           const minutes = (parseInt(h.value, 10) || 0) * 60 + (parseInt(m.value, 10) || 0);
-          if (minutes < 1) { toast('請輸入工時', true); return; }
+          if (minutes < 1) { toast(_t('請輸入工時'), true); return; }
           ok.disabled = true;
           try {
             if (entry) await api(`/api/tasks/${task.id}/comments/${c.id}/time/${entry.id}`, { method: 'PUT', body: { minutes, note: note.value, work_date: day.value || null } });
@@ -2123,8 +2125,8 @@ const TTBoard = window.TTBoard = (() => {
         });
         note.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); ok.click(); } });
         if (entry) setTimeout(() => note.isConnected && note.focus(), 40);
-        const head = entry ? el('div', { class: 'kb-time-form-head', text: prompt ? `計時已停止：${fmtMin(entry.minutes)}。這段時間做了什麼？` : '修改這筆工時' }) : null;
-        return el('div', { class: 'kb-time-form' + (entry ? ' is-edit' : '') }, head, h, el('span', { text: '小時' }), m, el('span', { text: '分' }), day, note, skip, ok);
+        const head = entry ? el('div', { class: 'kb-time-form-head', text: prompt ? _t("計時已停止：{0}。這段時間做了什麼？", fmtMin(entry.minutes)) : _t('修改這筆工時') }) : null;
+        return el('div', { class: 'kb-time-form' + (entry ? ' is-edit' : '') }, head, h, el('span', { text: _t('小時') }), m, el('span', { text: _t('分') }), day, note, skip, ok);
       }
 
       let editing = null;                 // comment id being edited inline
@@ -2132,8 +2134,8 @@ const TTBoard = window.TTBoard = (() => {
         const box = el('textarea', { class: 'textarea kb-reply-input', rows: '3' });
         box.value = c.body || '';
         if (meInfo.people) TT.mentionInput(box);
-        const ok = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: '儲存' });
-        const cancel = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '取消' });
+        const ok = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: _t('儲存') });
+        const cancel = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: _t('取消') });
         cancel.addEventListener('click', () => { editing = null; paint(); });
         ok.addEventListener('click', async () => {
           ok.disabled = true;
@@ -2149,11 +2151,11 @@ const TTBoard = window.TTBoard = (() => {
       }
 
       function replyBox(root) {
-        const box = el('textarea', { class: 'textarea kb-reply-input', rows: '2', placeholder: `回覆 ${TT.nameOf(root.author)}…（Ctrl+Enter 送出，Esc 取消）` });
+        const box = el('textarea', { class: 'textarea kb-reply-input', rows: '2', placeholder: _t("回覆 {0}…（Ctrl+Enter 送出，Esc 取消）", TT.nameOf(root.author)) });
         if (meInfo.people) TT.mentionInput(box);
         if (replyTo.mention) box.value = `@${replyTo.mention} `;
-        const go = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: '回覆' });
-        const cancel = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '取消' });
+        const go = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: _t('回覆') });
+        const cancel = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: _t('取消') });
         cancel.addEventListener('click', () => { replyTo = null; paint(); });
         go.addEventListener('click', async () => {
           if (!box.value.trim()) return;
@@ -2176,10 +2178,10 @@ const TTBoard = window.TTBoard = (() => {
         const canAdd = level < 4 && (task.can_edit !== false || c.task.can_edit);
         if (!kids.length && !canAdd) return null;
         const box = el('div', { class: 'kb-subtree' });
-        if (kids.length) box.append(el('div', { class: 'kb-subtree-head', text: `下層子任務（L${level + 1}）· ${kids.length}` }), ...kids.map(k => commentNode(k, null, level + 1)));
+        if (kids.length) box.append(el('div', { class: 'kb-subtree-head', text: _t("下層子任務（L{0}）· {1}", level + 1, kids.length) }), ...kids.map(k => commentNode(k, null, level + 1)));
         if (canAdd) {
           if (addBelow === c.id) {
-            const input = el('input', { class: 'input input-sm', maxlength: '200', placeholder: `新增 L${level + 1} 子任務名稱（Enter 新增，Esc 取消）` });
+            const input = el('input', { class: 'input input-sm', maxlength: '200', placeholder: _t("新增 L{0} 子任務名稱（Enter 新增，Esc 取消）", level + 1) });
             input.addEventListener('keydown', async e => {
               if (e.key === 'Escape') { e.stopPropagation(); addBelow = null; paint(); return; }
               if (e.key !== 'Enter' || e.isComposing || !input.value.trim()) return;
@@ -2190,7 +2192,7 @@ const TTBoard = window.TTBoard = (() => {
             });
             setTimeout(() => input.isConnected && input.focus(), 0);
             box.append(input);
-          } else box.append(linkBtn(`新增 L${level + 1} 子任務`, 'plus', () => { addBelow = c.id; paint(); }));
+          } else box.append(linkBtn(_t("新增 L{0} 子任務", level + 1), 'plus', () => { addBelow = c.id; paint(); }));
         }
         return box;
       }
@@ -2198,13 +2200,13 @@ const TTBoard = window.TTBoard = (() => {
       function commentNode(c, root, level = 2) {
         const isRoot = !root;
         const actions = el('span', { class: 'kb-comment-actions' },
-          linkBtn('回覆', 'message', () => { replyTo = { root: (root || c).id, mention: isRoot ? null : c.author?.username }; paint(); }),
-          c.task ? linkBtn(`任務樹${(() => { const n = allThreads.filter(x => x.task_parent_id === c.id).length; return n ? `（${n}）` : ''; })()}`, 'layout',
-            () => openNavigator(task, [c.id]), '在任務視窗展開：工時、留言與下層子任務（最多四層）') : null,
-          c.can_edit_body && !c.task ? linkBtn('編輯', 'edit', () => { editing = c.id; paint(); }) : null,
+          linkBtn(_t('回覆'), 'message', () => { replyTo = { root: (root || c).id, mention: isRoot ? null : c.author?.username }; paint(); }),
+          c.task ? linkBtn(_t("任務樹{0}", (() => { const n = allThreads.filter(x => x.task_parent_id === c.id).length; return n ? `（${n}）` : ''; })()), 'layout',
+            () => openNavigator(task, [c.id]), _t('在任務視窗展開：工時、留言與下層子任務（最多四層）')) : null,
+          c.can_edit_body && !c.task ? linkBtn(_t('編輯'), 'edit', () => { editing = c.id; paint(); }) : null,
           isRoot && c.can_make_task && !c.task_parent_id ? (c.task
-            ? linkBtn('取消子任務', 'x', () => { if (confirm(`把「${c.task.title}」改回一般留言？（工時記錄會保留）`)) subPut(c, { is_task: false }); }, '改回一般留言')
-            : linkBtn('設為子任務', 'check', () => subPut(c, { is_task: true }), '把這則留言變成這張卡片的子任務（可設定狀態、負責人、日期與工時）')) : null,
+            ? linkBtn(_t('取消子任務'), 'x', () => { if (confirm(_t("把「{0}」改回一般留言？（工時記錄會保留）", c.task.title))) subPut(c, { is_task: false }); }, _t('改回一般留言'))
+            : linkBtn(_t('設為子任務'), 'check', () => subPut(c, { is_task: true }), _t('把這則留言變成這張卡片的子任務（可設定狀態、負責人、日期與工時）'))) : null,
           delBtn(c, isRoot));
         const node = el('div', { class: 'kb-comment' + (isRoot ? '' : ' is-reply') + (c.task ? ' is-task' : ''), dataset: { cid: c.id } }, TT.avatar(c.author, isRoot ? 28 : 22),
           el('div', { class: 'kb-comment-main' },
@@ -2212,7 +2214,7 @@ const TTBoard = window.TTBoard = (() => {
             c.task ? subtaskBox(c, level) : null,
             editing === c.id ? editBox(c)
               : c.body && !(c.task && c.body.trim() === (c.task.title || '').trim()) ? renderBody(c.body) : null,
-            c.edited_at && editing !== c.id ? el('small', { class: 'kb-edited', text: '（已編輯）' }) : null,
+            c.edited_at && editing !== c.id ? el('small', { class: 'kb-edited', text: _t('（已編輯）') }) : null,
             c.images?.length ? thumbs(c.images, { size: 'sm' }) : null,
             isRoot && c.replies.length ? el('div', { class: 'kb-replies' }, c.replies.map(r => commentNode(r, c))) : null,
             isRoot && replyTo?.root === c.id ? replyBox(c) : null,
@@ -2236,7 +2238,7 @@ const TTBoard = window.TTBoard = (() => {
           const st = STATUS[s.status] || STATUS.new;
           const tm = timing({ status: s.status, due_at: s.due_at });
           const row = el('li', { class: `kb-outline-row st-${s.status}`, style: { '--st': st.color }, tabindex: '0', draggable: editable ? 'true' : 'false',
-            dataset: { id: c.id }, title: editable ? '點一下跳到子任務；拖曳或 Alt+↑/↓ 調整順序' : '點一下跳到子任務' },
+            dataset: { id: c.id }, title: editable ? _t('點一下跳到子任務；拖曳或 Alt+↑/↓ 調整順序') : _t('點一下跳到子任務') },
             editable ? el('span', { class: 'kb-outline-grip', html: svg('grip') }) : null,
             el('span', { class: 'kb-outline-no', text: String(i + 1) }),
             el('span', { class: 'kb-sub-dot' }),
@@ -2287,7 +2289,7 @@ const TTBoard = window.TTBoard = (() => {
             const ks = k.task;
             const no = `${prefix}.${j + 1}`;
             const r = el('li', { class: `kb-outline-row is-nested st-${ks.status}`, style: { '--st': (STATUS[ks.status] || STATUS.new).color, '--depth': depth },
-              tabindex: '0', dataset: { id: k.id }, title: `L${depth + 2}：點一下跳到子任務` },
+              tabindex: '0', dataset: { id: k.id }, title: _t("L{0}：點一下跳到子任務", depth + 2) },
               el('span', { class: 'kb-outline-no', text: no }), el('span', { class: 'kb-sub-dot' }),
               el('span', { class: 'kb-outline-title', text: ks.title }),
               meInfo.people && ks.assignee ? TT.avatar(ks.assignee, 18) : null,
@@ -2321,13 +2323,13 @@ const TTBoard = window.TTBoard = (() => {
         const late = subs.filter(c => timing({ status: c.task.status, due_at: c.task.due_at }).due === 'overdue').length;
         rollBox.replaceChildren(
           el('div', { class: 'kb-rollup-head' },
-            el('strong', { html: svg('check') + `子任務 ${done} / ${counted} 完成` }), el('span', { class: 'kb-rollup-pct', text: `${pct}%` })),
+            el('strong', { html: svg('check') + _t("子任務 {0} / {1} 完成", done, counted) }), el('span', { class: 'kb-rollup-pct', text: `${pct}%` })),
           el('span', { class: 'kb-bar big' }, el('span', { style: { width: `${pct}%` } })),
           el('div', { class: 'kb-rollup-meta' },
-            el('span', { text: `工時 ${fmtMin(spent)}${est ? ` / 預估 ${fmtMin(est)}` : ''}` }),
-            starts.length || dues.length ? el('span', { text: `期間 ${starts.length ? fmt(starts[0]) : '—'} → ${dues.length ? fmt(dues[dues.length - 1]) : '—'}` }) : null,
-            late ? el('span', { class: 'kb-rollup-late', text: `${late} 項逾期` }) : null,
-            subs.length > counted ? el('span', { text: `${subs.length - counted} 項取消` }) : null),
+            el('span', { text: _t("工時 {0}{1}", fmtMin(spent), est ? _t(" / 預估 {0}", fmtMin(est)) : '') }),
+            starts.length || dues.length ? el('span', { text: _t("期間 {0} → {1}", starts.length ? fmt(starts[0]) : '—', dues.length ? fmt(dues[dues.length - 1]) : '—') }) : null,
+            late ? el('span', { class: 'kb-rollup-late', text: _t("{0} 項逾期", late) }) : null,
+            subs.length > counted ? el('span', { text: _t("{0} 項取消", subs.length - counted) }) : null),
           outline(subs));
       }
 
@@ -2336,7 +2338,7 @@ const TTBoard = window.TTBoard = (() => {
         let list = onlyTasks ? threads.filter(c => c.task).sort(byOrder) : threads.slice();
         if (newestFirst && !onlyTasks) list.reverse();
         listBox.replaceChildren(...(list.length ? list.map(c => commentNode(c, null))
-          : [el('p', { class: 'hint', text: onlyTasks ? '還沒有子任務：在留言上按「設為子任務」' : '還沒有留言' })]));
+          : [el('p', { class: 'hint', text: onlyTasks ? _t('還沒有子任務：在留言上按「設為子任務」') : _t('還沒有留言') })]));
         tick();
       }
       function tick() {
@@ -2375,7 +2377,7 @@ const TTBoard = window.TTBoard = (() => {
       });
       input.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopPropagation(); send.click(); } });
       comments.append(
-        el('div', { class: 'kb-comments-head' }, el('h4', { html: svg('message') + `留言與子任務${task.comments ? `（${task.comments}）` : ''}` }),
+        el('div', { class: 'kb-comments-head' }, el('h4', { html: svg('message') + _t("留言與子任務{0}", task.comments ? `（${task.comments}）` : '') }),
           el('span', { class: 'kb-comments-tools' }, viewBtn, orderBtn)),
         rollBox, listBox, pendingBox,
         el('div', { class: 'kb-comment-new' }, input, el('div', { class: 'kb-comment-btns' }, attach, send)));
@@ -2389,11 +2391,11 @@ const TTBoard = window.TTBoard = (() => {
       const b = task.blocked;
       const canFlag = task.can_edit !== false;
       if (editing) {
-        const reason = el('input', { class: 'input', maxlength: 300, placeholder: '卡在哪裡、在等誰？例如：等總務回覆配電容量', value: b?.reason || '' });
-        const ok = el('button', { class: 'btn btn-sm btn-danger', type: 'button', text: b ? '更新原因' : '標記卡住' });
-        const no = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '取消' });
+        const reason = el('input', { class: 'input', maxlength: 300, placeholder: _t('卡在哪裡、在等誰？例如：等總務回覆配電容量'), value: b?.reason || '' });
+        const ok = el('button', { class: 'btn btn-sm btn-danger', type: 'button', text: b ? _t('更新原因') : _t('標記卡住') });
+        const no = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: _t('取消') });
         const go = async () => {
-          if (!reason.value.trim()) { toast('請寫一下卡在哪裡', true); reason.focus(); return; }
+          if (!reason.value.trim()) { toast(_t('請寫一下卡在哪裡'), true); reason.focus(); return; }
           ok.disabled = true;
           try { await setBlocked(true, reason.value.trim()); } catch (e) { toast(e.message, true); ok.disabled = false; }
         };
@@ -2405,14 +2407,14 @@ const TTBoard = window.TTBoard = (() => {
         return;
       }
       if (b) {
-        const edit = canFlag ? el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '修改原因' }) : null;
-        const clear = canFlag ? el('button', { class: 'btn btn-sm', type: 'button', text: '✅ 解除卡住' }) : null;
+        const edit = canFlag ? el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: _t('修改原因') }) : null;
+        const clear = canFlag ? el('button', { class: 'btn btn-sm', type: 'button', text: _t('✅ 解除卡住') }) : null;
         edit?.addEventListener('click', () => paintBlock(true));
         clear?.addEventListener('click', async () => { clear.disabled = true; try { await setBlocked(false, ''); } catch (e) { toast(e.message, true); clear.disabled = false; } });
         blockBox.replaceChildren(el('div', { class: 'kb-blocked-bar is-big' },
-          el('span', { text: `⛔ 卡住 ${blockedDays(b.since)}：${b.reason}` + (b.by ? `（${b.by} 標記）` : '') }), el('span', { class: 'spacer' }), edit, clear));
+          el('span', { text: _t("⛔ 卡住 {0}：{1}", blockedDays(b.since), b.reason) + (b.by ? _t("（{0} 標記）", b.by) : '') }), el('span', { class: 'spacer' }), edit, clear));
       } else if (canFlag) {
-        const flag = el('button', { class: 'btn btn-sm btn-ghost kb-block-btn', type: 'button', text: '⛔ 標記卡住…', title: '工作卡住、在等別人時標記：卡片會標紅並通知負責人與上級' });
+        const flag = el('button', { class: 'btn btn-sm btn-ghost kb-block-btn', type: 'button', text: _t('⛔ 標記卡住…'), title: _t('工作卡住、在等別人時標記：卡片會標紅並通知負責人與上級') });
         flag.addEventListener('click', () => paintBlock(true));
         blockBox.replaceChildren(flag);
       } else blockBox.replaceChildren();
@@ -2421,33 +2423,33 @@ const TTBoard = window.TTBoard = (() => {
       await api(`/api/tasks/${task.id}/blocked`, { method: 'POST', body: { blocked: on, reason } });
       const fresh = (await load(true)).find(x => x.id === task.id);
       task.blocked = fresh ? fresh.blocked : null;
-      toast(on ? '已標記卡住，已通知負責人與上級' : '已解除卡住');
+      toast(on ? _t('已標記卡住，已通知負責人與上級') : _t('已解除卡住'));
       paintBlock();
       refreshComments();
     }
     paintBlock();
 
     const wrap = el('div', { class: 'modal' },
-      el('div', { class: 'modal-card kb-editor', role: 'dialog', 'aria-modal': 'true', 'aria-label': task ? '編輯卡片' : '新增卡片' },
-        el('div', { class: 'modal-head' }, el('h3', { html: svg('kanban') + (task ? '編輯卡片' : '新增卡片') }), closeBtn),
+      el('div', { class: 'modal-card kb-editor', role: 'dialog', 'aria-modal': 'true', 'aria-label': task ? _t('編輯卡片') : _t('新增卡片') },
+        el('div', { class: 'modal-head' }, el('h3', { html: svg('kanban') + (task ? _t('編輯卡片') : _t('新增卡片')) }), closeBtn),
         el('div', { class: 'modal-body' },
-          field('標題', title),
-          field('說明', desc),
-          el('div', { class: 'field' }, el('span', { class: 'field-label', text: '標籤' }), tagBox, tagSug, tagData),
-          el('div', { class: 'field' }, el('span', { class: 'field-label', text: '類型' }), kindSeg, kindHint),
+          field(_t('標題'), title),
+          field(_t('說明'), desc),
+          el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('標籤') }), tagBox, tagSug, tagData),
+          el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('類型') }), kindSeg, kindHint),
           projField,
-          el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('paperclip') + '附件' }), imgBox),
-          meInfo.people ? el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('users') + '負責人' }), assignBox) : null,
-          el('div', { class: 'kb-row' }, el('div', { class: 'field' }, el('span', { class: 'field-label', text: '狀態' }), status,
-            summary ? el('span', { class: 'hint', text: SUMMARY_HINT }) : null), el('div', { class: 'field' }, el('span', { class: 'field-label', text: '優先順序' }), prio)),
+          el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('paperclip') + _t('附件') }), imgBox),
+          meInfo.people ? el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('users') + _t('負責人') }), assignBox) : null,
+          el('div', { class: 'kb-row' }, el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('狀態') }), status,
+            summary ? el('span', { class: 'hint', text: SUMMARY_HINT }) : null), el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('優先順序') }), prio)),
           blockBox,
           el('div', { class: 'kb-row' },
-            el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('play') + '開始日' }), el('div', { class: 'kb-dt' }, startD, startT), startChips),
-            el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('clock') + '到期日' }), el('div', { class: 'kb-dt' }, dueD, dueT), dueChips)),
-          el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('calendar') + '排程（甘特圖）' }), sched.el),
+            el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('play') + _t('開始日') }), el('div', { class: 'kb-dt' }, startD, startT), startChips),
+            el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('clock') + _t('到期日') }), el('div', { class: 'kb-dt' }, dueD, dueT), dueChips)),
+          el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('calendar') + _t('排程（甘特圖）') }), sched.el),
           el('div', { class: 'kb-row' },
-            field('提醒', remind),
-            el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('repeat') + '重複' }),
+            field(_t('提醒'), remind),
+            el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('repeat') + _t('重複') }),
               el('div', { class: 'kb-repeat' }, repeatSel, everyBox))),
           weekBox,
           hint,
@@ -2466,8 +2468,8 @@ const TTBoard = window.TTBoard = (() => {
     cancel.addEventListener('click', close);
     title.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) submit(); });
     del?.addEventListener('click', async () => {
-      if (!confirm(`刪除「${task.title}」？`)) return;
-      try { await remove(task.id); close(); toast('已刪除'); } catch (err) { toast(err.message, true); }
+      if (!confirm(_t("刪除「{0}」？", task.title))) return;
+      try { await remove(task.id); close(); toast(_t('已刪除')); } catch (err) { toast(err.message, true); }
     });
 
     // paste / drop images: into the comment box → comment; anywhere else → the card
@@ -2504,9 +2506,9 @@ const TTBoard = window.TTBoard = (() => {
     });
 
     async function submit() {
-      if (!title.value.trim()) { toast('請輸入標題', true); title.focus(); return; }
+      if (!title.value.trim()) { toast(_t('請輸入標題'), true); title.focus(); return; }
       if (task && status.value === 'complete' && t.status !== 'complete' && openSubs(t)
-          && !confirm(`還有 ${openSubs(t)} 個子任務沒完成，仍要把整張卡片改成 Complete？`)) return;
+          && !confirm(_t("還有 {0} 個子任務沒完成，仍要把整張卡片改成 Complete？", openSubs(t)))) return;
       const body = {
         title: title.value.trim(),
         description: desc.value.trim() || null,
@@ -2526,10 +2528,10 @@ const TTBoard = window.TTBoard = (() => {
         const pid = kind === 'project' ? null : (Number(projSel.value) || null);
         if (pid !== (t.project_id || null)) body.project_id = pid || 0;
       }
-      if (body.milestone ?? t.milestone) { body.start_at = null; if (!body.due_at) { toast('里程碑需要到期日', true); dueD.focus(); return; } }
+      if (body.milestone ?? t.milestone) { body.start_at = null; if (!body.due_at) { toast(_t('里程碑需要到期日'), true); dueD.focus(); return; } }
       if (canAssign) body.assignees = assignees.map(p => p.username);
-      if (body.start_at && body.due_at && body.start_at.slice(0, 10) > body.due_at.slice(0, 10)) { toast('開始日不能晚於到期日', true); return; }
-      if (body.repeat && !body.due_at) { toast('重複的卡片需要設定到期日', true); dueD.focus(); return; }
+      if (body.start_at && body.due_at && body.start_at.slice(0, 10) > body.due_at.slice(0, 10)) { toast(_t('開始日不能晚於到期日'), true); return; }
+      if (body.repeat && !body.due_at) { toast(_t('重複的卡片需要設定到期日'), true); dueD.focus(); return; }
       ok.disabled = true;
       try {
         const saved = await save(task?.id, body);
@@ -2540,7 +2542,7 @@ const TTBoard = window.TTBoard = (() => {
           for (const im of queued) { try { await uploadFile(saved.id, im.file, 'card'); } catch (e) { failed++; toast(e.message, true); } }
           queued.forEach(x => x.preview && URL.revokeObjectURL(x.preview));
           if (queued.length) await load(true);
-          toast(`已新增「${body.title}」` + (queued.length ? `（${queued.length - failed} 個附件）` : ''));
+          toast(_t("已新增「{0}」", body.title) + (queued.length ? _t("（{0} 個附件）", queued.length - failed) : ''));
         }
         if (body.due_at && body.remind !== null) askPermission(true);
       } catch (err) { toast(err.message, true); ok.disabled = false; }
@@ -2551,9 +2553,9 @@ const TTBoard = window.TTBoard = (() => {
       wrap.querySelectorAll('.modal-body input, .modal-body select, .modal-body textarea:not(.kb-comment-input), .modal-body .segmented button, .kb-date-chip, .kb-wd, .kb-person-x, .kb-tag-x, .kb-tag-sug')
         .forEach(x => { x.disabled = true; });
       ok.hidden = true;
-      cancel.textContent = '關閉';
-      wrap.querySelector('.modal-head h3').innerHTML = svg('kanban') + '檢視卡片';
-      wrap.querySelector('.modal-body').prepend(el('div', { class: 'kb-readonly', html: svg('lock') + '<span>唯讀：這張卡片你可以檢視與留言，不能修改。</span>' }));
+      cancel.textContent = _t('關閉');
+      wrap.querySelector('.modal-head h3').innerHTML = svg('kanban') + _t('檢視卡片');
+      wrap.querySelector('.modal-body').prepend(el('div', { class: 'kb-readonly', html: svg('lock') + _t('<span>唯讀：這張卡片你可以檢視與留言，不能修改。</span>') }));
       if (comments) comments.querySelectorAll('input, textarea, button').forEach(x => { x.disabled = false; });
     }
 
@@ -2570,7 +2572,7 @@ const TTBoard = window.TTBoard = (() => {
     store.set('board-asked', true);
     Notification.requestPermission().then(p => {
       bells.forEach(f => f(alerts()));
-      if (p === 'granted') toast('已開啟桌面通知：到期與提醒時間到會通知你');
+      if (p === 'granted') toast(_t('已開啟桌面通知：到期與提醒時間到會通知你'));
     }).catch(() => {});
   }
 
@@ -2587,7 +2589,7 @@ const TTBoard = window.TTBoard = (() => {
 
     const paint = list => {
       const unread = notes.filter(n => !n.read);
-      btn.title = [list.length && `${list.length} 個待辦需要注意`, unread.length && `${unread.length} 則新通知`].filter(Boolean).join('、') || '待辦提醒';
+      btn.title = [list.length && _t("{0} 個待辦需要注意", list.length), unread.length && _t("{0} 則新通知", unread.length)].filter(Boolean).join('、') || _t('待辦提醒');
       btn.classList.toggle('has-alerts', list.length + unread.length > 0);
       if (!pop) return;
       const noteRows = notes.slice(0, 12).map(n => {
@@ -2602,7 +2604,7 @@ const TTBoard = window.TTBoard = (() => {
         });
         return row;
       });
-      const readAll = unread.length ? el('button', { class: 'section-link', type: 'button', text: '全部已讀' }) : null;
+      const readAll = unread.length ? el('button', { class: 'section-link', type: 'button', text: _t('全部已讀') }) : null;
       readAll?.addEventListener('click', async () => {
         notes.forEach(n => { n.read = 1; });
         api('/api/notifications/read', { method: 'POST', body: {} }).catch(() => {});
@@ -2615,25 +2617,25 @@ const TTBoard = window.TTBoard = (() => {
           el('span', { class: 'bell-text' }, el('strong', { text: a.t.title }), el('small', { text: a.text })));
         row.addEventListener('click', () => { close(); openEditor(a.card || a.t); });
         return row;
-      }) : [el('div', { class: 'bell-empty', text: '目前沒有需要注意的待辦 🎉' })];
-      const enable = perm === 'default' ? el('button', { class: 'btn btn-sm', type: 'button', html: svg('bell') + '開啟桌面通知' }) : null;
+      }) : [el('div', { class: 'bell-empty', text: _t('目前沒有需要注意的待辦 🎉') })];
+      const enable = perm === 'default' ? el('button', { class: 'btn btn-sm', type: 'button', html: svg('bell') + _t('開啟桌面通知') }) : null;
       enable?.addEventListener('click', () => askPermission());
-      const permHint = perm === 'denied' ? el('p', { class: 'hint', text: '瀏覽器已封鎖通知：點網址列左側的圖示可以重新允許。' })
+      const permHint = perm === 'denied' ? el('p', { class: 'hint', text: _t('瀏覽器已封鎖通知：點網址列左側的圖示可以重新允許。') })
         : perm === 'n/a' && 'Notification' in window ? null
-        : !('Notification' in window) || !window.isSecureContext ? el('p', { class: 'hint', text: '這個連線無法使用桌面通知（需要 HTTPS 或本機），提醒會顯示在頁面上。' }) : null;
-      const go = el('a', { class: 'btn btn-sm btn-ghost', href: '/#/board', html: svg('kanban') + '開啟看板' });
+        : !('Notification' in window) || !window.isSecureContext ? el('p', { class: 'hint', text: _t('這個連線無法使用桌面通知（需要 HTTPS 或本機），提醒會顯示在頁面上。') }) : null;
+      const go = el('a', { class: 'btn btn-sm btn-ghost', href: '/#/board', html: svg('kanban') + _t('開啟看板') });
       go.addEventListener('click', close);
       pop.replaceChildren(...[      // DOM replaceChildren() would print a null as the text "null"
-        noteRows.length ? el('div', { class: 'bell-head' }, el('strong', { text: '通知' }), readAll || el('span', { class: 'badge', text: '0' })) : null,
+        noteRows.length ? el('div', { class: 'bell-head' }, el('strong', { text: _t('通知') }), readAll || el('span', { class: 'badge', text: '0' })) : null,
         noteRows.length ? el('div', { class: 'bell-list bell-notes' }, noteRows) : null,
-        el('div', { class: 'bell-head' }, el('strong', { text: '待辦提醒' }), el('span', { class: 'badge', text: list.length })),
+        el('div', { class: 'bell-head' }, el('strong', { text: _t('待辦提醒') }), el('span', { class: 'badge', text: list.length })),
         el('div', { class: 'bell-list' }, items),
         permHint,
         el('div', { class: 'bell-foot' }, enable, el('span', { class: 'spacer' }), go)].filter(Boolean));
     };
     btn.addEventListener('click', () => {
       if (pop) return close();
-      pop = el('div', { class: 'bell-pop glass', role: 'dialog', 'aria-label': '待辦提醒' });
+      pop = el('div', { class: 'bell-pop glass', role: 'dialog', 'aria-label': _t('待辦提醒') });
       document.body.append(pop);
       const r = btn.getBoundingClientRect();
       pop.style.top = `${r.bottom + 8}px`;
@@ -2649,7 +2651,7 @@ const TTBoard = window.TTBoard = (() => {
   function summary() {
     const open = tasks.filter(t => !CLOSED.has(t.status)).length;
     const overdue = tasks.filter(t => timing(t).due === 'overdue').length;
-    return [`${open} 張進行中的卡片`, overdue && `${overdue} 張逾期`].filter(Boolean).join(' · ');
+    return [_t("{0} 張進行中的卡片", open), overdue && _t("{0} 張逾期", overdue)].filter(Boolean).join(' · ');
   }
 
   /** Cards matching q (title, description, comments, people) that this user may see. */
@@ -2659,7 +2661,7 @@ const TTBoard = window.TTBoard = (() => {
   /** One search result row: status dot, title, where it matched, due date. */
   function cardHit(r, { compact = false } = {}) {
     const st = STATUS[r.status] || STATUSES[2];
-    const sub = [`${st.label}（${st.zh}）`, r.due_at ? `到期 ${fmt(r.due_at, true)}` : null,
+    const sub = [stName(st), r.due_at ? _t("到期 {0}", fmt(r.due_at, true)) : null,
       r.match !== '標題' ? `${r.match}：${r.snippet}` : null].filter(Boolean).join('  ·  ');
     return el('div', { class: 'kb-hit' + (compact ? ' compact' : '') },
       el('span', { class: 'kb-hit-tile', style: { '--st': st.color }, html: svg('kanban') }),
@@ -2692,13 +2694,13 @@ const TTBoard = window.TTBoard = (() => {
     const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey, true); clearInterval(tick);
       if (!document.querySelector('.modal:not([hidden])')) document.body.classList.remove('modal-open'); };
     const onKey = e => { if (e.key === 'Escape' && !e.defaultPrevented) { e.stopPropagation(); close(); } };
-    const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': '關閉', html: svg('x') });
+    const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': _t('關閉'), html: svg('x') });
     closeBtn.addEventListener('click', close);
-    const full = el('button', { class: 'btn btn-sm', type: 'button', html: svg('edit') + '完整編輯' });
+    const full = el('button', { class: 'btn btn-sm', type: 'button', html: svg('edit') + _t('完整編輯') });
     full.addEventListener('click', () => { close(); openEditor(tasks.find(x => x.id === card.id) || card); });
     const wrap = el('div', { class: 'modal kb-nav-modal' },
-      el('div', { class: 'modal-card kb-nav', role: 'dialog', 'aria-modal': 'true', 'aria-label': '任務視窗' },
-        el('div', { class: 'modal-head' }, el('h3', { html: svg('layout') + '任務視窗' }), el('span', { class: 'kb-nav-crumbs' }), el('span', { class: 'spacer' }), full, closeBtn),
+      el('div', { class: 'modal-card kb-nav', role: 'dialog', 'aria-modal': 'true', 'aria-label': _t('任務視窗') },
+        el('div', { class: 'modal-head' }, el('h3', { html: svg('layout') + _t('任務視窗') }), el('span', { class: 'kb-nav-crumbs' }), el('span', { class: 'spacer' }), full, closeBtn),
         cols));
     wrap.addEventListener('mousedown', e => { if (e.target === wrap) close(); });
     document.addEventListener('keydown', onKey, true);
@@ -2754,7 +2756,7 @@ const TTBoard = window.TTBoard = (() => {
       const canAdd = level < NAV_MAX && (pid == null ? cardNow().can_edit !== false
         : (cardNow().can_edit !== false || !!byId(pid)?.task.can_edit));
       if (canAdd) {
-        const input = el('input', { class: 'input input-sm', maxlength: '200', placeholder: pid == null ? '＋ 新增 L2 子任務（Enter）' : `＋ 新增 L${level + 1} 子任務（Enter）` });
+        const input = el('input', { class: 'input input-sm', maxlength: '200', placeholder: pid == null ? _t('＋ 新增 L2 子任務（Enter）') : _t("＋ 新增 L{0} 子任務（Enter）", level + 1) });
         input.addEventListener('keydown', async e => {
           if (e.key !== 'Enter' || e.isComposing || !input.value.trim()) return;
           e.preventDefault(); input.disabled = true;
@@ -2762,7 +2764,7 @@ const TTBoard = window.TTBoard = (() => {
           if (!r) input.disabled = false;
         });
         box.append(input);
-      } else if (!list.length) box.append(el('p', { class: 'hint', text: level >= NAV_MAX ? '已是第四層' : '沒有子任務' }));
+      } else if (!list.length) box.append(el('p', { class: 'hint', text: level >= NAV_MAX ? _t('已是第四層') : _t('沒有子任務') }));
       return box;
     }
 
@@ -2771,37 +2773,37 @@ const TTBoard = window.TTBoard = (() => {
       const sub = t.subtasks;
       const pr = sub && sub.total ? Math.round(sub.done / Math.max(1, sub.total - (sub.canceled || 0)) * 100) : null;
       return el('section', { class: 'kb-nav-col is-card' },
-        el('div', { class: 'kb-nav-kicker', text: 'L1 // 主卡' }),
+        el('div', { class: 'kb-nav-kicker', text: _t('L1 // 主卡') }),
         el('div', { class: 'kb-nav-head' }, stChip(t.status), el('h4', { class: 'kb-nav-title', text: t.title })),
         t.tags?.length ? el('div', { class: 'kb-tags' }, t.tags.map(x => tagChip(x))) : null,
         el('div', { class: 'kb-nav-meta' },
-          t.start_at ? el('span', { text: `開始 ${fmt(t.start_at)}` }) : null,
-          t.due_at ? el('span', { text: `到期 ${fmt(t.due_at)}` }) : null,
-          el('span', { text: `工時 ${fmtMin(subs().reduce((n, c) => n + (c.task.spent_minutes || 0), 0))}` })),
+          t.start_at ? el('span', { text: _t("開始 {0}", fmt(t.start_at)) }) : null,
+          t.due_at ? el('span', { text: _t("到期 {0}", fmt(t.due_at)) }) : null,
+          el('span', { text: _t("工時 {0}", fmtMin(subs().reduce((n, c) => n + (c.task.spent_minutes || 0), 0))) })),
         pr != null ? el('div', { class: 'kb-progress' }, el('span', { class: 'kb-progress-bar' }, el('span', { style: { width: pr + '%' } })), el('span', { class: 'kb-progress-text', text: `${pr}%` })) : null,
         t.description ? el('p', { class: 'kb-nav-desc', text: t.description }) : null,
-        el('div', { class: 'kb-nav-sec', text: '子任務（L2）' }),
+        el('div', { class: 'kb-nav-sec', text: _t('子任務（L2）') }),
         childList(null, 1, 0),
-        el('div', { class: 'kb-nav-sec', text: `卡片留言（${threads.filter(c => !c.task).length}）` }),
+        el('div', { class: 'kb-nav-sec', text: _t("卡片留言（{0}）", threads.filter(c => !c.task).length) }),
         cardComments());
     }
 
     /** One comment (or reply): author, time, text, edit / delete for whoever may. */
     function cmt(r, onReply) {
       const editing = editCmt === r.id;
-      const ed = r.can_edit_body && !r.task ? el('button', { class: 'kb-comment-del', type: 'button', title: '修改留言', html: svg('edit') }) : null;
-      const del = r.can_delete && !r.task ? el('button', { class: 'kb-comment-del', type: 'button', title: '刪除留言', html: svg('trash') }) : null;
-      const rp = onReply ? el('button', { class: 'kb-comment-del', type: 'button', title: '回覆', html: svg('message') }) : null;
+      const ed = r.can_edit_body && !r.task ? el('button', { class: 'kb-comment-del', type: 'button', title: _t('修改留言'), html: svg('edit') }) : null;
+      const del = r.can_delete && !r.task ? el('button', { class: 'kb-comment-del', type: 'button', title: _t('刪除留言'), html: svg('trash') }) : null;
+      const rp = onReply ? el('button', { class: 'kb-comment-del', type: 'button', title: _t('回覆'), html: svg('message') }) : null;
       ed?.addEventListener('click', () => { editCmt = editing ? null : r.id; paint(); });
-      del?.addEventListener('click', () => confirm(r.replies?.length ? `刪除這則留言與 ${r.replies.length} 則回覆？` : '刪除這則留言？') && call(`${base}/${r.id}`, { method: 'DELETE' }));
+      del?.addEventListener('click', () => confirm(r.replies?.length ? _t("刪除這則留言與 {0} 則回覆？", r.replies.length) : _t('刪除這則留言？')) && call(`${base}/${r.id}`, { method: 'DELETE' }));
       rp?.addEventListener('click', onReply);
       let body;
       if (editing) {
         const ta = el('textarea', { class: 'textarea kb-nav-reply', rows: '3' });
         ta.value = r.body || '';
         if (meInfo.people) TT.mentionInput(ta);
-        const ok = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: '儲存' });
-        const no = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '取消' });
+        const ok = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: _t('儲存') });
+        const no = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: _t('取消') });
         no.addEventListener('click', () => { editCmt = null; paint(); });
         ok.addEventListener('click', async () => { ok.disabled = true; editCmt = null; await call(`${base}/${r.id}`, { method: 'PUT', body: { body: ta.value } }); });
         ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ok.click(); } if (e.key === 'Escape') { e.stopPropagation(); no.click(); } });
@@ -2810,14 +2812,14 @@ const TTBoard = window.TTBoard = (() => {
       } else body = el('div', { class: 'kb-nav-cmt-body', text: r.body });
       return el('div', { class: 'kb-nav-cmt' },
         el('div', { class: 'kb-nav-cmt-head' }, TT.avatar(r.author, 18), el('strong', { text: TT.nameOf(r.author) }),
-          el('small', { text: (r.created_at || '').slice(5, 16) + (r.edited_at ? '（已編輯）' : '') }), el('span', { class: 'spacer' }), rp, ed, del),
+          el('small', { text: (r.created_at || '').slice(5, 16) + (r.edited_at ? _t('（已編輯）') : '') }), el('span', { class: 'spacer' }), rp, ed, del),
         body, r.images?.length ? thumbs(r.images, { size: 'sm' }) : null);
     }
 
     function newBox(parent, placeholder) {
-      const input = el('textarea', { class: 'textarea kb-nav-reply', rows: '2', placeholder: placeholder + (meInfo.people ? '（@ 提到同事，Ctrl+Enter 送出）' : '（Ctrl+Enter 送出）') });
+      const input = el('textarea', { class: 'textarea kb-nav-reply', rows: '2', placeholder: placeholder + (meInfo.people ? _t('（@ 提到同事，Ctrl+Enter 送出）') : _t('（Ctrl+Enter 送出）')) });
       if (meInfo.people) TT.mentionInput(input);
-      const send = el('button', { class: 'btn btn-sm', type: 'button', text: '送出' });
+      const send = el('button', { class: 'btn btn-sm', type: 'button', text: _t('送出') });
       send.addEventListener('click', async () => {
         if (!input.value.trim()) return;
         send.disabled = true;
@@ -2837,11 +2839,11 @@ const TTBoard = window.TTBoard = (() => {
         box.append(cmt(c, () => { replyOpen = replyOpen === c.id ? null : c.id; paint(); }));
         if (c.replies?.length || replyOpen === c.id) {
           box.append(el('div', { class: 'kb-nav-replies' }, (c.replies || []).map(r => cmt(r)),
-            replyOpen === c.id ? newBox(c.id, `回覆 ${TT.nameOf(c.author)}…`) : null));
+            replyOpen === c.id ? newBox(c.id, _t("回覆 {0}…", TT.nameOf(c.author))) : null));
         }
       });
-      if (!list.length) box.append(el('p', { class: 'hint', text: '還沒有留言' }));
-      box.append(newBox(null, '在卡片留言…'));
+      if (!list.length) box.append(el('p', { class: 'hint', text: _t('還沒有留言') }));
+      box.append(newBox(null, _t('在卡片留言…')));
       return box;
     }
 
@@ -2851,17 +2853,17 @@ const TTBoard = window.TTBoard = (() => {
       const below = treeMinutes(c.id) - (s.spent_minutes || 0);
       const box = el('div', { class: 'kb-nav-time' });
       const head = el('div', { class: 'kb-nav-time-head' },
-        el('span', { html: svg('clock') + `<b>${fmtMin(s.spent_minutes)}</b>` + (below ? `<span class="hint">　含下層 ${fmtMin(treeMinutes(c.id))}</span>` : '') }),
+        el('span', { html: svg('clock') + `<b>${fmtMin(s.spent_minutes)}</b>` + (below ? _t("<span class=\"hint\">　含下層 {0}</span>", fmtMin(treeMinutes(c.id))) : '') }),
         el('span', { class: 'spacer' }),
         running ? el('span', { class: 'kb-timer-clock', dataset: { elapsed: running.elapsed } }) : null);
       if (s.can_update && (running || !CLOSED.has(s.status))) {
-        const tb = el('button', { class: 'btn btn-sm' + (running ? ' btn-danger' : ''), type: 'button', html: running ? '■ 停止' : '▶ 計時' });
+        const tb = el('button', { class: 'btn btn-sm' + (running ? ' btn-danger' : ''), type: 'button', html: running ? _t('■ 停止') : _t('▶ 計時') });
         tb.addEventListener('click', async () => {
           tb.disabled = true;
           const r = await call(`${base}/${c.id}/timer`, { method: 'POST', body: { action: running ? 'stop' : 'start', work_date: isoDay(now()) } });
           if (running && r && r.entry) { editEntry = { cid: c.id, entry: r.entry, prompt: true }; paint(); }
         });
-        const add = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', html: svg('plus') + '記錄' });
+        const add = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', html: svg('plus') + _t('記錄') });
         add.addEventListener('click', () => { timeOpen = timeOpen === c.id ? null : c.id; editEntry = null; paint(); });
         head.append(tb, add);
       }
@@ -2870,33 +2872,33 @@ const TTBoard = window.TTBoard = (() => {
       if (editEntry && editEntry.cid === c.id) box.append(timeForm(c, editEntry.entry, editEntry.prompt));
       const log = el('div', { class: 'kb-nav-log' });
       (s.entries || []).forEach(e => {
-        const ed = e.can_delete && !e.running ? el('button', { class: 'kb-comment-del', type: 'button', title: '修改', html: svg('edit') }) : null;
-        const del = e.can_delete && !e.running ? el('button', { class: 'kb-comment-del', type: 'button', title: '刪除', html: svg('trash') }) : null;
+        const ed = e.can_delete && !e.running ? el('button', { class: 'kb-comment-del', type: 'button', title: _t('修改'), html: svg('edit') }) : null;
+        const del = e.can_delete && !e.running ? el('button', { class: 'kb-comment-del', type: 'button', title: _t('刪除'), html: svg('trash') }) : null;
         ed?.addEventListener('click', () => { editEntry = { cid: c.id, entry: e }; timeOpen = null; paint(); });
-        del?.addEventListener('click', () => confirm('刪除這筆工時？') && call(`${base}/${c.id}/time/${e.id}`, { method: 'DELETE' }));
+        del?.addEventListener('click', () => confirm(_t('刪除這筆工時？')) && call(`${base}/${c.id}/time/${e.id}`, { method: 'DELETE' }));
         log.append(el('div', { class: 'kb-time-row' },
           el('span', { class: 'kb-time-date', text: e.work_date ? e.work_date.slice(5).replace('-', '/') : '' }),
-          el('b', { text: e.running ? '計時中…' : fmtMin(e.minutes) }),
-          el('span', { class: 'kb-time-note' + (e.note ? '' : ' is-empty'), text: e.note || (e.running ? '' : '（沒有說明）') }),
+          el('b', { text: e.running ? _t('計時中…') : fmtMin(e.minutes) }),
+          el('span', { class: 'kb-time-note' + (e.note ? '' : ' is-empty'), text: e.note || (e.running ? '' : _t('（沒有說明）')) }),
           meInfo.people && e.user ? el('span', { class: 'kb-time-user', text: TT.nameOf(e.user) }) : null, ed, del));
       });
-      if (!(s.entries || []).length) log.append(el('p', { class: 'hint', text: '還沒有工時紀錄' }));
+      if (!(s.entries || []).length) log.append(el('p', { class: 'hint', text: _t('還沒有工時紀錄') }));
       box.append(log);
       return box;
     }
 
     function timeForm(c, entry, prompt) {
       const mins = entry ? entry.minutes || 0 : 60;
-      const h = el('input', { class: 'input input-sm', type: 'number', min: '0', max: '24', value: String(Math.floor(mins / 60)), 'aria-label': '小時' });
-      const m = el('input', { class: 'input input-sm', type: 'number', min: '0', max: '59', step: '5', value: String(mins % 60), 'aria-label': '分鐘' });
+      const h = el('input', { class: 'input input-sm', type: 'number', min: '0', max: '24', value: String(Math.floor(mins / 60)), 'aria-label': _t('小時') });
+      const m = el('input', { class: 'input input-sm', type: 'number', min: '0', max: '59', step: '5', value: String(mins % 60), 'aria-label': _t('分鐘') });
       const day = el('input', { class: 'input input-sm', type: 'date', value: entry?.work_date || isoDay(now()) });
-      const note = el('input', { class: 'input input-sm kb-time-note-in', maxlength: '200', value: entry?.note || '', placeholder: '這段時間做了什麼？' });
-      const ok = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: entry ? '儲存' : '記錄' });
-      const skip = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: prompt ? '略過' : '取消' });
+      const note = el('input', { class: 'input input-sm kb-time-note-in', maxlength: '200', value: entry?.note || '', placeholder: _t('這段時間做了什麼？') });
+      const ok = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: entry ? _t('儲存') : _t('記錄') });
+      const skip = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: prompt ? _t('略過') : _t('取消') });
       skip.addEventListener('click', () => { timeOpen = editEntry = null; paint(); });
       ok.addEventListener('click', async () => {
         const minutes = (parseInt(h.value, 10) || 0) * 60 + (parseInt(m.value, 10) || 0);
-        if (minutes < 1) { toast('請輸入工時', true); return; }
+        if (minutes < 1) { toast(_t('請輸入工時'), true); return; }
         ok.disabled = true;
         timeOpen = editEntry = null;
         await call(entry ? `${base}/${c.id}/time/${entry.id}` : `${base}/${c.id}/time`,
@@ -2905,15 +2907,15 @@ const TTBoard = window.TTBoard = (() => {
       note.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); ok.click(); } });
       setTimeout(() => note.isConnected && (entry || timeOpen) && note.focus(), 40);
       return el('div', { class: 'kb-time-form is-edit' },
-        entry ? el('div', { class: 'kb-time-form-head', text: prompt ? `計時已停止：${fmtMin(entry.minutes)}。這段時間做了什麼？` : '修改這筆工時' }) : null,
-        h, el('span', { text: '時' }), m, el('span', { text: '分' }), day, note, skip, ok);
+        entry ? el('div', { class: 'kb-time-form-head', text: prompt ? _t("計時已停止：{0}。這段時間做了什麼？", fmtMin(entry.minutes)) : _t('修改這筆工時') }) : null,
+        h, el('span', { text: _t('時') }), m, el('span', { text: _t('分') }), day, note, skip, ok);
     }
 
     function comments(c) {
       const box = el('div', { class: 'kb-nav-comments' });
       (c.replies || []).forEach(r => box.append(cmt(r)));
-      if (!(c.replies || []).length) box.append(el('p', { class: 'hint', text: '還沒有留言' }));
-      box.append(newBox(c.id, '留言…'));
+      if (!(c.replies || []).length) box.append(el('p', { class: 'hint', text: _t('還沒有留言') }));
+      box.append(newBox(c.id, _t('留言…')));
       return box;
     }
 
@@ -2926,12 +2928,12 @@ const TTBoard = window.TTBoard = (() => {
       if (meInfo.people) {
         const who = el('div', { class: 'kb-nav-who' });
         const paintWho = () => {
-          const chip = s.assignee ? el('span', { class: 'kb-tree-who' }, TT.avatar(s.assignee, 18), el('span', { text: TT.nameOf(s.assignee) })) : el('span', { class: 'hint', text: '未指派' });
-          const pick = s.can_assign ? el('button', { class: 'kb-link-btn', type: 'button', html: svg('user') + `<span>${s.assignee ? '改派' : '指派'}</span>` }) : null;
-          const clear = s.can_assign && s.assignee ? el('button', { class: 'kb-comment-del', type: 'button', title: '取消指派', html: svg('x') }) : null;
+          const chip = s.assignee ? el('span', { class: 'kb-tree-who' }, TT.avatar(s.assignee, 18), el('span', { text: TT.nameOf(s.assignee) })) : el('span', { class: 'hint', text: _t('未指派') });
+          const pick = s.can_assign ? el('button', { class: 'kb-link-btn', type: 'button', html: svg('user') + `<span>${s.assignee ? _t('改派') : _t('指派')}</span>` }) : null;
+          const clear = s.can_assign && s.assignee ? el('button', { class: 'kb-comment-del', type: 'button', title: _t('取消指派'), html: svg('x') }) : null;
           clear?.addEventListener('click', () => put({ assignee: '' }));
           pick?.addEventListener('click', () => {
-            const inp = TT.mentionInput(el('input', { class: 'input input-sm', placeholder: '輸入姓名或帳號…' }), { onPick: p => put({ assignee: p.username }) });
+            const inp = TT.mentionInput(el('input', { class: 'input input-sm', placeholder: _t('輸入姓名或帳號…') }), { onPick: p => put({ assignee: p.username }) });
             inp.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); paintWho(); } });
             inp.addEventListener('blur', () => setTimeout(() => inp.isConnected && paintWho(), 200));
             who.replaceChildren(inp); inp.focus();
@@ -2939,27 +2941,27 @@ const TTBoard = window.TTBoard = (() => {
           who.replaceChildren(...[chip, clear, pick].filter(Boolean));
         };
         paintWho();
-        box.append(el('div', { class: 'kb-nav-field is-wide' }, el('span', { text: '負責' }), who));
+        box.append(el('div', { class: 'kb-nav-field is-wide' }, el('span', { text: _t('負責') }), who));
       }
       const prio = el('select', { class: 'select input-sm', disabled: !s.can_edit }, PRIORITIES.map(([v, l]) => el('option', { value: v, text: l, selected: v === (s.priority || 'normal') })));
       prio.addEventListener('change', () => put({ priority: prio.value }));
-      box.append(row('優先', prio));
+      box.append(row(_t('優先'), prio));
       const spans = kids(c.id).length > 0;              // its dates are its subtasks' span
       const date = key => {
         const inp = el('input', { class: 'input input-sm', type: 'date', value: (s[key] || '').slice(0, 10), disabled: !s.can_edit || spans,
-          title: spans ? '由下層子任務推算：改下層的日期' : '' });
+          title: spans ? _t('由下層子任務推算：改下層的日期') : '' });
         inp.addEventListener('change', () => put({ [key]: inp.value ? inp.value + (s[key]?.includes('T') ? s[key].slice(10) : '') : null }));
         return inp;
       };
-      box.append(row('開始', date('start_at')), row('到期', date('due_at')));
-      if (spans) box.append(el('span', { class: 'hint kb-nav-field is-wide', text: '開始／到期由下層子任務推算' }));
+      box.append(row(_t('開始'), date('start_at')), row(_t('到期'), date('due_at')));
+      if (spans) box.append(el('span', { class: 'hint kb-nav-field is-wide', text: _t('開始／到期由下層子任務推算') }));
       const est = el('input', { class: 'input input-sm', type: 'number', min: '0', max: '1000', step: '0.5', placeholder: '—', disabled: !s.can_edit,
         value: s.estimate_minutes ? String(+(s.estimate_minutes / 60).toFixed(2)) : '' });
       est.addEventListener('change', () => { const h = parseFloat(est.value); put({ estimate_minutes: Number.isFinite(h) && h > 0 ? Math.round(h * 60) : null }); });
-      box.append(row('預估（時）', est));
+      box.append(row(_t('預估（時）'), est));
       const sched = scheduleBlock({ key: `s:${c.id}`, item: { ...s, deps: s.deps || [] }, editable: !!s.can_edit,
-        onChange: body => { if (body.milestone && !s.due_at) { toast('里程碑需要到期日', true); return; } put(body); } });
-      box.append(el('div', { class: 'kb-nav-field is-wide' }, el('span', { text: '排程' }), sched.el));
+        onChange: body => { if (body.milestone && !s.due_at) { toast(_t('里程碑需要到期日'), true); return; } put(body); } });
+      box.append(el('div', { class: 'kb-nav-field is-wide' }, el('span', { text: _t('排程') }), sched.el));
       return box;
     }
 
@@ -2967,59 +2969,59 @@ const TTBoard = window.TTBoard = (() => {
       const s = c.task;
       const text = c.body && c.body.trim() !== (s.title || '').trim() ? c.body : '';
       if (editDesc === c.id) {
-        const ta = el('textarea', { class: 'textarea kb-nav-reply', rows: '4', placeholder: '細節、步驟、注意事項…' });
+        const ta = el('textarea', { class: 'textarea kb-nav-reply', rows: '4', placeholder: _t('細節、步驟、注意事項…') });
         ta.value = text;
         if (meInfo.people) TT.mentionInput(ta);
-        const ok = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: '儲存' });
-        const no = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '取消' });
+        const ok = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: _t('儲存') });
+        const no = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: _t('取消') });
         no.addEventListener('click', () => { editDesc = null; paint(); });
         ok.addEventListener('click', async () => { ok.disabled = true; editDesc = null; await call(`${base}/${c.id}`, { method: 'PUT', body: { body: ta.value } }); });
         ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ok.click(); } if (e.key === 'Escape') { e.stopPropagation(); no.click(); } });
         setTimeout(() => ta.isConnected && ta.focus(), 30);
         return el('div', { class: 'kb-nav-edit' }, ta, el('div', { class: 'kb-nav-edit-btns' }, no, ok));
       }
-      const ed = c.can_edit_body ? el('button', { class: 'kb-link-btn', type: 'button', html: svg('edit') + `<span>${text ? '修改說明' : '加說明'}</span>` }) : null;
+      const ed = c.can_edit_body ? el('button', { class: 'kb-link-btn', type: 'button', html: svg('edit') + `<span>${text ? _t('修改說明') : _t('加說明')}</span>` }) : null;
       ed?.addEventListener('click', () => { editDesc = c.id; paint(); });
       return el('div', { class: 'kb-nav-descbox' },
-        text ? el('p', { class: 'kb-nav-desc', text }) : (ed ? null : el('p', { class: 'hint', text: '沒有說明' })),
+        text ? el('p', { class: 'kb-nav-desc', text }) : (ed ? null : el('p', { class: 'hint', text: _t('沒有說明') })),
         c.images?.length ? thumbs(c.images, { size: 'sm' }) : null, ed);
     }
 
     function detailColumn(c, level, colIndex) {
       const s = c.task;
-      const stSel = el('select', { class: 'select kb-nav-status', disabled: !s.can_update, title: '狀態' },
-        ...STATUSES.filter(x => !['recurring', 'overdue'].includes(x.key)).map(x => el('option', { value: x.key, text: `${x.label}（${x.zh}）`, selected: x.key === s.status })));
+      const stSel = el('select', { class: 'select kb-nav-status', disabled: !s.can_update, title: _t('狀態') },
+        ...STATUSES.filter(x => !['recurring', 'overdue'].includes(x.key)).map(x => el('option', { value: x.key, text: stName(x), selected: x.key === s.status })));
       stSel.addEventListener('change', () => {
-        if (stSel.value === 'complete' && kids(c.id).some(k => !CLOSED.has(k.task.status)) && !confirm('底下還有子任務沒完成，仍要改成 Complete？')) { stSel.value = s.status; return; }
+        if (stSel.value === 'complete' && kids(c.id).some(k => !CLOSED.has(k.task.status)) && !confirm(_t('底下還有子任務沒完成，仍要改成 Complete？'))) { stSel.value = s.status; return; }
         call(`${base}/${c.id}/task`, { method: 'PUT', body: { status: stSel.value } });
       });
       const tm = timing({ status: s.status, due_at: s.due_at });
-      const del = c.can_delete ? el('button', { class: 'kb-comment-del', type: 'button', title: '刪除這個子任務（含下層子任務、工時與留言）', html: svg('trash') }) : null;
+      const del = c.can_delete ? el('button', { class: 'kb-comment-del', type: 'button', title: _t('刪除這個子任務（含下層子任務、工時與留言）'), html: svg('trash') }) : null;
       del?.addEventListener('click', () => {
         const n = kids(c.id).length;
-        if (confirm(`刪除「${s.title}」？` + (n ? `\n底下 ${n} 個子任務也會一起刪除。` : ''))) { path = path.slice(0, colIndex - 1); call(`${base}/${c.id}`, { method: 'DELETE' }); }
+        if (confirm(_t("刪除「{0}」？", s.title) + (n ? _t("\n底下 {0} 個子任務也會一起刪除。", n) : ''))) { path = path.slice(0, colIndex - 1); call(`${base}/${c.id}`, { method: 'DELETE' }); }
       });
       let title;
       if (s.can_edit) {
-        title = el('input', { class: 'input kb-nav-title-in', value: s.title || '', maxlength: '200', title: '子任務名稱（Enter 儲存）' });
+        title = el('input', { class: 'input kb-nav-title-in', value: s.title || '', maxlength: '200', title: _t('子任務名稱（Enter 儲存）') });
         title.addEventListener('change', () => {
           const v = title.value.trim();
           if (v && v !== s.title) call(`${base}/${c.id}/task`, { method: 'PUT', body: { title: v } }); else title.value = s.title;
         });
         title.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); title.blur(); } });
       } else title = el('h4', { class: 'kb-nav-title', text: s.title });
-      const more = el('button', { class: 'kb-link-btn', type: 'button', title: '附件、時間、提醒等完整設定', html: svg(s.can_edit ? 'edit' : 'external') + `<span>${s.can_edit ? '更多設定' : '檢視'}</span>` });
+      const more = el('button', { class: 'kb-link-btn', type: 'button', title: _t('附件、時間、提醒等完整設定'), html: svg(s.can_edit ? 'edit' : 'external') + `<span>${s.can_edit ? _t('更多設定') : _t('檢視')}</span>` });
       more.addEventListener('click', () => openSubtaskEditor(cardNow(), c, () => reload()));
       return el('section', { class: 'kb-nav-col', style: { '--c': (STATUS[s.status] || STATUS.new).color } },
-        el('div', { class: 'kb-nav-kicker' }, el('span', { text: `L${level} // 子任務` }), el('span', { class: 'spacer' }), more, del),
+        el('div', { class: 'kb-nav-kicker' }, el('span', { text: _t("L{0} // 子任務", level) }), el('span', { class: 'spacer' }), more, del),
         title,
         el('div', { class: 'kb-nav-strow' }, stSel,
           tm.due && tm.due !== 'later' ? el('span', { class: `kb-nav-due due-${tm.due}`, text: tm.dueText }) : null),
         fieldsBlock(c),
-        el('div', { class: 'kb-nav-sec', text: '說明' }), descBlock(c),
-        el('div', { class: 'kb-nav-sec', text: '工時紀錄' }), timeBlock(c),
-        el('div', { class: 'kb-nav-sec', text: `留言（${(c.replies || []).length}）` }), comments(c),
-        level < NAV_MAX ? el('div', { class: 'kb-nav-sec', text: `下層子任務（L${level + 1}）` }) : null,
+        el('div', { class: 'kb-nav-sec', text: _t('說明') }), descBlock(c),
+        el('div', { class: 'kb-nav-sec', text: _t('工時紀錄') }), timeBlock(c),
+        el('div', { class: 'kb-nav-sec', text: _t("留言（{0}）", (c.replies || []).length) }), comments(c),
+        level < NAV_MAX ? el('div', { class: 'kb-nav-sec', text: _t("下層子任務（L{0}）", level + 1) }) : null,
         level < NAV_MAX ? childList(c.id, level, colIndex) : null);
     }
 

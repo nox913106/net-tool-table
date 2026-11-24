@@ -34,29 +34,29 @@
     let drag = null;
 
     // ---------------------------------------------------------------- toolbar
-    const linkSw = board ? el('label', { class: 'switch gantt-link', title: '開啟：顯示與看板相同的卡片（篩選、人員專注、標籤），點長條會在看板上指出卡片；關閉：甘特圖獨立篩選' },
-      el('input', { type: 'checkbox', checked: linked }), el('span', { class: 'track' }), el('span', { text: '與看板連動' })) : null;
-    const zoomSeg = el('div', { class: 'segmented', role: 'group', title: '時間刻度' },
-      ...[['day', '日'], ['week', '週'], ['month', '月']].map(([v, l]) => {
+    const linkSw = board ? el('label', { class: 'switch gantt-link', title: _t('開啟：顯示與看板相同的卡片（篩選、人員專注、標籤），點長條會在看板上指出卡片；關閉：甘特圖獨立篩選') },
+      el('input', { type: 'checkbox', checked: linked }), el('span', { class: 'track' }), el('span', { text: _t('與看板連動') })) : null;
+    const zoomSeg = el('div', { class: 'segmented', role: 'group', title: _t('時間刻度') },
+      ...[['day', _t('日')], ['week', _t('週')], ['month', _t('月')]].map(([v, l]) => {
         const b = el('button', { type: 'button', dataset: { v }, text: l });
         b.addEventListener('click', () => { zoom = v; TT.store.set('gantt-zoom', v); paint(true); });
         return b;
       }));
-    const search = el('input', { class: 'input input-sm gantt-q', type: 'search', placeholder: '搜尋卡片或子任務', 'aria-label': '搜尋' });
-    const who = el('select', { class: 'select input-sm gantt-who', 'aria-label': '顯示誰的工作' },
-      el('option', { value: 'all', text: '全部' }), el('option', { value: 'mine', text: '只看我的' }));
-    const hideSw = el('label', { class: 'switch' }, el('input', { type: 'checkbox', checked: solo.hideClosed }), el('span', { class: 'track' }), el('span', { text: '隱藏完成／取消' }));
+    const search = el('input', { class: 'input input-sm gantt-q', type: 'search', placeholder: _t('搜尋卡片或子任務'), 'aria-label': _t('搜尋') });
+    const who = el('select', { class: 'select input-sm gantt-who', 'aria-label': _t('顯示誰的工作') },
+      el('option', { value: 'all', text: _t('全部') }), el('option', { value: 'mine', text: _t('只看我的') }));
+    const hideSw = el('label', { class: 'switch' }, el('input', { type: 'checkbox', checked: solo.hideClosed }), el('span', { class: 'track' }), el('span', { text: _t('隱藏完成／取消') }));
     const soloTools = el('span', { class: 'gantt-solo-tools' }, search, who, hideSw);
-    const expand = el('button', { class: 'btn btn-sm', type: 'button', html: svg('chevron-down') + '全部展開' });
-    const collapse = el('button', { class: 'btn btn-sm', type: 'button', html: svg('chevron-right') + '全部收合' });
-    const todayBtn = el('button', { class: 'btn btn-sm', type: 'button', html: svg('clock') + '今天' });
+    const expand = el('button', { class: 'btn btn-sm', type: 'button', html: svg('chevron-down') + _t('全部展開') });
+    const collapse = el('button', { class: 'btn btn-sm', type: 'button', html: svg('chevron-right') + _t('全部收合') });
+    const todayBtn = el('button', { class: 'btn btn-sm', type: 'button', html: svg('clock') + _t('今天') });
     const legend = el('div', { class: 'gantt-legend' },
-      el('span', { class: 'gl gl-ms', text: '里程碑' }), el('span', { class: 'gl gl-dep', text: '前置相依' }),
-      el('span', { class: 'gl gl-bad', text: '排程衝突' }), el('span', { class: 'gl gl-base', text: '基準線' }),
-      el('span', { class: 'gl gl-start', text: '實際開始' }), el('span', { class: 'gl gl-late', text: '逾期' }),
-      el('span', { class: 'hint', text: '拖曳長條改日期，拖邊緣改開始／到期' }));
-    const undatedSw = el('label', { class: 'switch', title: '沒有開始日、到期日，子任務也都沒有日期的卡片不列出' },
-      el('input', { type: 'checkbox', checked: hideUndated }), el('span', { class: 'track' }), el('span', { text: '隱藏未排日期' }));
+      el('span', { class: 'gl gl-ms', text: _t('里程碑') }), el('span', { class: 'gl gl-dep', text: _t('前置相依') }),
+      el('span', { class: 'gl gl-bad', text: _t('排程衝突') }), el('span', { class: 'gl gl-base', text: _t('基準線') }),
+      el('span', { class: 'gl gl-start', text: _t('實際開始') }), el('span', { class: 'gl gl-late', text: _t('逾期') }),
+      el('span', { class: 'hint', text: _t('拖曳長條改日期，拖邊緣改開始／到期') }));
+    const undatedSw = el('label', { class: 'switch', title: _t('沒有開始日、到期日，子任務也都沒有日期的卡片不列出') },
+      el('input', { type: 'checkbox', checked: hideUndated }), el('span', { class: 'track' }), el('span', { text: _t('隱藏未排日期') }));
     undatedSw.querySelector('input').addEventListener('change', e => { hideUndated = e.target.checked; TT.store.set('gantt-hide-undated', hideUndated); paint(); });
     const tools = el('div', { class: 'gantt-tools' }, linkSw, soloTools, undatedSw, el('span', { class: 'spacer' }), expand, collapse, todayBtn, zoomSeg);
     const well = el('div', { class: 'gantt-well', tabindex: '-1' });
@@ -158,7 +158,7 @@
       const months = [], weeks = [], dcells = [];
       for (let n = lo; n <= hi; n++) {
         const d = new Date(n * 864e5), s = isoOf(n), dow = d.getUTCDay();
-        if (!months.length || s.endsWith('-01')) months.push({ n: 0, label: zoom === 'month' ? `${+s.slice(5, 7)} 月` : `${s.slice(0, 4)} 年 ${+s.slice(5, 7)} 月` });
+        if (!months.length || s.endsWith('-01')) months.push({ n: 0, label: zoom === 'month' ? _t("{0} 月", +s.slice(5, 7)) : _t("{0} 年 {1} 月", s.slice(0, 4), +s.slice(5, 7)) });
         months[months.length - 1].n++;
         if (!weeks.length || dow === 1) {
           const t = new Date(d); t.setUTCDate(t.getUTCDate() + 3 - ((dow + 6) % 7));
@@ -201,23 +201,19 @@
         const bs = dayNum(x.base_start || x.base_due), be = dayNum(x.base_due || x.base_start);
         const base = bs != null ? `<span class="g-base" style="left:${(bs - lo) * dw}px;width:${(be - bs + 1) * dw}px"></span>` : '';
         const sa = dayNum(x.started_at);
-        const started = sa != null ? `<span class="g-start" style="left:${(sa - lo) * dw}px" title="實際開始 ${md(x.started_at)}"></span>` : '';
-        const caret = x.kids.length ? `<button class="g-caret" type="button" data-toggle="${x.key}" aria-expanded="${open.has(x.key)}" aria-label="${open.has(x.key) ? '收合' : '展開'}">${open.has(x.key) ? '▾' : '▸'}</button>` : '<span class="g-caret"></span>';
+        const started = sa != null ? _t("<span class=\"g-start\" style=\"left:{0}px\" title=\"實際開始 {1}\"></span>", (sa - lo) * dw, md(x.started_at)) : '';
+        const caret = x.kids.length ? `<button class="g-caret" type="button" data-toggle="${x.key}" aria-expanded="${open.has(x.key)}" aria-label="${open.has(x.key) ? _t('收合') : _t('展開')}">${open.has(x.key) ? '▾' : '▸'}</button>` : '<span class="g-caret"></span>';
         return `<div class="g-row g-l${x.depth}${hot && (hot === x.key) ? ' is-hot' : ''}" data-key="${x.key}">
           <div class="g-cell" style="--ind:${x.depth - 1}">${caret}<span class="g-lv">L${x.depth}</span>
             <button class="g-name" type="button" data-open="${x.key}" title="${esc(x.title)}">${x.milestone ? '◆ ' : ''}${esc(x.title)}</button>
             <span class="g-who">${esc(x.who || '')}</span>
-            <span class="g-st" style="--c:${lt ? 'var(--danger)' : st.color}">${lt ? '逾期' : x.milestone ? '里程碑' : esc(st.zh || '')}</span></div>
+            <span class="g-st" style="--c:${lt ? 'var(--danger)' : st.color}">${lt ? _t('逾期') : x.milestone ? _t('里程碑') : esc(st.zh || '')}</span></div>
           <div class="g-track" style="width:${W}px">${base}${started}${bar}</div></div>`;
       }).join('');
       const unscheduled = list.filter(x => span(x)[0] == null).length;
-      well.innerHTML = `<div class="gantt" style="--dw:${dw}px;--g-bg:${bg};--g-bgx:${bgOffset}px">
-        <div class="g-head"><div class="g-corner"><span>工作項目</span><span class="g-who">負責</span><span>狀態</span></div>${scale}</div>
-        <div class="g-body">${rows || '<p class="hint g-empty">沒有可顯示的卡片</p>'}
-          <span class="g-today" style="left:calc(var(--g-lw) + ${(T - lo) * dw + dw / 2 - 1}px)"></span>
-          <svg class="g-deps" width="${W}" height="${list.length * RH}"></svg></div></div>`;
+      well.innerHTML = _t("<div class=\"gantt\" style=\"--dw:{0}px;--g-bg:{1};--g-bgx:{2}px\">\n        <div class=\"g-head\"><div class=\"g-corner\"><span>工作項目</span><span class=\"g-who\">負責</span><span>狀態</span></div>{3}</div>\n        <div class=\"g-body\">{4}\n          <span class=\"g-today\" style=\"left:calc(var(--g-lw) + {5}px)\"></span>\n          <svg class=\"g-deps\" width=\"{6}\" height=\"{7}\"></svg></div></div>", dw, bg, bgOffset, scale, rows || _t('<p class="hint g-empty">沒有可顯示的卡片</p>'), (T - lo) * dw + dw / 2 - 1, W, list.length * RH);
       host.querySelector('.gantt-count')?.remove();
-      tools.append(el('span', { class: 'hint gantt-count', text: `${list.filter(x => x.kind === 't').length} 張卡片${unscheduled ? `，${unscheduled} 項未排日期` : ''}` }));
+      tools.append(el('span', { class: 'hint gantt-count', text: _t("{0} 張卡片{1}", list.filter(x => x.kind === 't').length, unscheduled ? _t("，{0} 項未排日期", unscheduled) : '') }));
       drawDeps(list, at);
       if (center != null) well.scrollLeft = (center - lo) * dw - well.clientWidth / 2 + lw();
     }
@@ -250,7 +246,7 @@
           ? `M${x1} ${y1} H${x1 + 6} V${y2} H${x2 - 4}`
           : `M${x1} ${y1} H${x1 + 6} V${y2 + (y2 > y1 ? -RH / 2 : RH / 2)} H${x2 - 10} V${y2} H${x2 - 4}`;
         const cls = `${bad ? 'bad' : ''}${lit ? ' hot' : ''}`;
-        out.push(`<path class="${cls}" d="${path}"><title>${esc(real.title)} → ${esc(x.title)}${d.lag ? `（間隔 ${d.lag} 天）` : ''}${bad ? '：開始得比前置任務完成還早' : ''}</title></path>
+        out.push(`<path class="${cls}" d="${path}"><title>${esc(real.title)} → ${esc(x.title)}${d.lag ? _t("（間隔 {0} 天）", d.lag) : ''}${bad ? _t('：開始得比前置任務完成還早') : ''}</title></path>
                   <polygon class="${cls}" points="${x2 - 5},${y2 - 4} ${x2 + 1},${y2} ${x2 - 5},${y2 + 4}"/>`);
       }));
       svgEl.innerHTML = out.join('');
@@ -299,13 +295,13 @@
       const x = find(key);
       if (!x) return;
       const [a, b] = span(x);
-      const deps = (x.deps || []).map(d => d.title + (d.lag ? `（+${d.lag} 天）` : ''));
+      const deps = (x.deps || []).map(d => d.title + (d.lag ? _t("（+{0} 天）", d.lag) : ''));
       tip.innerHTML = `<b>${x.milestone ? '◆ ' : ''}${esc(x.title)}</b>
-        <div>${x.milestone ? md(x.due) : `${md(isoOf(a))} – ${md(isoOf(b))}（${b - a + 1} 天）`} · ${esc(statusOf(x.status).zh || '')} · ${pct(x)}%${x.who ? ' · ' + esc(x.who) : ''}</div>
+        <div>${x.milestone ? md(x.due) : _t("{0} – {1}（{2} 天）", md(isoOf(a)), md(isoOf(b)), b - a + 1)} · ${esc(statusOf(x.status).zh || '')} · ${pct(x)}%${x.who ? ' · ' + esc(x.who) : ''}</div>
         ${x.base_due || x.base_start ? `<div>${esc(TTBoard.baselineText({ ...x, due_at: x.due }))}</div>` : ''}
-        ${x.started_at ? `<div>實際開始 ${md(x.started_at)}</div>` : ''}
-        ${deps.length ? `<div>前置：${esc(deps.join('、'))}</div>` : ''}
-        ${x.kids.length ? '<div class="hint">期間由下層推算 · 點一下開啟</div>' : x.canEdit && !span(x)[2] ? '<div class="hint">拖曳改日期 · 點一下開啟</div>' : '<div class="hint">點一下開啟</div>'}`;
+        ${x.started_at ? _t("<div>實際開始 {0}</div>", md(x.started_at)) : ''}
+        ${deps.length ? _t("<div>前置：{0}</div>", esc(deps.join('、'))) : ''}
+        ${x.kids.length ? _t('<div class="hint">期間由下層推算 · 點一下開啟</div>') : x.canEdit && !span(x)[2] ? _t('<div class="hint">拖曳改日期 · 點一下開啟</div>') : _t('<div class="hint">點一下開啟</div>')}`;
       tip.hidden = false;
       const r = tip.getBoundingClientRect();
       tip.style.left = Math.min(innerWidth - r.width - 8, e.clientX + 14) + 'px';
@@ -363,7 +359,7 @@
       try {
         if (x.kind === 't') await TTBoard.save(x.id, body);
         else await api(`/api/tasks/${x.cardId}/comments/${x.id}/task`, { method: 'PUT', body });
-        toast(`「${x.title}」改為 ${x.milestone ? md(body.due_at) : `${md(body.start_at || x.start || body.due_at)} – ${md(body.due_at || x.due || body.start_at)}`}`);
+        toast(_t("「{0}」改為 {1}", x.title, x.milestone ? md(body.due_at) : `${md(body.start_at || x.start || body.due_at)} – ${md(body.due_at || x.due || body.start_at)}`));
         const newEnd = x.milestone ? b + delta : mode === 'move' ? b + delta : mode === 'end' ? Math.max(a, b + delta) : b;
         if (newEnd > b) await offerShift(x, newEnd, newEnd - b);
         await refresh(true);
@@ -381,11 +377,11 @@
       const queue = [...direct];
       while (queue.length) { const y = queue.shift(); succ(y.key).forEach(z => { if (!chain.has(z.key) && z.key !== x.key) { chain.set(z.key, z); queue.push(z); } }); }
       const list = [...chain.values()];
-      const names = list.slice(0, 5).map(y => `「${y.title}」`).join('、') + (list.length > 5 ? ` 等 ${list.length} 項` : '');
-      if (!confirm(`「${x.title}」延後了 ${days} 天，後續 ${list.length} 項會比它更早開始：\n${names}\n\n要把它們一起順延 ${days} 天嗎？`)) return;
+      const names = list.slice(0, 5).map(y => `「${y.title}」`).join('、') + (list.length > 5 ? _t(" 等 {0} 項", list.length) : '');
+      if (!confirm(_t("「{0}」延後了 {1} 天，後續 {2} 項會比它更早開始：\n{3}\n\n要把它們一起順延 {4} 天嗎？", x.title, days, list.length, names, days))) return;
       try {
         const r = await api('/api/tasks/shift', { method: 'POST', body: { keys: list.filter(y => !y.kids.length || y.kind === 't').map(y => y.key), days } });
-        toast(`已順延 ${r.moved.length} 項` + (r.skipped.length ? `；${r.skipped.length} 項你沒有權限修改，未順延` : ''));
+        toast(_t("已順延 {0} 項", r.moved.length) + (r.skipped.length ? _t("；{0} 項你沒有權限修改，未順延", r.skipped.length) : ''));
       } catch (e) { toast(e.message, true); }
     }
 

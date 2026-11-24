@@ -167,6 +167,8 @@ async def init_db():
         """)
         cursor = await db.execute("PRAGMA table_info(users)")
         user_cols = {row[1] for row in await cursor.fetchall()}
+        if "lang" not in user_cols:                       # the person's interface language (zh-TW | en; NULL = site default)
+            await db.execute("ALTER TABLE users ADD COLUMN lang TEXT")
         if "must_change_password" not in user_cols:
             await db.execute("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0")
         if "scope_departments" not in user_cols:          # departments a department manager manages (JSON list)

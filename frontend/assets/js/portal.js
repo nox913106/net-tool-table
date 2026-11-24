@@ -38,6 +38,7 @@
     }
     state.me = await mePending;
     const s = state.settings;
+    TTI18n.site(s.language || 'zh-TW');
     TT.applyAppearance(s);
     applyBranding();
     setupChrome();
@@ -47,7 +48,7 @@
       indexTree(tree);
       state.quickLinks = links;
     } catch (e) {
-      $('view').replaceChildren(emptyState('⚠️', '無法讀取資料', e.message));
+      $('view').replaceChildren(emptyState('⚠️', _t('無法讀取資料'), e.message));
       return;
     }
 
@@ -108,12 +109,12 @@
     const s = state.settings;
     document.title = s.site_title || 'Tool Table';
     $('brand-title').textContent = s.site_title || 'Tool Table';
-    $('brand-subtitle').textContent = s.site_subtitle || '';
+    $('brand-subtitle').textContent = _t(s.site_subtitle || '');
     $('brand-subtitle').hidden = !s.site_subtitle;
     $('brand-mark').replaceChildren(tile({ icon: s.favicon || '', name: s.site_title || 'T', size: 36 }));
     if (s.favicon) TT.setFavicon(s.favicon);
-    $('search-trigger-text').textContent = s.search_placeholder || '搜尋…';
-    $('palette-input').placeholder = s.search_placeholder || '搜尋…';
+    $('search-trigger-text').textContent = _t(s.search_placeholder || '搜尋…');
+    $('palette-input').placeholder = _t(s.search_placeholder || '搜尋…');
     $('admin-btn').hidden = !s.show_admin_button || !state.me?.is_admin;
   }
 
@@ -130,7 +131,7 @@
     const paint = () => {
       const c = collapsed();
       btn.innerHTML = svg(phone.matches ? 'menu' : c ? 'sidebar-open' : 'sidebar');
-      btn.title = phone.matches ? '開啟選單' : `${c ? '展開' : '收合'}側邊欄（Ctrl+B）`;
+      btn.title = phone.matches ? _t('開啟選單') : _t("{0}側邊欄（Ctrl+B）", c ? _t('展開') : _t('收合'));
       btn.setAttribute('aria-expanded', String(phone.matches ? document.body.classList.contains('nav-open') : !c));
     };
     const setCollapsed = (v, save = true) => {
@@ -180,7 +181,7 @@
     const paintTheme = () => {
       const pref = TT.themePref(state.settings);
       themeBtn.innerHTML = svg(pref === 'auto' ? 'monitor' : pref === 'light' ? 'sun' : 'moon');
-      themeBtn.title = `主題：${{ auto: '跟隨系統', light: '淺色', dark: '深色' }[pref]}（點擊切換）`;
+      themeBtn.title = _t("主題：{0}（點擊切換）", { auto: _t('跟隨系統'), light: _t('淺色'), dark: _t('深色') }[pref]);
     };
     themeBtn.addEventListener('click', () => { TT.cycleTheme(state.settings); paintTheme(); });
     paintTheme();
@@ -189,9 +190,10 @@
     const paintPerf = () => {
       const low = document.documentElement.dataset.perf === 'low';
       perfBtn.innerHTML = svg(low ? 'zap-off' : 'zap');
-      perfBtn.title = low ? '省資源模式（點擊恢復動畫效果）' : '一般模式（點擊切換省資源模式）';
+      perfBtn.title = low ? _t('省資源模式（點擊恢復動畫效果）') : _t('一般模式（點擊切換省資源模式）');
     };
     perfBtn.addEventListener('click', () => { TT.togglePerf(); paintPerf(); });
+    themeBtn.before(TT.langButton());
     paintPerf();
 
     const installBtn = $('install-btn');
@@ -243,7 +245,7 @@
     const i = list.indexOf(id);
     if (i >= 0) list.splice(i, 1); else list.push(id);
     store.set('favorites', list);
-    TT.toast(i >= 0 ? '已從最愛移除' : '已加入最愛 ★');
+    TT.toast(i >= 0 ? _t('已從最愛移除') : _t('已加入最愛 ★'));
     buildNav();
     // refresh views that show favourites
     if (/^#\/(favorites)?$/.test(location.hash || '#/') || !location.hash) route();
@@ -263,19 +265,19 @@
   function buildNav() {
     const s = state.settings;
     const items = [
-      { href: '#/', icon: 'home', label: '首頁' },
-      s.enable_favorites !== false && { href: '#/favorites', icon: 'star', label: '我的最愛', count: favorites().length },
-      s.enable_recent !== false && { href: '#/recent', icon: 'history', label: '最近使用' },
-      boardOn() && { href: '#/mine', icon: 'user', label: '我的工作', mine: true },
-      boardOn() && { href: '#/board', icon: 'kanban', label: '待辦看板', board: true },
-      boardOn() && { href: '#/projects', icon: 'layout', label: '專案總覽', projects: true },
+      { href: '#/', icon: 'home', label: _t('首頁') },
+      s.enable_favorites !== false && { href: '#/favorites', icon: 'star', label: _t('我的最愛'), count: favorites().length },
+      s.enable_recent !== false && { href: '#/recent', icon: 'history', label: _t('最近使用') },
+      boardOn() && { href: '#/mine', icon: 'user', label: _t('我的工作'), mine: true },
+      boardOn() && { href: '#/board', icon: 'kanban', label: _t('待辦看板'), board: true },
+      boardOn() && { href: '#/projects', icon: 'layout', label: _t('專案總覽'), projects: true },
     ].filter(Boolean);
     $('nav-main').replaceChildren(...items.map(it =>
       el('a', { class: 'nav-item', href: it.href, title: it.label, dataset: { route: it.href } },
         el('span', { class: 'nav-icon', html: svg(it.icon) }),
         el('span', { class: 'nav-label', text: it.label }),
         it.count ? el('span', { class: 'badge', text: it.count }) : null,
-        it.board ? el('span', { class: 'badge badge-alert', dataset: { boardBadge: '' }, hidden: true, title: '需要注意的待辦' }) : null,
+        it.board ? el('span', { class: 'badge badge-alert', dataset: { boardBadge: '' }, hidden: true, title: _t('需要注意的待辦') }) : null,
         it.mine ? el('span', { class: 'badge badge-alert', dataset: { mineBadge: '' }, hidden: true }) : null,
         it.projects ? el('span', { class: 'badge badge-alert', dataset: { projBadge: '' }, hidden: true }) : null)));
     paintNavCounts();
@@ -289,10 +291,10 @@
       const mine = document.querySelector('[data-mine-badge]'), proj = document.querySelector('[data-proj-badge]');
       try {
         const c = await TTProjects.mineCounts();
-        if (mine) { const n = c.late + c.today; mine.hidden = !n; mine.textContent = n; mine.title = `${c.late} 項逾期、${c.today} 項今天到期`; }
+        if (mine) { const n = c.late + c.today; mine.hidden = !n; mine.textContent = n; mine.title = _t("{0} 項逾期、{1} 項今天到期", c.late, c.today); }
         const a = await TTBoard.projectAnalysis();
         const bad = a.projects.filter(x => x.problem_items || (x.slip || 0) > 0).length;
-        if (proj) { proj.hidden = !bad; proj.textContent = bad; proj.title = `${bad} 個專案落後或有問題`; }
+        if (proj) { proj.hidden = !bad; proj.textContent = bad; proj.title = _t("{0} 個專案落後或有問題", bad); }
       } catch (e) { /* not signed in yet */ }
     }, 400);
   }
@@ -346,10 +348,10 @@
     const tree = $('tree');
     tree.replaceChildren(render(publicRoots(), 0));
     $('tree-section').hidden = !tree.childElementCount;
-    $('tree-title').textContent = personalOn() ? '公用區' : '分類';
+    $('tree-title').textContent = personalOn() ? _t('公用區') : _t('分類');
     $('tree-personal').replaceChildren(render(personalRoots(), 0, true));     // my own links: always listed
     if (personalOn() && !personalRoots().length)
-      $('tree-personal').append(el('p', { class: 'nav-empty', text: '只有你看得到的連結，按 ＋ 新增' }));
+      $('tree-personal').append(el('p', { class: 'nav-empty', text: _t('只有你看得到的連結，按 ＋ 新增') }));
     $('personal-section').hidden = !personalOn();
   }
 
@@ -396,7 +398,7 @@
   function buildFilters() {
     const list = quickFilters();
     $('filters-section').hidden = !list.length;
-    $('filters-title').textContent = state.settings.quick_filters_title || '快速篩選';
+    $('filters-title').textContent = _t(state.settings.quick_filters_title || '快速篩選');
     $('filters').replaceChildren(...list.map(f =>
       el('a', { class: 'chip filter-chip', href: `#/icon/${encodeURIComponent(f.icon)}`, dataset: { icon: f.icon } },
         tile({ icon: f.icon, name: f.label, size: 18 }), f.label)));
@@ -449,7 +451,7 @@
     if (state.settings.enable_favorites === false) return null;
     const b = el('button', {
       class: 'fav-btn' + (isFav(n.id) ? ' on' : ''), type: 'button', dataset: { id: n.id },
-      title: '加入 / 移除最愛', 'aria-label': '加入或移除最愛', html: svg('star'),
+      title: _t('加入 / 移除最愛'), 'aria-label': _t('加入或移除最愛'), html: svg('star'),
     });
     b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); toggleFav(n.id); });
     return b;
@@ -468,7 +470,7 @@
       dataset: folder ? { dropFolder: n.id } : program ? { node: n.id, launch: n.id } : { node: n.id },
       target: !folder && !program && newTabFor(n) ? '_blank' : null,
       rel: !folder ? 'noopener' : null,
-      title: !folder ? [n.name, n.description, program ? `本機程式：${where}` : where].filter(Boolean).join('\n') : n.name,
+      title: !folder ? [n.name, n.description, program ? _t("本機程式：{0}", where) : where].filter(Boolean).join('\n') : n.name,
     });
     if (color) a.style.setProperty('--card-color', color);
 
@@ -480,7 +482,7 @@
       const p = pathOf(n).map(x => x.name).join(' › ');
       if (p) body.append(el('div', { class: 'card-meta', text: p }));
     } else if (program && s.show_link_host !== false) {
-      body.append(el('div', { class: 'card-meta', text: `本機程式 · ${where.split(/[\\/]/).pop()}` }));
+      body.append(el('div', { class: 'card-meta', text: _t("本機程式 · {0}", where.split(/[\\/]/).pop()) }));
     } else if (!folder && s.show_link_host !== false && hostOf(n.url)) {
       body.append(el('div', { class: 'card-meta', text: hostOf(n.url) }));
     }
@@ -488,7 +490,7 @@
       const kids = n.children || [];
       const folders = kids.filter(isFolder).length;
       const links = kids.length - folders;
-      body.append(el('div', { class: 'card-meta', text: [folders && `${folders} 個資料夾`, links && `${links} 個連結`].filter(Boolean).join(' · ') || '空資料夾' }));
+      body.append(el('div', { class: 'card-meta', text: [folders && _t("{0} 個資料夾", folders), links && _t("{0} 個連結", links)].filter(Boolean).join(' · ') || _t('空資料夾') }));
     }
     a.append(body);
 
@@ -499,7 +501,7 @@
       }
     }
     if (n.personal) {
-      const ed = el('button', { class: 'card-edit', type: 'button', title: '編輯', 'aria-label': `編輯「${n.name}」`, html: svg('edit') });
+      const ed = el('button', { class: 'card-edit', type: 'button', title: _t('編輯'), 'aria-label': _t("編輯「{0}」", n.name), html: svg('edit') });
       ed.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); personalDialog({ node: n }); });
       a.append(ed);
     }
@@ -538,8 +540,8 @@
   }
 
   function viewToggle(onChange) {
-    const seg = el('div', { class: 'segmented', role: 'group', 'aria-label': '顯示方式' });
-    [['grid', '格狀'], ['list', '清單']].forEach(([m, label]) => {
+    const seg = el('div', { class: 'segmented', role: 'group', 'aria-label': _t('顯示方式') });
+    [['grid', _t('格狀')], ['list', _t('清單')]].forEach(([m, label]) => {
       const b = el('button', { type: 'button', 'aria-pressed': String(viewMode() === m), title: label, html: svg(m) + `<span class="seg-label">${label}</span>` });
       b.addEventListener('click', () => { state.view = m; store.set('view', m); onChange(); });
       seg.append(b);
@@ -548,8 +550,8 @@
   }
 
   function breadcrumb(items) {
-    const nav = el('nav', { class: 'crumbs', 'aria-label': '路徑' },
-      el('a', { href: '#/', html: svg('home') + '<span>首頁</span>' }));
+    const nav = el('nav', { class: 'crumbs', 'aria-label': _t('路徑') },
+      el('a', { href: '#/', html: svg('home') + _t('<span>首頁</span>') }));
     items.forEach((it, i) => {
       nav.append(el('span', { class: 'crumb-sep', html: svg('chevron-right') }));
       const last = i === items.length - 1;
@@ -577,7 +579,7 @@
   // ======================================================================
   function greeting() {
     const h = new Date().getHours();
-    return h < 5 ? '夜深了' : h < 11 ? '早安' : h < 14 ? '午安' : h < 18 ? '午後愉快' : '晚安';
+    return h < 5 ? _t('夜深了') : h < 11 ? _t('早安') : h < 14 ? _t('午安') : h < 18 ? _t('午後愉快') : _t('晚安');
   }
 
   function renderHome() {
@@ -594,8 +596,8 @@
     frag.append(hero);
 
     if (!state.tree.length && !personalOn()) {
-      frag.append(emptyState('🧭', '還沒有任何項目', '到管理後台建立資料夾與連結，或匯入一份 JSON 範本。',
-        el('a', { class: 'btn btn-primary', href: '/admin', html: svg('settings') + '前往管理後台' })));
+      frag.append(emptyState('🧭', _t('還沒有任何項目'), _t('到管理後台建立資料夾與連結，或匯入一份 JSON 範本。'),
+        el('a', { class: 'btn btn-primary', href: '/admin', html: svg('settings') + _t('前往管理後台') })));
       view.replaceChildren(frag);
       return;
     }
@@ -619,7 +621,7 @@
           el('div', { class: 'callout glass' },
             el('span', { class: 'callout-icon', html: svg('megaphone') }),
             el('div', { class: 'callout-body' },
-              sec.title ? el('strong', { text: sec.title }) : null,
+              sec.title ? el('strong', { text: _t(sec.title) }) : null,
               el('p', { text: s.home_message }))));
 
       case 'quick_links': {
@@ -633,40 +635,40 @@
             ? el('div', { class: 'quick-group' }, el('div', { class: 'quick-group-label', text: g.region }), chips)
             : chips);
         });
-        return section({ icon: s.quick_links_icon || svg('zap'), title: sec.title || s.quick_links_title || '快速連結', body, cls: 'section-quick' });
+        return section({ icon: s.quick_links_icon || svg('zap'), title: _t(sec.title || '') || _t(s.quick_links_title || '快速連結'), body, cls: 'section-quick' });
       }
 
       case 'favorites': {
         if (s.enable_favorites === false) return null;
         const favs = favorites().map(id => state.byId.get(id)).slice(0, sec.limit || 12);
         const body = favs.length ? cardGrid(favs, { compact: true, mode: 'grid' })
-          : el('div', { class: 'hint-card', html: `${svg('star')}<span>在任何連結卡片上點 <b>☆</b>，就會出現在這裡。</span>` });
-        return section({ icon: svg('star'), title: sec.title || '我的最愛', body,
-          action: favs.length ? el('a', { class: 'section-link', href: '#/favorites', html: '全部' + svg('chevron-right') }) : null });
+          : el('div', { class: 'hint-card', html: _t("{0}<span>在任何連結卡片上點 <b>☆</b>，就會出現在這裡。</span>", svg('star')) });
+        return section({ icon: svg('star'), title: _t(sec.title || '') || _t('我的最愛'), body,
+          action: favs.length ? el('a', { class: 'section-link', href: '#/favorites', html: _t('全部') + svg('chevron-right') }) : null });
       }
 
       case 'recent': {
         if (s.enable_recent === false) return null;
         const list = recent(sec.limit || 8);
         if (!list.length) return null;
-        return section({ icon: svg('history'), title: sec.title || '最近使用', body: cardGrid(list, { compact: true, mode: 'grid' }),
-          action: el('a', { class: 'section-link', href: '#/recent', html: '全部' + svg('chevron-right') }) });
+        return section({ icon: svg('history'), title: _t(sec.title || '') || _t('最近使用'), body: cardGrid(list, { compact: true, mode: 'grid' }),
+          action: el('a', { class: 'section-link', href: '#/recent', html: _t('全部') + svg('chevron-right') }) });
       }
 
       case 'board': {
         if (!boardOn()) return null;
         const box = el('div');
         TTBoard.mount(box, { hideClosed: !!sec.hide_closed });
-        const add = el('button', { class: 'section-link', type: 'button', html: svg('plus') + '新增' });
+        const add = el('button', { class: 'section-link', type: 'button', html: svg('plus') + _t('新增') });
         add.addEventListener('click', () => TTBoard.openEditor(null));
-        return section({ icon: svg('kanban'), title: sec.title || '待辦看板', body: box, cls: 'section-board',
+        return section({ icon: svg('kanban'), title: _t(sec.title || '') || _t('待辦看板'), body: box, cls: 'section-board',
           action: el('div', { class: 'section-actions' }, add,
-            el('a', { class: 'section-link', href: '#/board', html: '開啟' + svg('chevron-right') })) });
+            el('a', { class: 'section-link', href: '#/board', html: _t('開啟') + svg('chevron-right') })) });
       }
 
       case 'roots':
         if (!publicRoots().length) return null;
-        return section({ icon: svg('layout'), title: sec.title || (personalOn() ? '公用區' : '所有分類'), body: cardGrid(publicRoots(), { compact, mode: 'grid' }) });
+        return section({ icon: svg('layout'), title: _t(sec.title || '') || (personalOn() ? _t('公用區') : _t('所有分類')), body: cardGrid(publicRoots(), { compact, mode: 'grid' }) });
 
       case 'folder': {
         const node = state.byId.get(sec.node_id);
@@ -674,9 +676,9 @@
         const kids = (node.children || []).slice(0, sec.limit || 999);
         return section({
           icon: tile({ icon: node.icon, name: node.name, color: colorOf(node), folder: true, size: 26 }),
-          title: sec.title || node.name,
-          body: kids.length ? cardGrid(kids, { compact, mode: 'grid' }) : el('p', { class: 'hint', text: '這個資料夾目前沒有項目' }),
-          action: el('a', { class: 'section-link', href: `#/f/${node.id}`, html: '開啟' + svg('chevron-right') }),
+          title: _t(sec.title || '') || node.name,
+          body: kids.length ? cardGrid(kids, { compact, mode: 'grid' }) : el('p', { class: 'hint', text: _t('這個資料夾目前沒有項目') }),
+          action: el('a', { class: 'section-link', href: `#/f/${node.id}`, html: _t('開啟') + svg('chevron-right') }),
           dropFolder: node.id,
         });
       }
@@ -689,19 +691,19 @@
     const frag = document.createDocumentFragment();
     let hideClosed = !!store.get('board-hide-closed', false);
     const toggle = el('label', { class: 'switch' },
-      el('input', { type: 'checkbox', checked: hideClosed }), el('span', { class: 'track' }), el('span', { text: '隱藏完成／取消' }));
-    const add = el('button', { class: 'btn btn-primary', type: 'button', html: svg('plus') + '新增卡片' });
+      el('input', { type: 'checkbox', checked: hideClosed }), el('span', { class: 'track' }), el('span', { text: _t('隱藏完成／取消') }));
+    const add = el('button', { class: 'btn btn-primary', type: 'button', html: svg('plus') + _t('新增卡片') });
     add.addEventListener('click', () => TTBoard.openEditor(null));
-    const pick = el('button', { class: 'btn', type: 'button', title: '多選卡片後匯出 Excel 工作進度報告，或匯入報告（也可以 Ctrl／⌘＋點卡片）', html: svg('check') + '選取／匯出' });
+    const pick = el('button', { class: 'btn', type: 'button', title: _t('多選卡片後匯出 Excel 工作進度報告，或匯入報告（也可以 Ctrl／⌘＋點卡片）'), html: svg('check') + _t('選取／匯出') });
     // 依人員: one row per person (me, then everyone below me), columns by status — only with accounts
     // (server, or a standalone copy linked to one); a single-person board has nobody to lay out
     const auth = state.me?.people;
     // 看板 | 依人員 (accounts only) | 甘特圖 | 看板＋甘特圖 (the Gantt below the board, linked or not)
-    const MODES = [['cols', '看板', 'kanban'], ...(auth ? [['lanes', '依人員', 'users']] : []), ['gantt', '甘特圖', 'calendar'], ['split', '看板＋甘特', 'layout']];
+    const MODES = [['cols', _t('看板'), 'kanban'], ...(auth ? [['lanes', _t('依人員'), 'users']] : []), ['gantt', _t('甘特圖'), 'calendar'], ['split', _t('看板＋甘特'), 'layout']];
     let mode = store.get('board-layout', store.get('board-lanes', false) ? 'lanes' : 'cols');
     if (!MODES.some(m => m[0] === mode)) mode = 'cols';
     const lanes = mode === 'lanes';
-    const layout = el('div', { class: 'segmented board-layout', role: 'group', title: '看板版面' },
+    const layout = el('div', { class: 'segmented board-layout', role: 'group', title: _t('看板版面') },
       ...MODES.map(([v, l, icon]) => {
         const b = el('button', { type: 'button', dataset: { v }, html: svg(icon) + `<span>${l}</span>` });
         b.addEventListener('click', () => { mode = v; store.set('board-layout', v); applyMode(); });
@@ -712,17 +714,17 @@
     pick.addEventListener('click', () => TTBoard.setSelecting(!TTBoard.selecting));
     // whose cards: everyone I can see / mine / (admins) one person
     let filter = auth ? store.get('board-filter', state.me.is_admin ? 'all' : 'all') : 'all';
-    const who = el('select', { class: 'select board-who', title: '顯示誰的卡片' });
+    const who = el('select', { class: 'select board-who', title: _t('顯示誰的卡片') });
     const paintWho = () => {
       const people = new Map();
       TTBoard.tasks.forEach(t => [t.owner, ...(t.assignees || [])].forEach(p => { if (p) people.set(String(p.id), p); }));
       const view = state.me?.board?.view || 'own';
       const depts = [...new Set(TTBoard.tasks.flatMap(t => t.departments || []))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
       const team = state.me?.team || [];
-      const opts = [['all', view === 'all' ? '全部卡片' : '我看得到的全部'], ['mine', '只看我的']]
-        .concat(team.length ? [['team', `我和下級（${team.length} 人）`]] : [])
-        .concat(view === 'own' ? team.map(p => [`user:${p.id}`, `下級：${p.name}`]) : [])
-        .concat(view !== 'own' ? depts.map(d => [`dept:${d}`, `部門：${d}`]) : [])
+      const opts = [['all', view === 'all' ? _t('全部卡片') : _t('我看得到的全部')], ['mine', _t('只看我的')]]
+        .concat(team.length ? [['team', _t("我和下級（{0} 人）", team.length)]] : [])
+        .concat(view === 'own' ? team.map(p => [`user:${p.id}`, _t("下級：{0}", p.name)]) : [])
+        .concat(view !== 'own' ? depts.map(d => [`dept:${d}`, _t("部門：{0}", d)]) : [])
         .concat(view !== 'own' ? [...people.values()].sort((a, b) => TT.nameOf(a).localeCompare(TT.nameOf(b), 'zh-Hant'))
           .map(p => [`user:${p.id}`, `${TT.nameOf(p)}${p.department ? '（' + p.department + '）' : ''}`]) : []);
       who.replaceChildren(...opts.map(([v, l]) => el('option', { value: v, text: l })));
@@ -731,8 +733,8 @@
     who.addEventListener('change', () => { filter = who.value; store.set('board-filter', filter); board.setFilter(filter); });
     const meta = el('span');
     let kindF = store.get('board-kind', 'all');
-    const kindSeg = el('div', { class: 'segmented board-kind', role: 'group', title: '卡片類型' },
-      ...[['all', '全部'], ['ops', '一般'], ['project', '專案']].map(([v, l]) => {
+    const kindSeg = el('div', { class: 'segmented board-kind', role: 'group', title: _t('卡片類型') },
+      ...[['all', _t('全部')], ['ops', _t('一般')], ['project', _t('專案')]].map(([v, l]) => {
         const b = el('button', { type: 'button', dataset: { v }, text: l });
         b.addEventListener('click', () => { kindF = v; store.set('board-kind', v); paintKindSeg(); board.setKind(v); });
         return b;
@@ -751,17 +753,17 @@
       const T = new Date(); const t0 = Date.UTC(T.getFullYear(), T.getMonth(), T.getDate());
       const week = live.filter(p => p.next && (Date.parse(p.next.due) - t0) / 864e5 <= 7 && Date.parse(p.next.due) >= t0);
       const link = (text, href) => el('a', { href, text });
-      strip.replaceChildren(...[el('span', { class: 'board-strip-l', text: '專案' }), el('span', { text: `${live.length} 個進行中` }),
-        late.length ? link(`${late.length} 個落後（最多 ${Math.max(...late.map(p => p.slip))} 天）`, '#/projects') : null,
-        bad.length ? link(`${bad.length} 個有問題`, '#/projects') : null,
-        week.length ? el('span', {}, '本週里程碑：', ...week.flatMap((p, i) => [i ? '、' : '', link(`${p.next.title} ${p.next.due.slice(5).replace('-', '/')}`, `#/project/${p.id}`)])) : null].filter(Boolean));
+      strip.replaceChildren(...[el('span', { class: 'board-strip-l', text: _t('專案') }), el('span', { text: _t("{0} 個進行中", live.length) }),
+        late.length ? link(_t("{0} 個落後（最多 {1} 天）", late.length, Math.max(...late.map(p => p.slip))), '#/projects') : null,
+        bad.length ? link(_t("{0} 個有問題", bad.length), '#/projects') : null,
+        week.length ? el('span', {}, _t('本週里程碑：'), ...week.flatMap((p, i) => [i ? '、' : '', link(`${p.next.title} ${p.next.due.slice(5).replace('-', '/')}`, `#/project/${p.id}`)])) : null].filter(Boolean));
       strip.hidden = false;
     };
     document.addEventListener('tt:analysis', paintStrip);
     frag.append(pageHead({
       tileNode: el('span', { class: 'page-icon', html: svg('kanban') }),
-      title: '待辦看板',
-      desc: '拖曳卡片換狀態；設定開始日與到期日，時間到會在右上角 🔔 提醒。',
+      title: _t('待辦看板'),
+      desc: _t('拖曳卡片換狀態；設定開始日與到期日，時間到會在右上角 🔔 提醒。'),
       meta: ' ',
       tools: el('div', { class: 'board-tools' }, auth ? who : null, kindSeg, layout, toggle, pick, add),
     }));
@@ -805,16 +807,16 @@
       tileNode: tile({ icon: node.icon, name: node.name, color: colorOf(node), folder: true, size: 56 }),
       title: node.name,
       desc: state.settings.show_descriptions !== false ? node.description : '',
-      meta: [folders.length && `${folders.length} 個資料夾`, links.length && `${links.length} 個連結`].filter(Boolean).join(' · ') || '空資料夾',
+      meta: [folders.length && _t("{0} 個資料夾", folders.length), links.length && _t("{0} 個連結", links.length)].filter(Boolean).join(' · ') || _t('空資料夾'),
       tools: node.personal
         ? el('div', { class: 'section-actions' }, personalAddButtons(node.id), kids.length ? viewToggle(() => renderFolder(node)) : null)
         : kids.length ? viewToggle(() => renderFolder(node)) : null,
     }));
 
-    if (!kids.length) frag.append(node.personal ? emptyState('📂', '這裡還是空的', '用右上角的按鈕新增連結或資料夾，或把網址拖進來。')
-      : emptyState('📂', '這裡還是空的', '到管理後台為這個資料夾新增項目。'));
-    if (folders.length) frag.append(section({ icon: svg('folder'), title: '資料夾', body: cardGrid(folders) }));
-    if (links.length) frag.append(section({ icon: svg('link'), title: '連結', body: cardGrid(links) }));
+    if (!kids.length) frag.append(node.personal ? emptyState('📂', _t('這裡還是空的'), _t('用右上角的按鈕新增連結或資料夾，或把網址拖進來。'))
+      : emptyState('📂', _t('這裡還是空的'), _t('到管理後台為這個資料夾新增項目。')));
+    if (folders.length) frag.append(section({ icon: svg('folder'), title: _t('資料夾'), body: cardGrid(folders) }));
+    if (links.length) frag.append(section({ icon: svg('link'), title: _t('連結'), body: cardGrid(links) }));
     $('view').replaceChildren(frag);
   }
 
@@ -841,14 +843,14 @@
     const results = search(q);
     const frag = document.createDocumentFragment();
     frag.append(pageHead({
-      crumbs: breadcrumb([{ name: '搜尋' }]),
+      crumbs: breadcrumb([{ name: _t('搜尋') }]),
       tileNode: el('span', { class: 'tile', style: { '--tile': '56px' }, html: svg('search') }),
-      title: `「${q}」`, meta: `${results.length} 筆結果`,
+      title: `「${q}」`, meta: _t("{0} 筆結果", results.length),
       tools: results.length ? viewToggle(() => renderSearch(q)) : null,
     }));
     const cardsBox = el('div');
     frag.append(cardsBox);
-    const linksPart = results.length ? cardGrid(results, { showPath: true }) : emptyState('🔍', '找不到符合的項目', '換個關鍵字試試，或搜尋網址、卡片說明、留言的一部分。');
+    const linksPart = results.length ? cardGrid(results, { showPath: true }) : emptyState('🔍', _t('找不到符合的項目'), _t('換個關鍵字試試，或搜尋網址、卡片說明、留言的一部分。'));
     frag.append(linksPart);
     $('view').replaceChildren(frag);
     if (!boardOn()) return;
@@ -862,11 +864,11 @@
         row.addEventListener('keydown', e => { if (e.key === 'Enter') TTBoard.openTask(r.id); });
         return row;
       }));
-      cardsBox.replaceChildren(section({ icon: svg('kanban'), title: `看板卡片（${cards.length}）`, body: list }));
+      cardsBox.replaceChildren(section({ icon: svg('kanban'), title: _t("看板卡片（{0}）", cards.length), body: list }));
       if (!results.length) linksPart.remove();
-      else linksPart.before(el('h3', { class: 'kb-hits-links', html: svg('link') + `連結（${results.length}）` }));
+      else linksPart.before(el('h3', { class: 'kb-hits-links', html: svg('link') + _t("連結（{0}）", results.length) }));
       const meta = $('view').querySelector('.page-meta, .meta');
-      if (meta) meta.textContent = `${results.length} 個連結 · ${cards.length} 張卡片`;
+      if (meta) meta.textContent = _t("{0} 個連結 · {1} 張卡片", results.length, cards.length);
     }).catch(() => {});
   }
 
@@ -875,12 +877,12 @@
     const f = quickFilters().find(x => x.icon === icon);
     const frag = document.createDocumentFragment();
     frag.append(pageHead({
-      crumbs: breadcrumb([{ name: state.settings.quick_filters_title || '快速篩選' }]),
+      crumbs: breadcrumb([{ name: _t(state.settings.quick_filters_title || '快速篩選') }]),
       tileNode: tile({ icon, name: f ? f.label : icon, size: 56 }),
-      title: f ? f.label : prettyIcon(icon), meta: `${results.length} 個連結`,
+      title: f ? f.label : prettyIcon(icon), meta: _t("{0} 個連結", results.length),
       tools: results.length ? viewToggle(() => renderIconFilter(icon)) : null,
     }));
-    frag.append(results.length ? cardGrid(results, { showPath: true }) : emptyState('🏷️', '沒有符合的連結'));
+    frag.append(results.length ? cardGrid(results, { showPath: true }) : emptyState('🏷️', _t('沒有符合的連結')));
     $('view').replaceChildren(frag);
   }
 
@@ -888,27 +890,27 @@
     const favs = favorites().map(id => state.byId.get(id));
     const frag = document.createDocumentFragment();
     frag.append(pageHead({
-      crumbs: breadcrumb([{ name: '我的最愛' }]),
+      crumbs: breadcrumb([{ name: _t('我的最愛') }]),
       tileNode: el('span', { class: 'tile', style: { '--tile': '56px', '--tile-color': '#f59e0b' }, html: svg('star') }),
-      title: '我的最愛', meta: favs.length ? `${favs.length} 個項目 · 只存在這個瀏覽器` : '只存在這個瀏覽器',
+      title: _t('我的最愛'), meta: favs.length ? _t("{0} 個項目 · 只存在這個瀏覽器", favs.length) : _t('只存在這個瀏覽器'),
       tools: favs.length ? viewToggle(renderFavorites) : null,
     }));
-    frag.append(favs.length ? cardGrid(favs, { showPath: true }) : emptyState('⭐', '還沒有最愛', '在任何連結卡片上點 ☆，就會收進這裡。'));
+    frag.append(favs.length ? cardGrid(favs, { showPath: true }) : emptyState('⭐', _t('還沒有最愛'), _t('在任何連結卡片上點 ☆，就會收進這裡。')));
     $('view').replaceChildren(frag);
   }
 
   function renderRecent() {
     const list = recent();
     const frag = document.createDocumentFragment();
-    const clear = list.length ? el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: '清除紀錄' }) : null;
+    const clear = list.length ? el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: _t('清除紀錄') }) : null;
     clear?.addEventListener('click', () => { store.remove('recent'); renderRecent(); });
     frag.append(pageHead({
-      crumbs: breadcrumb([{ name: '最近使用' }]),
+      crumbs: breadcrumb([{ name: _t('最近使用') }]),
       tileNode: el('span', { class: 'tile', style: { '--tile': '56px' }, html: svg('history') }),
-      title: '最近使用', meta: '只存在這個瀏覽器',
+      title: _t('最近使用'), meta: _t('只存在這個瀏覽器'),
       tools: list.length ? el('div', { class: 'tool-row' }, clear, viewToggle(renderRecent)) : null,
     }));
-    frag.append(list.length ? cardGrid(list, { showPath: true }) : emptyState('🕘', '還沒有使用紀錄', '開啟過的連結會出現在這裡。'));
+    frag.append(list.length ? cardGrid(list, { showPath: true }) : emptyState('🕘', _t('還沒有使用紀錄'), _t('開啟過的連結會出現在這裡。')));
     $('view').replaceChildren(frag);
   }
 
@@ -952,10 +954,10 @@
       hitEl?.classList.add('drop-hit');
       const files = TT.isFileDrag(e);
       const f = hit && state.byId.get(hit.id);
-      title.textContent = `放開以新增${files ? '程式' : '連結'}到${f ? `「${f.name}」` : '最上層'}`;
+      title.textContent = _t("放開以新增{0}到{1}", files ? _t('程式') : _t('連結'), f ? `「${f.name}」` : _t('最上層'));
       sub.textContent = f
-        ? (files ? '支援捷徑（.lnk）、網址捷徑（.url）與執行檔（.exe）' : '放開後可以確認名稱、圖示與資料夾')
-        : '拖到左側或頁面上的資料夾，就會放進那個資料夾';
+        ? (files ? _t('支援捷徑（.lnk）、網址捷徑（.url）與執行檔（.exe）') : _t('放開後可以確認名稱、圖示與資料夾'))
+        : _t('拖到左側或頁面上的資料夾，就會放進那個資料夾');
       return hit;
     };
     const clear = () => { show(false); hitEl?.classList.remove('drop-hit'); hitEl = null; hitKey = undefined; };
@@ -978,7 +980,7 @@
       if (TT.isFileDrag(e)) {
         e.preventDefault();
         if (!local.allowed) {
-          TT.toast(local.enabled ? '拖曳程式只能在執行單機版的那台電腦上使用' : '拖曳程式需要 Windows 單機版', true);
+          TT.toast(local.enabled ? _t('拖曳程式只能在執行單機版的那台電腦上使用') : _t('拖曳程式需要 Windows 單機版'), true);
           return;
         }
         const file = e.dataTransfer.files[0];
@@ -989,7 +991,7 @@
       if (!TT.isLinkDrag(e)) return;
       e.preventDefault();
       const link = TT.readDroppedLink(e.dataTransfer);
-      if (!link) { TT.toast('沒有讀到可用的網址（只支援 http / https）', true); return; }
+      if (!link) { TT.toast(_t('沒有讀到可用的網址（只支援 http / https）'), true); return; }
       addDialog({ kind: 'url', name: link.title, url: link.url }, parentId);
     });
   }
@@ -1006,21 +1008,21 @@
     const name = el('input', { class: 'input', value: info.name || '', maxlength: '200' });
     const target = el('input', {
       class: 'input' + (app ? ' mono' : ''), value: app ? (info.found === false ? '' : TT.programPath(info.url)) : info.url,
-      placeholder: app ? 'C:\\Program Files\\…\\程式.exe' : 'https://',
+      placeholder: app ? _t('C:\\Program Files\\…\\程式.exe') : 'https://',
     });
-    const args = el('input', { class: 'input mono', value: info.args || '', placeholder: '選填，例如 --profile work' });
+    const args = el('input', { class: 'input mono', value: info.args || '', placeholder: _t('選填，例如 --profile work') });
     const folder = folderSelect(parentId, { allowPublic: canEditPublic() && !app, allowPersonal: personalOn() });
 
     const status = el('span', { class: 'drop-preview-status' });
     const preview = el('div', { class: 'drop-preview' });
     const paint = () => {
       const parent = state.byId.get(Number(folder.value.replace(/^me:/, '')));
-      const where = app ? (target.value.split(/[\\/]/).pop() || '尚未指定程式') : (hostOf(target.value) || target.value);
+      const where = app ? (target.value.split(/[\\/]/).pop() || _t('尚未指定程式')) : (hostOf(target.value) || target.value);
       preview.replaceChildren(
         tile({ icon, name: name.value || info.name, color: parent ? colorOf(parent) : null, size: 46 }),
         el('div', { class: 'drop-preview-text' },
-          el('strong', { text: name.value || '（未命名）' }),
-          el('span', { text: (app ? '本機程式 · ' : '') + where }), status));
+          el('strong', { text: name.value || _t('（未命名）') }),
+          el('span', { text: (app ? _t('本機程式 · ') : '') + where }), status));
     };
     const busy = text => { status.textContent = text; };
     name.addEventListener('input', () => { nameTouched = true; paint(); });
@@ -1035,10 +1037,10 @@
         icon = TT.guessIcon(info.url, info.name, names);
       } catch { /* ignore */ }
       if (!icon) {
-        busy('正在取得網站圖示…');
+        busy(_t('正在取得網站圖示…'));
         iconPending = TT.fetchSiteIcon(info.url).then(got => {
           if (got) icon = got;
-          busy(got ? '' : '抓不到網站圖示，先用名稱縮寫（之後可在後台更換）');
+          busy(got ? '' : _t('抓不到網站圖示，先用名稱縮寫（之後可在後台更換）'));
           iconPending = null;
           paint();
         });
@@ -1048,7 +1050,7 @@
     const inspect = async () => {
       const v = target.value.trim();
       if (!app || !v) return;
-      busy('正在讀取程式資訊…');
+      busy(_t('正在讀取程式資訊…'));
       try {
         const r = await api('/api/local/inspect', { method: 'POST', body: { path: v } });
         if (r.icon) icon = r.icon;
@@ -1061,21 +1063,21 @@
     target.addEventListener('change', inspect);
 
     const label = (text, ctl, hint) => el('label', { class: 'field' }, el('span', { class: 'field-label', text }), ctl, hint ? el('span', { class: 'hint', text: hint }) : null);
-    const ok = el('button', { class: 'btn btn-primary', type: 'button', html: svg('plus') + '新增' });
-    const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: '取消' });
-    const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': '關閉', html: svg('x') });
+    const ok = el('button', { class: 'btn btn-primary', type: 'button', html: svg('plus') + _t('新增') });
+    const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: _t('取消') });
+    const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': _t('關閉'), html: svg('x') });
     const fields = app
-      ? [label('名稱', name),
-         label('程式路徑', target, info.found === false
-           ? `在電腦上找不到「${info.name}」的位置：請在檔案總管對它按 Shift + 右鍵 →「複製為路徑」，貼到這裡`
-           : '可以改成其他程式、文件或資料夾的路徑'),
-         label('啟動參數', args)]
-      : [label('名稱', name), label('網址', target)];
+      ? [label(_t('名稱'), name),
+         label(_t('程式路徑'), target, info.found === false
+           ? _t("在電腦上找不到「{0}」的位置：請在檔案總管對它按 Shift + 右鍵 →「複製為路徑」，貼到這裡", info.name)
+           : _t('可以改成其他程式、文件或資料夾的路徑')),
+         label(_t('啟動參數'), args)]
+      : [label(_t('名稱'), name), label(_t('網址'), target)];
     const wrap = el('div', { class: 'modal' },
-      el('div', { class: 'modal-card', role: 'dialog', 'aria-modal': 'true', 'aria-label': app ? '新增程式' : '新增連結' },
-        el('div', { class: 'modal-head' }, el('h3', { text: app ? '新增程式' : '新增連結' }), closeBtn),
-        el('div', { class: 'modal-body' }, preview, ...fields, label('放到資料夾', folder),
-          el('p', { class: 'hint', text: '說明、顏色與圖示可以之後到管理後台修改。' })),
+      el('div', { class: 'modal-card', role: 'dialog', 'aria-modal': 'true', 'aria-label': app ? _t('新增程式') : _t('新增連結') },
+        el('div', { class: 'modal-head' }, el('h3', { text: app ? _t('新增程式') : _t('新增連結') }), closeBtn),
+        el('div', { class: 'modal-body' }, preview, ...fields, label(_t('放到資料夾'), folder),
+          el('p', { class: 'hint', text: _t('說明、顏色與圖示可以之後到管理後台修改。') })),
         el('div', { class: 'modal-foot' }, cancel, ok)));
     const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey); document.body.classList.remove('modal-open'); };
     const onKey = e => { if (e.key === 'Escape') close(); };
@@ -1089,14 +1091,14 @@
 
     const submit = async () => {
       const t = target.value.trim();
-      if (!name.value.trim()) { TT.toast('請輸入名稱', true); return; }
+      if (!name.value.trim()) { TT.toast(_t('請輸入名稱'), true); return; }
       if (app ? !TT.looksLikePath(t) : !/^https?:\/\//i.test(t)) {
-        TT.toast(app ? '請輸入完整路徑（例如 C:\\Program Files\\…）' : '請輸入完整網址（例如 https://…）', true);
+        TT.toast(app ? _t('請輸入完整路徑（例如 C:\\Program Files\\…）') : _t('請輸入完整網址（例如 https://…）'), true);
         return;
       }
       ok.disabled = true;
       if (iconPending) {                       // don't create the card before its icon arrives
-        ok.textContent = '取得圖示中…';
+        ok.textContent = _t('取得圖示中…');
         await Promise.race([iconPending, new Promise(r => setTimeout(r, 12000))]);
       }
       try {
@@ -1116,11 +1118,11 @@
           const card = document.querySelector(`.card[data-node="${created.id}"]`);
           if (card) { card.scrollIntoView({ block: 'center', behavior: 'smooth' }); card.classList.add('just-added'); }
         }, 120);
-        TT.toast(`已新增「${created.name}」`);
+        TT.toast(_t("已新增「{0}」", created.name));
       } catch (err) {
         TT.toast(err.message, true);
         ok.disabled = false;
-        ok.innerHTML = svg('plus') + '新增';
+        ok.innerHTML = svg('plus') + _t('新增');
       }
     };
     ok.addEventListener('click', submit);
@@ -1143,14 +1145,14 @@
     });
     const both = allowPublic && allowPersonal;
     if (allowPublic) {
-      const g = both ? el('optgroup', { label: '公用區' }) : sel;
-      g.append(el('option', { value: '', text: both ? '公用區（最上層）' : '（最上層）' }));
+      const g = both ? el('optgroup', { label: _t('公用區') }) : sel;
+      g.append(el('option', { value: '', text: both ? _t('公用區（最上層）') : _t('（最上層）') }));
       walk(publicRoots(), 1, '', g);
       if (both) sel.append(g);
     }
     if (allowPersonal) {
-      const g = both ? el('optgroup', { label: '個人區' }) : sel;
-      g.append(el('option', { value: 'me:', text: both ? '個人區（最上層）' : '個人區（最上層）' }));
+      const g = both ? el('optgroup', { label: _t('個人區') }) : sel;
+      g.append(el('option', { value: 'me:', text: both ? _t('個人區（最上層）') : _t('個人區（最上層）') }));
       walk(personalRoots(), 1, 'me:', g);
       if (both) sel.append(g);
     }
@@ -1166,8 +1168,8 @@
   };
 
   function personalAddButtons(parentId) {
-    const link = el('button', { class: 'btn btn-sm', type: 'button', html: svg('link') + '新增連結' });
-    const folder = el('button', { class: 'btn btn-sm', type: 'button', html: svg('folder') + '新增資料夾' });
+    const link = el('button', { class: 'btn btn-sm', type: 'button', html: svg('link') + _t('新增連結') });
+    const folder = el('button', { class: 'btn btn-sm', type: 'button', html: svg('folder') + _t('新增資料夾') });
     link.addEventListener('click', () => personalDialog({ parentId, type: 'link' }));
     folder.addEventListener('click', () => personalDialog({ parentId, type: 'folder' }));
     return el('div', { class: 'section-actions' }, link, folder);
@@ -1180,8 +1182,8 @@
   function personalSection() {
     const roots = personalRoots();
     const body = roots.length ? cardGrid(roots, { mode: 'grid' })
-      : el('div', { class: 'hint-card', html: `${svg('star')}<span>這裡只有你看得到：放自己常用的連結，${state.me?.auth === false ? '會同步到伺服器上你的個人區' : '單機版連線後也會同步過去'}。也可以把網址直接拖進來。</span>` });
-    return section({ icon: svg('user'), title: '個人區', body, cls: 'section-personal', action: personalAddButtons(null) });
+      : el('div', { class: 'hint-card', html: _t("{0}<span>這裡只有你看得到：放自己常用的連結，{1}。也可以把網址直接拖進來。</span>", svg('star'), state.me?.auth === false ? _t('會同步到伺服器上你的個人區') : _t('單機版連線後也會同步過去')) });
+    return section({ icon: svg('user'), title: _t('個人區'), body, cls: 'section-personal', action: personalAddButtons(null) });
   }
 
   /** Add or edit a link / folder in my personal area */
@@ -1190,22 +1192,22 @@
     const kind = editing ? node.node_type : type;
     const isLink = kind === 'link';
     const program = isLink && editing && TT.isProgram(node.url);
-    const name = el('input', { class: 'input', value: node?.name || '', maxlength: '200', placeholder: isLink ? '例如：請假系統' : '例如：常用報表' });
+    const name = el('input', { class: 'input', value: node?.name || '', maxlength: '200', placeholder: isLink ? _t('例如：請假系統') : _t('例如：常用報表') });
     const url = el('input', { class: 'input', type: 'url', value: node?.url || '', placeholder: 'https://', disabled: program });
-    const desc = el('input', { class: 'input', value: node?.description || '', maxlength: '500', placeholder: '選填' });
+    const desc = el('input', { class: 'input', value: node?.description || '', maxlength: '500', placeholder: _t('選填') });
     const parent = editing ? state.parent.get(node.id) : (parentId != null ? state.byId.get(parentId) : null);
     const folder = folderSelect(parent ? parent.id : null, { allowPublic: false, allowPersonal: true, skip: editing && !isLink ? node.id : null });
     const label = (text, ctl) => el('label', { class: 'field' }, el('span', { class: 'field-label', text }), ctl);
-    const ok = el('button', { class: 'btn btn-primary', type: 'button', html: svg(editing ? 'check' : 'plus') + (editing ? '儲存' : '新增') });
-    const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: '取消' });
-    const del = editing ? el('button', { class: 'btn btn-ghost btn-danger', type: 'button', html: svg('trash') + '刪除' }) : null;
-    const title = (editing ? '編輯' : '新增') + (isLink ? '個人連結' : '個人資料夾');
+    const ok = el('button', { class: 'btn btn-primary', type: 'button', html: svg(editing ? 'check' : 'plus') + (editing ? _t('儲存') : _t('新增')) });
+    const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: _t('取消') });
+    const del = editing ? el('button', { class: 'btn btn-ghost btn-danger', type: 'button', html: svg('trash') + _t('刪除') }) : null;
+    const title = (editing ? _t('編輯') : _t('新增')) + (isLink ? _t('個人連結') : _t('個人資料夾'));
     const wrap = el('div', { class: 'modal' },
       el('div', { class: 'modal-card', role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
         el('div', { class: 'modal-head' }, el('h3', { text: title })),
-        el('div', { class: 'modal-body' }, label('名稱', name), isLink ? label(program ? '程式（在單機版修改）' : '網址', url) : null,
-          label('說明', desc), label('放到資料夾', folder),
-          el('p', { class: 'hint', text: '個人區只有你自己看得到。' })),
+        el('div', { class: 'modal-body' }, label(_t('名稱'), name), isLink ? label(program ? _t('程式（在單機版修改）') : _t('網址'), url) : null,
+          label(_t('說明'), desc), label(_t('放到資料夾'), folder),
+          el('p', { class: 'hint', text: _t('個人區只有你自己看得到。') })),
         el('div', { class: 'modal-foot' }, del, del ? el('span', { class: 'spacer' }) : null, cancel, ok)));
     const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey); document.body.classList.remove('modal-open'); };
     const onKey = e => { if (e.key === 'Escape') close(); };
@@ -1219,8 +1221,8 @@
     async function save() {
       const n = name.value.trim();
       const u = url.value.trim();
-      if (!n) { TT.toast('請輸入名稱', true); return; }
-      if (isLink && !program && !/^https?:\/\//i.test(u)) { TT.toast('請輸入完整網址（例如 https://…）', true); return; }
+      if (!n) { TT.toast(_t('請輸入名稱'), true); return; }
+      if (isLink && !program && !/^https?:\/\//i.test(u)) { TT.toast(_t('請輸入完整網址（例如 https://…）'), true); return; }
       const { parentId: pid } = folderPick(folder.value);
       ok.disabled = true;
       try {
@@ -1237,20 +1239,20 @@
         }
         close();
         await reloadTree();
-        TT.toast(editing ? '已儲存' : `已新增「${n}」`);
+        TT.toast(editing ? _t('已儲存') : _t("已新增「{0}」", n));
       } catch (err) { TT.toast(err.message, true); ok.disabled = false; }
     }
     ok.addEventListener('click', save);
     [name, url, desc].forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); save(); } }));
     if (del) del.addEventListener('click', async () => {
       const kids = (node.children || []).length;
-      if (!confirm(`刪除「${node.name}」？` + (kids ? `\n裡面的 ${kids} 個項目也會一起刪除。` : ''))) return;
+      if (!confirm(_t("刪除「{0}」？", node.name) + (kids ? _t("\n裡面的 {0} 個項目也會一起刪除。", kids) : ''))) return;
       try {
         await api(`/api/my/nodes/${node.id}`, { method: 'DELETE' });
         close();
         if (location.hash === `#/f/${node.id}`) location.hash = '#/';
         await reloadTree();
-        TT.toast('已刪除');
+        TT.toast(_t('已刪除'));
       } catch (err) { TT.toast(err.message, true); }
     });
   }
@@ -1322,12 +1324,12 @@
     const box = $('palette-results');
     let groups;
     if (q.trim()) {
-      groups = [{ label: '結果', items: search(q).slice(0, 40) }];
+      groups = [{ label: _t('結果'), items: search(q).slice(0, 40) }];
     } else {
       groups = [
-        { label: '最近使用', items: recent(6) },
-        { label: '我的最愛', items: favorites().map(id => state.byId.get(id)).slice(0, 6) },
-        { label: '分類', items: state.tree.filter(isFolder).slice(0, 8) },
+        { label: _t('最近使用'), items: recent(6) },
+        { label: _t('我的最愛'), items: favorites().map(id => state.byId.get(id)).slice(0, 6) },
+        { label: _t('分類'), items: state.tree.filter(isFolder).slice(0, 8) },
       ];
     }
     paletteItems = [];
@@ -1345,7 +1347,7 @@
           tile({ icon: n.icon, name: n.name, color: colorOf(n), folder: isFolder(n), size: 32 }),
           el('div', { class: 'palette-item-text' },
             el('div', { class: 'palette-item-title', text: n.name }),
-            el('div', { class: 'palette-item-sub', text: [path, !isFolder(n) && (TT.isProgram(n.url) ? '本機程式' : hostOf(n.url))].filter(Boolean).join('  ·  ') })),
+            el('div', { class: 'palette-item-sub', text: [path, !isFolder(n) && (TT.isProgram(n.url) ? _t('本機程式') : hostOf(n.url))].filter(Boolean).join('  ·  ') })),
           el('span', { class: 'palette-item-kind', html: isFolder(n) ? svg('folder') : svg(TT.isProgram(n.url) ? 'play' : 'external') }));
         row.addEventListener('mousemove', () => selectPalette(idx));
         row.addEventListener('click', e => activatePalette(n, e.ctrlKey || e.metaKey));
@@ -1353,7 +1355,7 @@
       });
     });
     if (!paletteItems.length) {
-      frag.append(el('div', { class: 'palette-empty', text: q.trim() ? `找不到「${q.trim()}」` : '輸入關鍵字開始搜尋' }));
+      frag.append(el('div', { class: 'palette-empty', text: q.trim() ? _t("找不到「{0}」", q.trim()) : _t('輸入關鍵字開始搜尋') }));
     }
     box.replaceChildren(frag);
     selectPalette(0);
@@ -1365,7 +1367,7 @@
     const hadNone = !paletteItems.length;
     box.querySelector('.palette-empty')?.remove();
     const frag = document.createDocumentFragment();
-    frag.append(el('div', { class: 'palette-group', text: '看板卡片' }));
+    frag.append(el('div', { class: 'palette-group', text: _t('看板卡片') }));
     cards.forEach(r => {
       const item = { kind: 'task', id: r.id, name: r.title };
       const idx = paletteItems.length;

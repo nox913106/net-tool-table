@@ -29,6 +29,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
 
     # --- Appearance ---
     "theme": "auto",                    # auto | dark | light (viewer can still toggle)
+    "language": "zh-TW",                # zh-TW | en | auto (the browser's language) — each person can still choose their own
     "accent_color": "",                 # "" = the theme's accent (dark #10B981, light #2B4C3F)
     "background": "aurora",             # aurora | gradient | plain
     "density": "comfortable",           # comfortable | compact
@@ -98,6 +99,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
 
 ENUMS = {
     "theme": {"auto", "dark", "light"},
+    "language": {"auto", "zh-TW", "en"},
     "background": {"aurora", "gradient", "plain"},
     "density": {"comfortable", "compact"},
     "default_view": {"grid", "list"},
