@@ -9,8 +9,9 @@
 3. 入口頁會用 Chrome（沒有就用 Edge）以「獨立視窗」打開，像一般程式一樣，
    沒有網址列和分頁；管理後台是 http://127.0.0.1:8080/admin
 
-  * 那個黑色視窗就是伺服器本身，關掉它就會停止服務。
-  * 程式以 python.org 官方、有數位簽章的 python.exe 執行（python\ 資料夾），
+  * 沒有黑色主控台視窗；關掉 IPMS 的視窗，程式約 5 秒後自動結束。
+    執行紀錄寫在 data\ipms.log；要看即時紀錄可用「IPMS.cmd --console」啟動。
+  * 程式以 python.org 官方、有數位簽章的 pythonw.exe／python.exe 執行（python\ 資料夾），
     程式碼在 app\ 資料夾；套件裡沒有自製的 exe，不會被防毒誤判刪除。
 
 【資料存在哪裡】

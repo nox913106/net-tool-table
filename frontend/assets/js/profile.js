@@ -58,6 +58,18 @@
   addEventListener('pagehide', () => send(true));
   document.addEventListener('visibilitychange', () => { if (document.hidden) send(true); });
 
+  // standalone copy: say this page is open, so the program stops by itself when its window is closed
+  if (data.presence) {
+    const page = Math.random().toString(36).slice(2, 12);
+    const say = (bye = false) => fetch('/api/local/presence', { method: 'POST', keepalive: bye,
+      headers: { 'Content-Type': 'application/json', 'X-Tool-Table': '1' }, body: JSON.stringify({ page, bye }) }).catch(() => {});
+    say();
+    setInterval(say, 20000);
+    addEventListener('pagehide', () => say(true));                 // closed, or kept in the back/forward cache
+
+    addEventListener('pageshow', e => { if (e.persisted) say(); });
+  }
+
   window.TTProfile = {
     account: !!data.account,
     siteLang: data.site_lang || 'zh-TW',

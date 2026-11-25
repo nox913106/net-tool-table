@@ -8,7 +8,7 @@ PSF-signed python.exe from python.org's embeddable package instead:
     python/                     python.org embeddable Python + Lib/site-packages (requirements.txt)
     app/                        app/, frontend/, resource/icon/, portable/launcher.py
     data/                       created on first start (database, icons) — kept on upgrade
-    IPMS.cmd                    starts the client (python\\python.exe app\\portable\\launcher.py)
+    IPMS.cmd                    starts the client (python\\pythonw.exe app\\portable\\launcher.py, no console window)
     tooltable.ico, README.txt
 
 Runs on Windows (CI: windows-latest). Usage:
@@ -101,7 +101,7 @@ def main():
     shutil.copy2(HERE / "tooltable.ico", STAGE / "tooltable.ico")
     shutil.copy2(HERE / "README.txt", STAGE / "README.txt")
     (STAGE / "IPMS.cmd").write_text(
-        '@echo off\r\n"%~dp0python\\python.exe" "%~dp0app\\portable\\launcher.py" %*\r\n', encoding="ascii")
+        '@echo off\r\nstart "" "%~dp0python\\pythonw.exe" "%~dp0app\\portable\\launcher.py" %*\r\n', encoding="ascii")
     if os.name == "nt":                                   # self-test with the embedded interpreter
         run([pydir / "python.exe", "-c", "import sys; sys.path.insert(0, r'%s'); import uvicorn, aiosqlite, openpyxl, ldap3, "
              "cryptography, PIL, icoextract; from app.main import app; print('   self-test OK')" % app],

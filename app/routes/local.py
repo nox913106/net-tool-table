@@ -5,6 +5,7 @@ Local programs & automatic icons
   POST /api/local/shortcut         upload a dropped .lnk / .url → parsed target + icon
   POST /api/local/resolve          {name, size} of a dropped .exe → its path on this PC + icon
   POST /api/local/inspect          {path} → name + icon (for a pasted path)
+  POST /api/local/presence         a page is open / closing (the standalone copy stops with its window)
   POST /api/launch/{node_id}       start the program / open the file of a node
   POST /api/icons/fetch            {url} → fetch the website's icon into the library
 
@@ -36,6 +37,19 @@ async def fetch_favicon(url: str):
 router = APIRouter(prefix="/api", tags=["local"])
 
 LAUNCHABLE_HINT = "請拖曳程式的捷徑（.lnk）、網址捷徑（.url）或執行檔（.exe）"
+
+
+class PresenceIn(BaseModel):
+    page: str = Field(..., min_length=4, max_length=40)
+    bye: bool = False
+
+
+@router.post("/local/presence")
+async def presence(body: PresenceIn):
+    """A page of the standalone copy is open (or closing): the copy stops when its last page is closed."""
+    from .. import presence as pr
+    pr.beat(body.page, body.bye)
+    return {"watch": pr.ENABLED}
 
 
 @router.get("/local/status")

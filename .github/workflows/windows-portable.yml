@@ -57,6 +57,9 @@ jobs:
           $sig = Get-AuthenticodeSignature portable\stage\python\python.exe
           Write-Host "python.exe signature: $($sig.Status) $($sig.SignerCertificate.Subject)"
           if ($sig.Status -ne 'Valid') { throw 'python.exe is not validly signed' }
+          # the shortcuts start pythonw.exe (no console window); it must be there and signed too
+          $sigw = Get-AuthenticodeSignature portable\stage\python\pythonw.exe
+          if ($sigw.Status -ne 'Valid') { throw 'pythonw.exe missing or not validly signed' }
 
       - name: Client version id matches the source (what a server on Linux reports for this commit)
         run: python -c "import sys; from pathlib import Path; from app import version; a = version.info(Path('.')); b = version.check_dir(Path('portable/stage/app')); print('source', a, 'client', b); sys.exit(a['build'] != b)"
@@ -64,7 +67,7 @@ jobs:
       - name: Smoke test (start the exe and request pages)
         shell: pwsh
         run: |
-          $proc = Start-Process -FilePath portable\stage\python\python.exe -ArgumentList 'portable\stage\app\portable\launcher.py', '--no-browser', '--port', '18080' -PassThru
+          $proc = Start-Process -FilePath portable\stage\python\python.exe -ArgumentList 'portable\stage\app\portable\launcher.py', '--no-browser', '--console', '--port', '18080' -PassThru
           $ok = $false
           for ($i = 0; $i -lt 40; $i++) {
             try { if ((Invoke-RestMethod http://127.0.0.1:18080/api/health).status -eq 'ok') { $ok = $true; break } } catch {}
@@ -167,7 +170,7 @@ jobs:
           Start-Process $setup.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=' -Wait
           $dir = "$env:LOCALAPPDATA\Programs\ToolTable"
           if (-not (Test-Path "$dir\python\python.exe")) { throw 'installer did not install the client' }
-          $proc = Start-Process -FilePath "$dir\python\python.exe" -ArgumentList "$dir\app\portable\launcher.py", '--no-browser', '--port', '18090' -PassThru
+          $proc = Start-Process -FilePath "$dir\python\python.exe" -ArgumentList "$dir\app\portable\launcher.py", '--no-browser', '--console', '--port', '18090' -PassThru
           $ok = $false
           for ($i = 0; $i -lt 40; $i++) {
             try { if ((Invoke-RestMethod http://127.0.0.1:18090/api/health).status -eq 'ok') { $ok = $true; break } } catch {}

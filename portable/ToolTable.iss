@@ -8,7 +8,7 @@
 #ifndef AppVersion
   #define AppVersion "1.0.0"
 #endif
-#define AppPy "{app}\python\python.exe"
+#define AppPy "{app}\python\pythonw.exe"
 #define AppScript "{app}\app\portable\launcher.py"
 
 [Setup]
@@ -56,7 +56,7 @@ Source: "stage\*"; DestDir: "{app}"; Excludes: "data\*"; Flags: ignoreversion re
 
 [Icons]
 Name: "{autodesktop}\{#AppName}"; Filename: "{#AppPy}"; Parameters: """{#AppScript}"""; WorkingDir: "{app}"; \
-  IconFilename: "{app}\tooltable.ico"; Comment: "開啟 IPMS（關閉黑色視窗即停止）"; Tasks: desktopicon
+  IconFilename: "{app}\tooltable.ico"; Comment: "開啟 IPMS（關閉視窗即停止）"; Tasks: desktopicon
 Name: "{group}\{#AppName}"; Filename: "{#AppPy}"; Parameters: """{#AppScript}"""; WorkingDir: "{app}"; IconFilename: "{app}\tooltable.ico"
 Name: "{group}\解除安裝 {#AppName}"; Filename: "{uninstallexe}"
 Name: "{userstartup}\{#AppName}"; Filename: "{#AppPy}"; Parameters: """{#AppScript}"" --no-browser"; WorkingDir: "{app}"; \

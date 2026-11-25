@@ -129,6 +129,8 @@ async def lifespan(app: FastAPI):
     if not C.AUTH:                          # standalone copy: sync with a server once linked
         from . import syncclient
         extra = await syncclient.startup()
+        from . import presence                # stop with the program's window
+        extra.append(asyncio.create_task(presence.watch()))
     yield
     task.cancel()
     if teams_task:

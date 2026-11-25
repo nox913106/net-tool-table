@@ -181,7 +181,7 @@
 **免安裝版**：下載 **[IPMS-windows-x64.zip](https://github.com/nox913106/net-tool-table/releases/latest/download/IPMS-windows-x64.zip)**，
 解壓縮到任何位置（隨身碟也可以），點兩下 `IPMS.cmd`。資料存在同資料夾的 `data\`，整個資料夾複製走就能換電腦。
 
-入口會用 Chrome（沒有就用 Edge）以**獨立視窗**打開（`--tab` 改回一般分頁）；那個黑色視窗是服務本身，關掉就停止。
+入口會用 Chrome（沒有就用 Edge）以**獨立視窗**打開（`--tab` 改回一般分頁）；沒有黑色主控台視窗，關掉 IPMS 的視窗程式就自動結束（約 5 秒；勾選「開機時自動在背景啟動」的那份會一直在背景執行）。執行紀錄在 `data\ipms.log`，要看即時紀錄用 `IPMS.cmd --console`。
 不需要另外安裝 Python 或任何軟體。
 
 > **為什麼不是單一 exe**：公司防毒（例如 Trend Micro）常把 PyInstaller 這類打包器產生的 exe 誤判刪除。

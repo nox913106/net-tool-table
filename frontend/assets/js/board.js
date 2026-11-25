@@ -2663,9 +2663,10 @@ const TTBoard = window.TTBoard = (() => {
       body.tags = tagList;
       if (!readOnly) {
         Object.assign(body, sched.value());
-        if (kind !== (t.kind || 'ops')) body.kind = kind;
+        // a new card always says what it is (the form may start as 專案 / inside a project: that is not a change to leave out)
+        if (!task || kind !== (t.kind || 'ops')) body.kind = kind;
         const pid = kind === 'project' ? null : (Number(projSel.value) || null);
-        if (pid !== (t.project_id || null)) body.project_id = pid || 0;
+        if (!task ? pid : pid !== (t.project_id || null)) body.project_id = pid || 0;
       }
       if (body.milestone ?? t.milestone) { body.start_at = null; if (!body.due_at) { toast(_t('里程碑需要到期日'), true); dueD.focus(); return; } }
       if (canAssign) body.assignees = assignees.map(p => p.username);

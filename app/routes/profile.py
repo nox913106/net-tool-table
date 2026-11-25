@@ -72,7 +72,9 @@ async def get_profile(request: Request):
             if r and r[0]:
                 prefs["lang"] = r[0]
         site = await read_settings(db)
-        return {"prefs": prefs, "site_lang": site.get("language") or "zh-TW", "account": uid is not None}
+        from .. import presence
+        return {"prefs": prefs, "site_lang": site.get("language") or "zh-TW", "account": uid is not None,
+                "presence": presence.ENABLED}
     finally:
         await db.close()
 

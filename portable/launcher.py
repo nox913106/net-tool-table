@@ -1,9 +1,12 @@
 """
 IPMS — client launcher (Windows: started by IPMS.cmd / the installed shortcut; also works from source)
 
-Double-click → starts the portal on http://127.0.0.1:8080 (or the next free port),
-opens it in its own app window (Chrome or Edge "--app" mode, no address bar / tabs;
-falls back to the default browser), keeps running until this window is closed.
+Double-click → starts the portal on http://127.0.0.1:8080 (or the next free port) without a console
+window (pythonw.exe; a start through python.exe — an older shortcut, IPMS.cmd — hands over to it),
+opens it in its own app window (Chrome or Edge "--app" mode, no address bar / tabs; falls back to the
+default browser) and stops by itself when that window is closed (app/presence.py). Started with
+--no-browser (the "start with Windows" shortcut) it keeps running in the background.
+Messages go to data\\ipms.log; a start-up error is shown in a message box.
 
 Data lives in .\\data next to the python\\ and app\\ folders (database + icons), so the whole folder
 can be copied to another PC or a USB drive. If that folder is not writable (e.g. under
@@ -15,6 +18,7 @@ Options:
   --no-browser    do not open the browser
   --tab           open in a normal browser tab instead of an app window
   --data-dir DIR  store data somewhere else
+  --console       keep the console window (to watch the log)
 
 Updates: once linked, the copy checks its server's version and, when it differs, downloads that
 version from the server (into app.new next to app), stops, swaps the folders and starts again on the
@@ -40,6 +44,54 @@ BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.paren
 _PY = Path(sys.executable).resolve().parent
 EMBEDDED = _PY.name.lower() == "python" and (_PY.parent / "app").is_dir() and BUNDLE_DIR == _PY.parent / "app"
 HOME_DIR = _PY.parent if EMBEDDED else Path(sys.executable).resolve().parent if FROZEN else BUNDLE_DIR
+
+
+def headless() -> bool:
+    """No console to write to (pythonw.exe)."""
+    return sys.stdout is None or os.path.basename(sys.executable).lower().startswith("pythonw")
+
+
+def hand_over_to_pythonw() -> bool:
+    """Started with python.exe (console window): start again with pythonw.exe and let the console close."""
+    if os.name != "nt" or not (EMBEDDED or FROZEN) or "--console" in sys.argv or headless():
+        return False
+    pyw = Path(sys.executable).with_name("pythonw.exe")
+    if not pyw.is_file():
+        return False
+    import subprocess
+    try:
+        subprocess.Popen([str(pyw), str(Path(__file__).resolve()), *sys.argv[1:]], cwd=os.getcwd(),
+                         creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+                         close_fds=True)
+        return True
+    except OSError:
+        return False
+
+
+def log_to_file(data_dir: Path):
+    """Without a console, messages (and errors) go to data\\ipms.log (kept small)."""
+    if not headless():
+        return
+    f = data_dir / "ipms.log"
+    try:
+        if f.exists() and f.stat().st_size > 1_000_000:
+            f.replace(data_dir / "ipms.old.log")
+        stream = open(f, "a", encoding="utf-8", buffering=1)
+        sys.stdout = sys.stderr = stream
+        print(f"\n----- {time.strftime('%Y-%m-%d %H:%M:%S')} -----")
+    except OSError:
+        pass
+
+
+def message_box(text: str):
+    if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, text, APP_NAME, 0x10)
+            return
+        except Exception:
+            pass
+    print(text)
 
 
 def setup_console():
@@ -210,6 +262,7 @@ def main():
     parser.add_argument("--local-apps", action="store_true", help=argparse.SUPPRESS)  # testing off Windows
     parser.add_argument("--self-update", action="store_true", help=argparse.SUPPRESS)  # testing from a copy
     parser.add_argument("--after-update", action="store_true", help=argparse.SUPPRESS)  # restarted by an update
+    parser.add_argument("--console", action="store_true", help="保留主控台視窗（看執行紀錄）")
     args = parser.parse_args()
 
     host = "0.0.0.0" if args.lan else "127.0.0.1"
@@ -221,7 +274,6 @@ def main():
         print(f"{APP_NAME} 已在執行中，開啟視窗…")
         if not args.no_browser:
             open_ui(f"http://127.0.0.1:{args.port}/", args.tab)
-        time.sleep(1.5)
         return
 
     data_dir = pick_data_dir(args.data_dir)
@@ -232,6 +284,7 @@ def main():
             os.environ["TOOL_TABLE_UPDATE_FAILED"] = "1"
     icon_dir = data_dir / "icons"
     data_dir.mkdir(parents=True, exist_ok=True)
+    log_to_file(data_dir)
     seed_icons(icon_dir)
 
     # Must be set before the app is imported (app.config reads them at import time)
@@ -241,6 +294,8 @@ def main():
     # Launching programs / reading shortcuts only makes sense when the server is this PC
     if os.name == "nt" or args.local_apps:
         os.environ["TOOL_TABLE_LOCAL_APPS"] = "1"
+    if not args.no_browser:                          # its window is opened here: stop when it is closed
+        os.environ["TOOL_TABLE_EXIT_WHEN_CLOSED"] = "1"  # (kept by a restart after an update)
     if self_update:                                  # the sync client may replace these program files
         os.environ["TOOL_TABLE_SELF_UPDATE_DIR"] = str(BUNDLE_DIR)
 
@@ -297,6 +352,17 @@ def main():
         threading.Thread(target=go, daemon=True).start()
     syncclient.on_restart = restart
 
+    def stop_when_closed():
+        """The program's window was closed (app/presence.py): stop, without waiting for a long poll still open."""
+        server.should_exit = True
+
+        def go():
+            time.sleep(3)                             # requests in progress finish
+            os._exit(0)
+        threading.Thread(target=go, daemon=True).start()
+    from app import presence
+    presence.on_empty = stop_when_closed
+
     def open_browser():
         for _ in range(100):
             if server.started:
@@ -316,10 +382,14 @@ def main():
 
 
 if __name__ == "__main__":
+    if hand_over_to_pythonw():                       # no console window: start again without one
+        raise SystemExit(0)
     try:
         main()
-    except Exception as exc:   # keep the window open so the user can read the error
+    except Exception as exc:
         print(f"\n啟動失敗：{exc!r}")
-        if (FROZEN or EMBEDDED) and os.name == "nt":
+        if headless():                               # nobody sees a console: say it in a message box
+            message_box(f"IPMS 啟動失敗：\n{exc}")
+        elif (FROZEN or EMBEDDED) and os.name == "nt":
             input("按 Enter 關閉…")
         raise SystemExit(1)
