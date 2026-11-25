@@ -225,7 +225,7 @@
       });
       drawRings();
       const probs = probMap();
-      const phaseOf = r => { let c = r, n = 0; while (c.parent && by.get(c.parent) && n++ < 6) c = by.get(c.parent); return c.card !== pid ? 'att' : c.id; };
+      const phaseOf = r => { let c = r, n = 0; while (c.parent && by.get(c.parent) && n++ < 1000) c = by.get(c.parent); return c.card !== pid ? 'att' : c.id; };
       const pathOf = r => { const out = []; for (let c = r, n = 0; c && n < 6; c = c.parent ? by.get(c.parent) : null, n++) out.unshift(c.id); return out; };
       const isParent = new Set(mine.map(r => r.parent).filter(Boolean));
       const nodes = []; let normal = 0;

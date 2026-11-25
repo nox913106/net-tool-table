@@ -392,7 +392,7 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
         for i, v in enumerate(values, start=1):
             ws.cell(row=r, column=i, value=v)
         if level:
-            ws.row_dimensions[r].outline_level = level
+            ws.row_dimensions[r].outline_level = min(level, 7)      # Excel groups at most 7 levels
         for i, cell in enumerate(ws[r], start=1):
             name, _, kind = COLUMNS[i - 1]
             cell.border = BOX

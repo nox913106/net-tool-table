@@ -2,7 +2,7 @@
    IPMS — projects and my work
    #/mine         everything assigned to me (every project and level, everyday cards), by due date
    #/projects     the projects side by side: managers' order, health, problems; cards that look like projects
-   #/project/ID   one project: Gantt, project board (its L2–L5 work by status), list, Excel
+   #/project/ID   one project: Gantt, project board (its L2… work by status), list, Excel
    All of it reads the same data as the board (TTBoard) and the server's analysis (projects' health).
    ============================================================================= */
 (() => {
@@ -341,7 +341,7 @@
           });
           return col;
         }));
-        pane.replaceChildren(el('p', { class: 'hint', text: _t('這個專案的工作（L2～L5）與歸屬的一般卡，依狀態分欄；拖到其他欄改狀態，上層狀態會自動彙總。') }), board);
+        pane.replaceChildren(el('p', { class: 'hint', text: _t('這個專案的各層工作（L2 以下）與歸屬的一般卡，依狀態分欄；拖到其他欄改狀態，上層狀態會自動彙總。') }), board);
       } else {
         // list with WBS numbers (the same numbering as the Excel report)
         const kids = new Map();

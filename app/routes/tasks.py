@@ -680,7 +680,7 @@ async def _rollup(db, ids: List[int], me) -> dict:
         if me is not None and c["assignee_id"] == me and c["status"] not in CLOSED:
             s["mine"].append({"id": c["id"], "title": c["title"], "status": c["status"], "priority": c["priority"],
                               "start_at": c["start_at"], "due_at": c["due_at"], "remind": c["remind"]})
-    # subtasks below subtasks (L3–L5): for the radar / overdue counts and my reminders
+    # subtasks below subtasks (L3 and deeper): for the radar / overdue counts and my reminders
     cur = await db.execute(f"""SELECT c.id, c.task_id, c.task_parent_id, c.title, c.status, c.start_at, c.due_at, c.assignee_id,
                                       c.priority, c.remind
                                FROM task_comments c WHERE c.task_id IN ({marks}) AND c.is_task = 1 AND c.task_parent_id IS NOT NULL
@@ -1167,9 +1167,6 @@ async def _import_plan(items: List[dict], user: dict, extra_people: Optional[Lis
                 else:
                     parent = None
                     if it.get("depth", 1) >= 2:
-                        if it["depth"] > SUB_MAX_DEPTH:
-                            out["errors"].append("最多五層（主卡＋四層子任務），編號最多五段，例如 1.2.3.4.5")
-                            continue
                         pnum = (it.get("num") or "").rsplit(".", 1)[0]
                         pi = by_num.get(pnum)
                         if pi is None or plan[pi]["kind"] != "sub" or pi < ctx["index"]:
@@ -1680,7 +1677,7 @@ async def gantt(request: Request):
 
         def owners(cid):
             got, n = set(), 0
-            while cid in by and n < 10:
+            while cid in by and n < CHAIN_GUARD:
                 if by[cid]["assignee_id"] is not None:
                     got.add(by[cid]["assignee_id"])
                 cid, n = by[cid]["task_parent_id"], n + 1
@@ -2185,7 +2182,7 @@ async def _comment_rights(db, task_id: int, c, user: dict) -> dict:
 async def _owners_above(db, comment_id) -> set:
     """Assignees of this subtask and of every subtask above it: they look after everything below."""
     out, cid, n = set(), comment_id, 0
-    while cid and n < 10:
+    while cid and n < CHAIN_GUARD:
         cur = await db.execute("SELECT assignee_id, task_parent_id FROM task_comments WHERE id = ?", (cid,))
         r = await cur.fetchone()
         if not r:
@@ -2256,7 +2253,7 @@ async def list_comments(task_id: int, request: Request):
             got, n = set(), 0
             if above_only:
                 cid = row_by[cid]["task_parent_id"] if cid in row_by else None
-            while cid in row_by and n < 10:
+            while cid in row_by and n < CHAIN_GUARD:
                 if row_by[cid]["assignee_id"] is not None:
                     got.add(row_by[cid]["assignee_id"])
                 cid, n = row_by[cid]["task_parent_id"], n + 1
@@ -2707,13 +2704,14 @@ async def rollup_status(db, task_id: int) -> Optional[str]:
     return want
 
 
-SUB_MAX_DEPTH = 4          # subtask levels below the card (card + 4 = 5 levels)
+# subtask levels below the card: no limit (like OpenProject work packages)
+CHAIN_GUARD = 1000         # walking up / rolling up a chain stops here (protects against a damaged loop)
 
 
 async def subtask_depth(db, comment_id) -> int:
     """1 = a subtask of the card, 2 = its subtask, …"""
     depth, cid = 0, comment_id
-    while cid and depth < 10:
+    while cid and depth < CHAIN_GUARD:
         cur = await db.execute("SELECT task_parent_id FROM task_comments WHERE id = ?", (cid,))
         r = await cur.fetchone()
         if not r:
@@ -2727,7 +2725,7 @@ async def rollup_dates(db, task_id: int, comment_id=None):
     """A subtask with subtasks spans them (earliest start → latest due), up the chain;
     a project card spans all its subtasks. Items without dates do not count."""
     cid, n = comment_id, 0
-    while cid and n <= SUB_MAX_DEPTH:
+    while cid and n <= CHAIN_GUARD:
         cur = await db.execute("""SELECT MIN(COALESCE(start_at, due_at)), MAX(COALESCE(due_at, start_at)) FROM task_comments
                                   WHERE task_parent_id = ? AND is_task = 1 AND COALESCE(status, 'new') != 'canceled'""", (cid,))
         lo, hi = await cur.fetchone()
@@ -2809,7 +2807,7 @@ async def shift_items(body: ShiftIn, request: Request):
 
 async def rollup_subtask(db, comment_id: int):
     """A subtask with subtasks of its own follows them like a card follows its subtasks (and so on up)."""
-    for _ in range(SUB_MAX_DEPTH):
+    for _ in range(CHAIN_GUARD):
         cur = await db.execute("SELECT id, status, task_parent_id FROM task_comments WHERE id = ? AND is_task = 1", (comment_id,))
         c = await cur.fetchone()
         if not c or (c["status"] or "new") == "canceled":
@@ -2852,7 +2850,7 @@ class SubtaskNew(BaseModel):
 
 @router.post("/{task_id}/subtasks")
 async def create_subtask(task_id: int, body: SubtaskNew, request: Request):
-    """New subtask on the card, or below another subtask (card + 4 levels at most).
+    """New subtask on the card, or below another subtask (any number of levels).
     Card editors may add anywhere; a subtask's assignee may add below their own subtask."""
     user = current_user(request)
     me = user.get("id")
@@ -2864,8 +2862,6 @@ async def create_subtask(task_id: int, body: SubtaskNew, request: Request):
             p = await _comment(db, task_id, body.parent)
             if not p["is_task"] or p["parent_id"]:
                 raise HTTPException(status_code=400, detail="只能在子任務底下新增子任務")
-            if await subtask_depth(db, body.parent) >= SUB_MAX_DEPTH:
-                raise HTTPException(status_code=400, detail="最多五層（主卡＋四層子任務）")
             if not editor and not (me is not None and me in await _owners_above(db, body.parent)):
                 raise HTTPException(status_code=403, detail="只有能編輯卡片的人或這個子任務的負責人可以新增下層子任務")
         elif not editor:

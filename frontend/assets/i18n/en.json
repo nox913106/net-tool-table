@@ -1557,8 +1557,7 @@
  "看得到：{0} 個部門、{1} 位人員（系統管理員一律看得到）": "Visible to: {0} departments, {1} people (system administrators always see it)",
  "尚未選擇：儲存後等同所有人": "Nothing selected: saving this means everyone",
  "可見範圍": "Visible to",
- "任務視窗：子任務由左至右展開，最多五層": "Task window: subtasks open from left to right, up to five levels",
- "在任務視窗展開：工時、留言與下層子任務（最多五層）": "Open in the task window: time, comments and sub-items (up to five levels)",
- "已是第五層": "Already at the fifth level",
- "這個專案的工作（L2～L5）與歸屬的一般卡，依狀態分欄；拖到其他欄改狀態，上層狀態會自動彙總。": "This project's work (L2–L5) and attached everyday cards, in columns by status; drag to another column to change status, and the levels above roll up automatically."
+ "任務視窗：子任務由左至右逐層展開": "Task window: subtasks open level by level from left to right",
+ "在任務視窗展開：工時、留言與下層子任務": "Open in the task window: time, comments and sub-items",
+ "這個專案的各層工作（L2 以下）與歸屬的一般卡，依狀態分欄；拖到其他欄改狀態，上層狀態會自動彙總。": "This project's work at every level (L2 and below) and attached everyday cards, in columns by status; drag to another column to change status, and the levels above roll up automatically."
 }
