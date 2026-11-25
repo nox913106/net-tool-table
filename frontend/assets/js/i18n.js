@@ -2,20 +2,21 @@
    IPMS — languages (Traditional Chinese, English)
    The source text is Traditional Chinese; _t('中文', a, b) returns the English text from
    assets/i18n/en.js when English is on, with {0} {1} … filled in. Missing entries fall back
-   to the Chinese. The language: the person's own choice (saved per account and in this
-   browser) → the site default chosen by an administrator (Traditional Chinese unless set
-   to English or to follow the browser).
+   to the Chinese. The language: the person's own choice (in their profile on the server,
+   assets/js/profile.js) → the site default chosen by an administrator (Traditional Chinese
+   unless set to English or to follow the browser).
    scripts/i18n.py check lists texts that still need a translation.
    ============================================================================= */
 (() => {
   const LANGS = { 'zh-TW': '繁體中文', en: 'English' };
-  const read = k => { try { const v = JSON.parse(localStorage.getItem('tt:' + k)); return LANGS[v] ? v : null; } catch { return null; } };
+  const P = window.TTProfile || { get: () => null, set() {}, flush: () => Promise.resolve(), siteLang: 'zh-TW' };
+  const read = k => { const v = P.get(k); return LANGS[v] ? v : null; };
   const browser = () => {
     const list = (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || 'zh-TW']).map(x => String(x).toLowerCase());
     return list.some(x => x.startsWith('zh')) || !list[0] ? 'zh-TW' : 'en';
   };
   // the site default: zh-TW unless an administrator chose English or "follow the browser"
-  const siteRaw = (() => { try { return JSON.parse(localStorage.getItem('tt:lang-site')); } catch { return null; } })();
+  const siteRaw = P.siteLang;
   const siteLang = siteRaw === 'auto' ? browser() : LANGS[siteRaw] ? siteRaw : 'zh-TW';
   const lang = read('lang') || siteLang;
   const DICT = lang === 'en' ? (window.TT_I18N_EN || {}) : {};
@@ -32,14 +33,14 @@
   window.TT_LANG = lang;
   window.TTI18n = {
     lang, LANGS, missing,
-    /** Change the language and reload (persisted for this browser; the caller saves it to the account). */
-    set(v, reload = true) { try { localStorage.setItem('tt:lang', JSON.stringify(v)); } catch { /* private mode */ } if (reload && v !== lang) location.reload(); },
-    clear(reload = true) { try { localStorage.removeItem('tt:lang'); } catch { /* ignore */ } if (reload) location.reload(); },
+    /** Change the language (kept in the profile) and reload. */
+    set(v, reload = true) { P.set('lang', v); if (reload && v !== lang) P.flush().finally(() => location.reload()); },
+    clear(reload = true) { P.set('lang', null); if (reload) P.flush().finally(() => location.reload()); },
     /** The site default chosen by an administrator (used when the person has not chosen). */
     site(v) {
       if (!LANGS[v] && v !== 'auto') v = 'zh-TW';
-      try { localStorage.setItem('tt:lang-site', JSON.stringify(v)); } catch { /* ignore */ }
-      if (!read('lang') && (v === 'auto' ? browser() : v) !== lang) location.reload();
+      // the profile answer carries the site default already; reload only if it changed since (once per page)
+      if (!read('lang') && (v === 'auto' ? browser() : v) !== lang && !window.__ttLangReloaded) { window.__ttLangReloaded = true; location.reload(); }
     },
     /** Dates in the current language */
     locale: lang === 'en' ? 'en-US' : 'zh-TW',

@@ -312,6 +312,9 @@ async def _finish_link(server: str, verify: bool, res: dict, sent: float, old: d
         await sync.set_state(db, "user", json.dumps(user, ensure_ascii=False))
         if old.get("server") != server:
             await sync.set_state(db, "cursor", "0")
+        if old.get("server") != server or (old.get("user") or {}).get("username") != user.get("username"):
+            await sync.set_state(db, "profile_since", "0")        # another account: take its whole profile
+            await db.execute("UPDATE profile SET dirty = 1 WHERE user_id = 0")
         await _offset(db, res.get("now"), sent)
         LOCAL_USER = await _as_local_user(db, uid, user)
         await db.commit()
@@ -363,6 +366,7 @@ async def sync_now():
         try:
             await _pull(cfg)
             await _push(cfg)
+            await _profile(cfg)
             _status.update(online=True, error=None, last_ok=time.time())
             _retry.update(at=0, wait=5.0)
         except SyncError as e:
@@ -374,6 +378,34 @@ async def sync_now():
             _retry["at"] = time.time() + _retry["wait"]
         finally:
             _status["syncing"] = False
+
+
+async def _profile(cfg):
+    """This copy's profile (favorites, layout and view choices …) ⇄ the linked account's, last write wins per key."""
+    db = await get_db()
+    try:
+        since = int(await sync.state(db, "profile_since", "0") or 0)
+        cur = await db.execute("SELECT key, value, at FROM profile WHERE user_id = 0 AND dirty = 1")
+        changes = [{"key": k, "value": v, "at": a} for k, v, a in await cur.fetchall()]
+    finally:
+        await db.close()
+    res = await _call(cfg, "POST", "/api/sync/profile", {"changes": changes, "since": since})
+    db = await get_db()
+    try:
+        for c in changes:                                  # sent: clean unless changed again meanwhile
+            await db.execute("UPDATE profile SET dirty = 0 WHERE user_id = 0 AND key = ? AND at = ?", (c["key"], c["at"]))
+        for r in res.get("rows") or []:
+            cur = await db.execute("SELECT at FROM profile WHERE user_id = 0 AND key = ?", (r["key"],))
+            mine = await cur.fetchone()
+            if mine is None or r["at"] > mine[0]:
+                await db.execute("""INSERT INTO profile (user_id, key, value, at, dirty) VALUES (0, ?, ?, ?, 0)
+                                    ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, at = excluded.at, dirty = 0""",
+                                 (r["key"], r["value"], r["at"]))
+        if isinstance(res.get("now"), int):
+            await sync.set_state(db, "profile_since", str(max(since, res["now"])))
+        await db.commit()
+    finally:
+        await db.close()
 
 
 async def _after_merge(db, rep: sync.Report):
@@ -705,6 +737,9 @@ async def _loop():
             try:
                 cfg = await _cfg(db)
                 pending = await sync.pending_count(db) if _linked(cfg) else 0
+                if _linked(cfg) and not pending:           # profile changes count too
+                    cur = await db.execute("SELECT 1 FROM profile WHERE user_id = 0 AND dirty = 1 LIMIT 1")
+                    pending = 1 if await cur.fetchone() else 0
             finally:
                 await db.close()
             if not _linked(cfg) or _status["syncing"]:

@@ -5,19 +5,11 @@
 
 const TT = (() => {
   // ---------------------------------------------------------------- storage
+  // the person's profile, kept on the server (assets/js/profile.js) — never in the browser
   const store = {
-    get(key, fallback = null) {
-      try {
-        const v = localStorage.getItem('tt:' + key);
-        return v === null ? fallback : JSON.parse(v);
-      } catch { return fallback; }
-    },
-    set(key, value) {
-      try { localStorage.setItem('tt:' + key, JSON.stringify(value)); } catch { /* private mode */ }
-    },
-    remove(key) {
-      try { localStorage.removeItem('tt:' + key); } catch { /* ignore */ }
-    },
+    get(key, fallback = null) { return window.TTProfile ? TTProfile.get(key, fallback) : fallback; },
+    set(key, value) { window.TTProfile?.set(key, value); },
+    remove(key) { window.TTProfile?.remove(key); },
   };
 
   // -------------------------------------------------------------------- api

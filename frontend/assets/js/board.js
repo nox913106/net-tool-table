@@ -2079,7 +2079,7 @@ const TTBoard = window.TTBoard = (() => {
       const VIEW_KEY = 'tt-comment-view';
       let newestFirst = false;
       let onlyTasks = false;
-      try { newestFirst = localStorage.getItem(ORDER_KEY) === 'desc'; onlyTasks = localStorage.getItem(VIEW_KEY) === 'tasks'; } catch (e) { /* storage blocked */ }
+      newestFirst = TT.store.get(ORDER_KEY) === 'desc'; onlyTasks = TT.store.get(VIEW_KEY) === 'tasks';
       const orderBtn = el('button', { class: 'btn btn-sm btn-ghost kb-comment-order', type: 'button' });
       const viewBtn = el('button', { class: 'btn btn-sm btn-ghost kb-comment-order', type: 'button' });
       const paintOrder = () => {
@@ -2091,12 +2091,12 @@ const TTBoard = window.TTBoard = (() => {
       paintOrder();
       orderBtn.addEventListener('click', () => {
         newestFirst = !newestFirst;
-        try { localStorage.setItem(ORDER_KEY, newestFirst ? 'desc' : 'asc'); } catch (e) { /* storage blocked */ }
+        TT.store.set(ORDER_KEY, newestFirst ? 'desc' : 'asc');
         paintOrder(); paint();
       });
       viewBtn.addEventListener('click', () => {
         onlyTasks = !onlyTasks;
-        try { localStorage.setItem(VIEW_KEY, onlyTasks ? 'tasks' : 'all'); } catch (e) { /* storage blocked */ }
+        TT.store.set(VIEW_KEY, onlyTasks ? 'tasks' : 'all');
         paintOrder(); paint();
       });
 

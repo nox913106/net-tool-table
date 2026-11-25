@@ -341,11 +341,14 @@ async def set_lang(body: LangIn, user: dict = Depends(current_user)):
     """My interface language: zh-TW, en, or null (follow the site default)."""
     if body.lang not in (None, "zh-TW", "en"):
         raise HTTPException(status_code=400, detail="語言只能是 zh-TW 或 en")
-    if user.get("id") is None:
-        return {"lang": body.lang}                 # no account (standalone): the browser keeps it
+    from . import profile
     db = await get_db()
     try:
-        await db.execute("UPDATE users SET lang = ? WHERE id = ?", (body.lang, user["id"]))
+        if not C.AUTH:                             # the standalone copy's own profile (synced to the account)
+            await profile.write(db, 0, {"lang": body.lang}, dirty=True)
+        elif user.get("id") is not None:
+            await db.execute("UPDATE users SET lang = ? WHERE id = ?", (body.lang, user["id"]))
+            await profile.write(db, user["id"], {"lang": body.lang})
         await db.commit()
         return {"lang": body.lang}
     finally:

@@ -367,6 +367,10 @@ async def init_db():
                                 id INTEGER PRIMARY KEY AUTOINCREMENT, at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                                 actor_id INTEGER, tbl TEXT, row_id INTEGER, card_id INTEGER, field TEXT, old TEXT, new TEXT)""")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_change_log_card ON change_log(card_id, at)")
+        # each account's profile (favorites, recent, layout and view choices, language …): kept here, never in the
+        # browser. user_id 0 = the standalone copy's own; it is synced to the linked account's (LWW per key, at = ms)
+        await db.execute("""CREATE TABLE IF NOT EXISTS profile (user_id INTEGER NOT NULL, key TEXT NOT NULL, value TEXT,
+                                at INTEGER NOT NULL, dirty INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, key))""")
         # /dashboard trend lines: one row per day × department × status (counts only, this copy only)
         await db.execute("""CREATE TABLE IF NOT EXISTS dash_snap (day TEXT NOT NULL, dept TEXT NOT NULL, status TEXT NOT NULL,
                                 n INTEGER NOT NULL, PRIMARY KEY (day, dept, status))""")

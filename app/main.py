@@ -149,6 +149,8 @@ from . import apidocs                       # noqa: E402  Chinese summaries, gro
 apidocs.install(app, VERSION)
 
 app.include_router(nodes.router)
+from .routes import profile as profile_routes  # noqa: E402
+app.include_router(profile_routes.router)
 app.include_router(nodes.my_router)
 app.include_router(auth_links.router)
 app.include_router(search.router)
