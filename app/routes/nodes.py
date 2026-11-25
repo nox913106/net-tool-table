@@ -8,6 +8,7 @@ import aiosqlite
 
 from .. import config as C
 from .. import localapps as la
+from .. import node_access as acc
 from ..database import get_db
 from ..models import (
     NodeCreate, NodeUpdate, NodeMove, NodeResponse, 
@@ -25,6 +26,23 @@ my_router = APIRouter(prefix="/api/my/nodes", tags=["nodes"])
 def _viewer(request: Request):
     user = getattr(request.state, "user", None) or {}
     return user.get("id")
+
+
+def _user(request: Request):
+    return getattr(request.state, "user", None)
+
+
+def _out(row) -> dict:
+    """A node as the API returns it (visible_to as an object; only meaningful in the public area)."""
+    d = dict(row)
+    d["visible_to"] = acc.parse(d.get("visible_to")) if d.get("owner_id") is None else None
+    d.pop("uid", None)
+    return d
+
+
+async def _check_visible(db, request: Request, node_id: int):
+    if node_id in await acc.hidden_ids(db, _user(request)):
+        raise HTTPException(status_code=404, detail="Node not found")
 
 
 def _area(request: Request):
@@ -90,7 +108,8 @@ async def generate_code(db, parent_id: Optional[int]) -> str:
             n += 1
         return f"{parent_code}-{n}"
 
-async def build_tree(db, include_inactive: bool = False, viewer=None, public_only: bool = False, area=None) -> List[dict]:
+async def build_tree(db, include_inactive: bool = False, viewer=None, public_only: bool = False, area=None,
+                     user=None) -> List[dict]:
     """Whole tree in one query: the public area plus the viewer's own personal area.
     Inactive nodes (and their subtrees) are skipped unless include_inactive is set (admin view).
     personal: in someone's personal area; readonly: not editable through /api/nodes here."""
@@ -99,11 +118,11 @@ async def build_tree(db, include_inactive: bool = False, viewer=None, public_onl
     if not include_inactive:
         where.append("is_active = TRUE")
     cursor = await db.execute(f"SELECT * FROM nodes WHERE {' AND '.join(where)} ORDER BY sort_order, id", args)
-    rows = [dict(r) for r in await cursor.fetchall()]
+    hidden = await acc.hidden_ids(db, user)
+    rows = [_out(r) for r in await cursor.fetchall() if r["id"] not in hidden]
     for r in rows:
         r["personal"] = r["owner_id"] is not None
         r["readonly"] = r["owner_id"] != area
-        r.pop("uid", None)
     by_id = {r["id"]: r for r in rows}
     roots: List[dict] = []
     for r in rows:
@@ -146,8 +165,8 @@ async def get_root_nodes(request: Request):
             "SELECT * FROM nodes WHERE parent_id IS NULL AND is_active = TRUE AND (owner_id IS NULL OR owner_id IS ?) ORDER BY sort_order, code",
             (_viewer(request),)
         )
-        rows = await cursor.fetchall()
-        return [dict(row) for row in rows]
+        hidden = await acc.hidden_ids(db, _user(request))
+        return [_out(row) for row in await cursor.fetchall() if row["id"] not in hidden]
     finally:
         await db.close()
 
@@ -158,7 +177,7 @@ async def get_full_tree(request: Request, include_inactive: bool = False):
     db = await get_db()
     try:
         return await build_tree(db, include_inactive, _viewer(request), public_only=C.AUTH and include_inactive,
-                                area=_area(request))
+                                area=_area(request), user=_user(request))
     finally:
         await db.close()
 
@@ -171,7 +190,8 @@ async def get_node(node_id: int, request: Request):
         row = await cursor.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Node not found")
-        return dict(row)
+        await _check_visible(db, request, node_id)
+        return _out(row)
     finally:
         await db.close()
 
@@ -184,8 +204,10 @@ async def get_children(node_id: int, request: Request):
             "SELECT * FROM nodes WHERE parent_id = ? AND is_active = TRUE AND (owner_id IS NULL OR owner_id IS ?) ORDER BY sort_order, code",
             (node_id, _viewer(request))
         )
-        rows = await cursor.fetchall()
-        return [dict(row) for row in rows]
+        hidden = await acc.hidden_ids(db, _user(request))
+        if node_id in hidden:
+            raise HTTPException(status_code=404, detail="Node not found")
+        return [_out(row) for row in await cursor.fetchall() if row["id"] not in hidden]
     finally:
         await db.close()
 
@@ -198,17 +220,18 @@ async def get_by_code(code: str, request: Request):
             "SELECT * FROM nodes WHERE code = ? AND is_active = TRUE AND (owner_id IS NULL OR owner_id IS ?)", (code, _viewer(request))
         )
         row = await cursor.fetchone()
-        if not row:
+        hidden = await acc.hidden_ids(db, _user(request))
+        if not row or row["id"] in hidden:
             raise HTTPException(status_code=404, detail="Node not found")
-        
+
         # Also get children
-        node = dict(row)
+        node = _out(row)
         cursor = await db.execute(
-            "SELECT * FROM nodes WHERE parent_id = ? AND is_active = TRUE ORDER BY sort_order, code",
-            (node['id'],)
+            "SELECT * FROM nodes WHERE parent_id = ? AND is_active = TRUE AND (owner_id IS NULL OR owner_id IS ?) ORDER BY sort_order, code",
+            (node['id'], _viewer(request))
         )
         children = await cursor.fetchall()
-        node['items'] = [dict(child) for child in children]
+        node['items'] = [_out(child) for child in children if child["id"] not in hidden]
         return node
     finally:
         await db.close()
@@ -250,19 +273,20 @@ async def _create(node: NodeCreate, request: Request, owner):
                 cursor = await db.execute(
                     """INSERT INTO nodes (parent_id, code, name, node_type, icon, url,
                                           description, color, launch_args, launch_cwd,
-                                          new_tab, sort_order, is_active, owner_id)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                          new_tab, sort_order, is_active, owner_id, visible_to)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (node.parent_id, code, node.name, node.node_type,
                      node.icon, node.url, node.description, node.color or None,
                      node.launch_args or None, node.launch_cwd or None,
-                     node.new_tab, node.sort_order, node.is_active, owner)
+                     node.new_tab, node.sort_order, node.is_active, owner,
+                     acc.dump(node.visible_to.model_dump()) if node.visible_to and owner is None and C.AUTH else None)
                 )
                 await db.commit()
                 
                 # Return created node
                 cursor = await db.execute("SELECT * FROM nodes WHERE id = ?", (cursor.lastrowid,))
                 row = await cursor.fetchone()
-                return dict(row)
+                return _out(row)
             except Exception as e:
                 if "UNIQUE constraint" in str(e) and attempt < max_retries - 1:
                     # Code conflict, increment and retry
@@ -326,6 +350,8 @@ async def _update(node_id: int, node: NodeUpdate, request: Request, owner):
         updates = []
         values = []
         update_data = node.model_dump(exclude_unset=True)
+        if "visible_to" in update_data:            # who sees it: public area on the server only
+            update_data["visible_to"] = acc.dump(update_data["visible_to"]) if owner is None and C.AUTH else None
         
         for key, value in update_data.items():
             updates.append(f"{key} = ?")
@@ -343,7 +369,7 @@ async def _update(node_id: int, node: NodeUpdate, request: Request, owner):
         
         cursor = await db.execute("SELECT * FROM nodes WHERE id = ?", (node_id,))
         row = await cursor.fetchone()
-        return dict(row)
+        return _out(row)
     finally:
         await db.close()
 

@@ -504,3 +504,12 @@ body.link-dragging .quick-admin { outline: 2px dashed var(--accent-line); outlin
 .users-row.is-guest { background: color-mix(in srgb, #f59e0b 7%, transparent); }
 .users-guest { display: inline-block; margin-left: 8px; padding: 0 6px; border-radius: 6px; font-size: 11px; font-weight: 700; color: #b45309; border: 1px solid color-mix(in srgb, #f59e0b 55%, transparent); vertical-align: middle; }
 .badge.badge-warn { color: #b45309; border-color: color-mix(in srgb, #f59e0b 55%, transparent); background: color-mix(in srgb, #f59e0b 10%, transparent); }
+
+/* who sees a public folder / link */
+.vis-box { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-md, 10px); background: var(--surface-2); }
+.vis-body { display: flex; flex-direction: column; gap: 6px; }
+.vis-body .select { max-width: 360px; }
+.vis-inherit { display: flex; align-items: center; gap: 6px; }
+.vis-inherit svg, .atag-lock svg { width: 13px; height: 13px; }
+.atag-lock { color: var(--accent-text); }
+.vis-box .segmented { align-self: flex-start; }

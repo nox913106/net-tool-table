@@ -1549,5 +1549,16 @@
  "下載完整安裝程式": "Download the full installer",
  "更新中…": "Updating…",
  "正在更新到伺服器的版本": "Updating to the server's version",
- "需要更新": "Update needed"
+ "需要更新": "Update needed",
+ "限定可見：{0}": "Visible only to: {0}",
+ "上層「{0}」已限定可見範圍；這裡的限定再加上去（兩者都符合才看得到）": "“{0}” above is already limited; a limit here adds to it (people must match both)",
+ "所有人": "Everyone",
+ "指定部門或人員": "Some departments or people",
+ "所有登入的人都看得到這個資料夾（除非上層有限定）": "Everyone signed in sees this folder (unless a folder above is limited)",
+ "所有登入的人都看得到（除非上層有限定）": "Everyone signed in sees it (unless a folder above is limited)",
+ "帳號都還沒有部門資料（AD 的 department）": "No account has a department yet (AD department)",
+ "＋ 加入人員…": "+ Add a person…",
+ "看得到：{0} 個部門、{1} 位人員（系統管理員一律看得到）": "Visible to: {0} departments, {1} people (system administrators always see it)",
+ "尚未選擇：儲存後等同所有人": "Nothing selected: saving this means everyone",
+ "可見範圍": "Visible to"
 }

@@ -583,6 +583,7 @@
           tile({ icon: n.icon, name: n.name, color: n.color || null, folder, size: 26 }),
           el('span', { class: 'aname', text: n.name }),
           n.is_active ? null : el('span', { class: 'atag', title: _t('已停用：前台不會顯示'), html: svg('eye-off') }),
+          n.visible_to ? el('span', { class: 'atag atag-lock', title: _t('限定可見：{0}', [...(n.visible_to.departments || []), ...(n.visible_to.users || [])].join('、')), html: svg('lock') }) : null,
           folder ? el('span', { class: 'acount', text: kids.length || '' })
             : el('span', { class: 'akind' + (TT.isProgram(n.url) ? ' is-program' : ''), title: TT.isProgram(n.url) ? _t('本機程式') : '', html: svg(TT.isProgram(n.url) ? 'play' : 'link') }),
         ].filter(Boolean));
@@ -711,6 +712,69 @@
     paintEditor();
   }
 
+  // Who sees a public folder / link (server edition): everyone, or only some departments / people.
+  // A limit on a folder covers everything in it; each limited level must let the person in.
+  let visOptions = null;
+  async function loadVisOptions() {
+    if (visOptions) return visOptions;
+    const d = await api('/api/users');
+    visOptions = { departments: d.departments || [], users: (d.users || []).filter(u => u.active && !u.local_admin && u.source !== 'local') };
+    return visOptions;
+  }
+
+  function visibilityField(n, draft, markDirty) {
+    const box = el('div', { class: 'vis-box' });
+    const inherited = pathOf(n).filter(p => p.visible_to);
+    const note = inherited.length ? el('p', { class: 'hint vis-inherit', html: svg('lock') + _t('上層「{0}」已限定可見範圍；這裡的限定再加上去（兩者都符合才看得到）', inherited.map(p => p.name).join('、')) }) : null;
+    const mode = segmented([['all', _t('所有人'), 'users'], ['some', _t('指定部門或人員'), 'lock']], draft.visible ? 'some' : 'all', v => {
+      draft.visible = v === 'some' ? (draft.visible || { departments: [], users: [] }) : null;
+      markDirty(); paint();
+    });
+    const body = el('div', { class: 'vis-body' });
+    async function paint() {
+      if (!draft.visible) {
+        body.replaceChildren(el('p', { class: 'hint', text: isFolder(n) ? _t('所有登入的人都看得到這個資料夾（除非上層有限定）') : _t('所有登入的人都看得到（除非上層有限定）') }));
+        return;
+      }
+      let o;
+      try { o = await loadVisOptions(); } catch (e) { body.replaceChildren(el('p', { class: 'hint', text: e.message })); return; }
+      const v = draft.visible;
+      const depts = [...new Set([...o.departments, ...v.departments])];
+      const chips = el('div', { class: 'scope-box' }, ...depts.map(d => {
+        const b = el('button', { type: 'button', class: 'scope-chip', 'aria-pressed': String(v.departments.includes(d)), text: d });
+        b.addEventListener('click', () => {
+          v.departments = v.departments.includes(d) ? v.departments.filter(x => x !== d) : [...v.departments, d];
+          b.setAttribute('aria-pressed', String(v.departments.includes(d))); markDirty(); summary();
+        });
+        return b;
+      }), depts.length ? null : el('span', { class: 'hint', text: _t('帳號都還沒有部門資料（AD 的 department）') }));
+      const people = el('div', { class: 'scope-box' });
+      const nameOf = u => { const x = o.users.find(p => p.username === u); return x ? (x.display_name || x.username) + (x.department ? ` · ${x.department}` : '') : u; };
+      const paintPeople = () => people.replaceChildren(...v.users.map(u => {
+        const b = el('button', { type: 'button', class: 'scope-chip', 'aria-pressed': 'true', title: _t('移除'), text: nameOf(u) + ' ✕' });
+        b.addEventListener('click', () => { v.users = v.users.filter(x => x !== u); markDirty(); paintPeople(); summary(); });
+        return b;
+      }));
+      paintPeople();
+      const pick = el('select', { class: 'select' }, el('option', { value: '', text: _t('＋ 加入人員…') }),
+        ...o.users.map(u => el('option', { value: u.username, text: `${u.display_name || u.username}（${u.username}）${u.department ? ' · ' + u.department : ''}` })));
+      pick.addEventListener('change', () => {
+        if (pick.value && !v.users.includes(pick.value)) { v.users = [...v.users, pick.value]; markDirty(); paintPeople(); summary(); }
+        pick.value = '';
+      });
+      const sum = el('p', { class: 'hint vis-sum' });
+      const summary = () => { sum.textContent = v.departments.length || v.users.length
+        ? _t('看得到：{0} 個部門、{1} 位人員（系統管理員一律看得到）', v.departments.length, v.users.length)
+        : _t('尚未選擇：儲存後等同所有人'); };
+      summary();
+      body.replaceChildren(el('span', { class: 'field-label', text: _t('部門') }), chips,
+        el('span', { class: 'field-label', text: _t('人員') }), people, pick, sum);
+    }
+    paint();
+    box.append(el('span', { class: 'field-label', text: _t('可見範圍') }), mode, note || '', body);
+    return box;
+  }
+
   function paintEditor() {
     const box = $('editor');
     if (!box) return;
@@ -723,7 +787,8 @@
       return;
     }
 
-    const draft = { name: n.name, node_type: n.node_type, url: TT.programPath(n.url || ''), description: n.description || '', icon: n.icon || '', color: n.color || '', new_tab: n.new_tab !== false && n.new_tab !== 0, is_active: !!n.is_active, parent: state.parent.get(n.id)?.id ?? '', launch_args: n.launch_args || '', launch_cwd: n.launch_cwd || '' };
+    const vis = n.visible_to || null;
+    const draft = { visible: vis ? { departments: [...(vis.departments || [])], users: [...(vis.users || [])] } : null, name: n.name, node_type: n.node_type, url: TT.programPath(n.url || ''), description: n.description || '', icon: n.icon || '', color: n.color || '', new_tab: n.new_tab !== false && n.new_tab !== 0, is_active: !!n.is_active, parent: state.parent.get(n.id)?.id ?? '', launch_args: n.launch_args || '', launch_cwd: n.launch_cwd || '' };
     const markDirty = () => { state.dirty = true; saveBtn.disabled = false; };
     const folderNow = () => draft.node_type === 'folder';
 
@@ -789,6 +854,7 @@
     parentSel.addEventListener('change', () => { draft.parent = parentSel.value; markDirty(); });
 
     const active = switchCtl(draft.is_active, _t('在入口顯示'), v => { draft.is_active = v; markDirty(); });
+    const visField = state.me?.auth ? visibilityField(n, draft, markDirty) : null;
 
     // actions
     const saveBtn = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + _t('儲存'), disabled: true });
@@ -828,6 +894,7 @@
             description: draft.description.trim() || null,
             icon: draft.icon || null, color: draft.color || '',
             new_tab: draft.new_tab, is_active: draft.is_active,
+            ...(state.me?.auth ? { visible_to: draft.visible && (draft.visible.departments.length || draft.visible.users.length) ? draft.visible : null } : {}),
             ...(draft.node_type === 'link' && TT.looksLikePath(draft.url)
               ? { launch_args: draft.launch_args.trim() || null, launch_cwd: draft.launch_cwd.trim() || null } : {}),
           },
@@ -846,7 +913,8 @@
       field(_t('說明'), desc),
       el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('圖示') }), iconField),
       el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('顏色') }), colors, el('span', { class: 'hint', text: _t('資料夾的顏色會套用到裡面沒有自訂顏色的項目') })),
-      el('div', { class: 'form-row' }, field(_t('所屬資料夾'), parentSel), el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('狀態') }), active)));
+      el('div', { class: 'form-row' }, field(_t('所屬資料夾'), parentSel), el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('狀態') }), active)),
+      visField);
     form.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); if (!saveBtn.disabled) save(); } });
 
     box.replaceChildren(head, form, el('div', { class: 'editor-actions' }, saveBtn, addChild, el('span', { class: 'spacer' }), del));

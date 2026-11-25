@@ -48,10 +48,15 @@ async def search_nodes(q: str, request: Request, limit: int = 50):
             (f"%{q}%", (getattr(request.state, "user", None) or {}).get("id"), limit)
         )
         rows = await cursor.fetchall()
-        
+        from .. import node_access as acc
+        hidden = await acc.hidden_ids(db, getattr(request.state, "user", None))
+
         results = []
         for row in rows:
+            if row["id"] in hidden:
+                continue
             node = dict(row)
+            node.pop("visible_to", None)
             node['path'] = await get_node_path(db, node['id'])
             results.append(node)
         

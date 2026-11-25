@@ -607,9 +607,17 @@ async def pull(request: Request):
     body = await _json(request)
     since = body.get("since") if isinstance(body.get("since"), int) else 0
     want = [u for u in (body.get("want") or []) if isinstance(u, str)][:2000]
+    nodes_have = body.get("nodes_have")                 # public links this copy holds (newer copies send it)
     db = await get_db()
     try:
         seq = await sync.current_seq(db)
+        # public links: only what this account may see (app/node_access.py)
+        from ..node_access import hidden_ids
+        hidden = await hidden_ids(db, user)
+        cur = await db.execute("SELECT id, uid, parent_id FROM nodes WHERE owner_id IS NULL AND uid IS NOT NULL")
+        pub = {r[1]: (r[0], r[2]) for r in await cur.fetchall()}
+        pub_visible = [u for u, (i, _) in pub.items() if i not in hidden]
+        pub_hidden = {u for u, (i, _) in pub.items() if i in hidden}
         where, args = _visible_sql(user)
         cur = await db.execute(f"SELECT t.id, t.uid FROM tasks t WHERE {where}", args)
         vis = {r[1]: r[0] for r in await cur.fetchall() if r[1]}
@@ -617,7 +625,8 @@ async def pull(request: Request):
         rows, tombs = [], []
         if since <= 0:
             rows = await sync.export_cards(db, list(vis.values()), ids)
-            rows += await sync.export_rows(db, "nodes", "(owner_id IS NULL OR owner_id = ?)", (user["id"],), ids)
+            rows += [r for r in await sync.export_rows(db, "nodes", "(owner_id IS NULL OR owner_id = ?)", (user["id"],), ids)
+                     if r["uid"] not in pub_hidden]
         else:
             cur = await db.execute("SELECT DISTINCT tbl, uid FROM sync_clock WHERE seq > ?", (since,))
             changed: dict = {}
@@ -627,7 +636,7 @@ async def pull(request: Request):
             for table in sync.ORDER:
                 for r in await sync.export_by_uid(db, table, changed.get(table, []), ids):
                     if table == "nodes":
-                        if r["v"].get("owner_id") in (None, user["username"]):
+                        if r["v"].get("owner_id") in (None, user["username"]) and r["uid"] not in pub_hidden:
                             rows.append(r)
                         continue
                     card = r["uid"] if table == "tasks" else r["v"].get("task_id")
@@ -637,6 +646,18 @@ async def pull(request: Request):
             if wanted:
                 have = {(r["t"], r["uid"]) for r in rows}
                 rows += [r for r in await sync.export_cards(db, wanted, ids) if (r["t"], r["uid"]) not in have]
+            if isinstance(nodes_have, list):            # newly visible (a folder opened to this person): the whole subtree
+                have = set(u for u in nodes_have if isinstance(u, str)) | {r["uid"] for r in rows if r["t"] == "nodes"}
+                gaps = [u for u in pub_visible if u not in have]
+                if gaps:
+                    by_id = {i: p for i, p in pub.values()}
+
+                    def depth(u):
+                        d, p = 0, pub[u][1]
+                        while p is not None and d < 64:
+                            d, p = d + 1, by_id.get(p)
+                        return d
+                    rows += await sync.export_by_uid(db, "nodes", sorted(gaps, key=depth), ids)
             cur = await db.execute("SELECT tbl, uid, ts, dev FROM sync_tomb WHERE seq > ?", (since,))
             tombs = [{"t": r[0], "uid": r[1], "ts": r[2], "dev": r[3]} for r in await cur.fetchall()]
         people = await _directory(db)
@@ -657,7 +678,7 @@ async def pull(request: Request):
         board = {k: site.get(k) for k in BOARD_SETTINGS}
         notes = await _notes_out(db, user)
         await db.commit()
-        return {"rows": rows, "tombs": tombs, "visible": list(vis), "seq": seq, "users": people, "me": me, "now": _now_ms(),
+        return {"rows": rows, "tombs": tombs, "visible": list(vis), "nodes_visible": pub_visible, "seq": seq, "users": people, "me": me, "now": _now_ms(),
                 "settings": board, "notes": notes}
     finally:
         await db.close()

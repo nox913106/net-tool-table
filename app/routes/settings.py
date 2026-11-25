@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from .. import config as C
 from ..database import get_db
 from ..localapps import is_file_url, local_allowed
+from ..node_access import dump as dump_visibility
 from ..models import unsafe_url
 from .tasks import export_tasks, import_tasks
 
@@ -315,6 +316,11 @@ async def export_subtree(db, parent_id: Optional[int]) -> List[dict]:
         item["color"] = item.get("color") or None
         item["is_active"] = bool(item.get("is_active", True))
         item["new_tab"] = bool(item.get("new_tab", True)) if item.get("new_tab") is not None else True
+        if C.AUTH and "visible_to" in row.keys():
+            from ..node_access import parse
+            rule = parse(row["visible_to"])
+            if rule:
+                item["visible_to"] = rule
         # Export children of any node (legacy data may have links with children)
         children = await export_subtree(db, row["id"])
         if row["node_type"] == "folder" or children:
@@ -385,8 +391,8 @@ async def import_subtree(db, items: List[dict], parent_id: Optional[int], parent
         code = f"{parent_code}-{n}" if parent_code else str(n)
         cursor = await db.execute(
             """INSERT INTO nodes (parent_id, code, name, node_type, icon, url, description,
-                                  color, launch_args, launch_cwd, new_tab, sort_order, is_active)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                  color, launch_args, launch_cwd, new_tab, sort_order, is_active, visible_to)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 parent_id, code, item["name"], node_type, item.get("icon") or None,
                 item.get("url") if node_type == "link" else None,
@@ -397,6 +403,7 @@ async def import_subtree(db, items: List[dict], parent_id: Optional[int], parent
                 bool(item.get("new_tab", True)),
                 int(item.get("sort_order", n - 1) or 0),
                 bool(item.get("is_active", True)),
+                dump_visibility(item.get("visible_to")) if C.AUTH else None,
             ),
         )
         if id_map is not None and isinstance(item.get("ref"), int):

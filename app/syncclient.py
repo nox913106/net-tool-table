@@ -548,7 +548,14 @@ async def _pull(cfg):
     want = []
     for _ in range(3):
         sent = time.time()
-        res = await _call(cfg, "POST", "/api/sync/pull", {"since": cfg["cursor"], "want": want}, timeout=120)
+        db = await get_db()
+        try:
+            cur = await db.execute("SELECT uid FROM nodes WHERE owner_id IS NULL AND uid IS NOT NULL")
+            nodes_have = [r[0] for r in await cur.fetchall()]
+        finally:
+            await db.close()
+        res = await _call(cfg, "POST", "/api/sync/pull", {"since": cfg["cursor"], "want": want, "nodes_have": nodes_have},
+                          timeout=120)
         db = await get_db()
         try:
             await _offset(db, res.get("now"), sent)
@@ -557,6 +564,8 @@ async def _pull(cfg):
             rep = await sync.merge(db, res, server=False, log=True)
             await _after_merge(db, rep)
             removed = await _reconcile(db, set(res.get("visible") or []))
+            if isinstance(res.get("nodes_visible"), list) and await _public_reconcile(db, set(res["nodes_visible"])):
+                rep.nodes = True
             cur = await db.execute("SELECT uid FROM tasks WHERE uid IS NOT NULL")
             local = {r[0] for r in await cur.fetchall()}
             cur = await db.execute("SELECT uid FROM sync_tomb WHERE tbl = 'tasks' AND dirty = 1")
@@ -722,6 +731,23 @@ async def _reconcile(db, visible: set) -> list:
     finally:
         await db.execute("DELETE FROM sync_ctx")
     return files
+
+
+async def _public_reconcile(db, visible: set) -> bool:
+    """Public links this account may no longer see (a folder limited to other departments) leave this copy.
+    Read-only here, so nothing of this copy's is lost; not sent back as deletions."""
+    cur = await db.execute("SELECT id, uid FROM nodes WHERE owner_id IS NULL AND uid IS NOT NULL")
+    gone = [i for i, u in await cur.fetchall() if u not in visible]
+    if not gone:
+        return False
+    await db.execute("INSERT INTO sync_ctx (k) VALUES (1)")
+    try:
+        for i in gone:
+            await db.execute("DELETE FROM nodes WHERE id = ?", (i,))
+        await db.execute("DELETE FROM sync_clock WHERE tbl = 'nodes' AND uid NOT IN (SELECT uid FROM nodes WHERE uid IS NOT NULL)")
+    finally:
+        await db.execute("DELETE FROM sync_ctx")
+    return True
 
 
 async def _fetch_blobs(cfg, uids):

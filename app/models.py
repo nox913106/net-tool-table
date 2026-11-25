@@ -28,6 +28,12 @@ def check_url(url: Optional[str]) -> Optional[str]:
 
 # ============ Node Models ============
 
+class NodeVisibility(BaseModel):
+    """Public area: who sees this folder / link (empty = everyone)."""
+    departments: List[str] = Field(default_factory=list, max_length=200)
+    users: List[str] = Field(default_factory=list, max_length=500)
+
+
 class NodeBase(BaseModel):
     """Base node model with common fields"""
     name: str = Field(..., min_length=1, max_length=200)
@@ -41,6 +47,7 @@ class NodeBase(BaseModel):
     new_tab: bool = True
     sort_order: int = 0
     is_active: bool = True
+    visible_to: Optional[NodeVisibility] = None
 
     _check_url = field_validator("url")(lambda cls, v: check_url(v))
 
@@ -63,6 +70,7 @@ class NodeUpdate(BaseModel):
     new_tab: Optional[bool] = None
     sort_order: Optional[int] = None
     is_active: Optional[bool] = None
+    visible_to: Optional[NodeVisibility] = None
 
     _check_url = field_validator("url")(lambda cls, v: check_url(v))
 

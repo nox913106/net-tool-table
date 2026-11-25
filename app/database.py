@@ -321,6 +321,8 @@ async def init_db():
             await db.execute("ALTER TABLE nodes ADD COLUMN launch_cwd TEXT")
         if "owner_id" not in node_cols:       # NULL = 公用區 (public area); an account = its 個人區 (personal area)
             await db.execute("ALTER TABLE nodes ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE")
+        if "visible_to" not in node_cols:     # public area: who may see it (app/node_access.py); NULL = everyone
+            await db.execute("ALTER TABLE nodes ADD COLUMN visible_to TEXT")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_nodes_owner ON nodes(owner_id)")
 
         # Create indexes
