@@ -55,8 +55,11 @@ class UserAdd(BaseModel):
 async def status():
     from .. import entra
     e = sysconfig.entra()
-    return {"auth": C.AUTH, "ldap": ldapauth.enabled(), "directory": ldapauth.directory_enabled() or entra.directory_enabled(e),
-            "local_admin": C.LOCAL_ADMIN, "entra": entra.enabled(e) and C.AUTH, "entra_label": e.button_label}
+    ldap_on = ldapauth.enabled()
+    return {"auth": C.AUTH, "ldap": ldap_on, "directory": ldapauth.directory_enabled() or entra.directory_enabled(e),
+            "local_admin": C.LOCAL_ADMIN, "entra": entra.enabled(e) and C.AUTH, "entra_label": e.button_label,
+            # the AD domain (UPN suffix): the sign-in page adds "@<it>" to an AD account name by itself
+            "upn_suffix": (sysconfig.ldap().domain or "").strip().lstrip("@").lower() if ldap_on else ""}
 
 
 # ------------------------------------------------------------- Microsoft Entra ID sign-in

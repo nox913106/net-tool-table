@@ -21,6 +21,17 @@
     $('login-mark').replaceChildren(tile({ icon: b.favicon || '', name: b.site_title || 'T', size: 48 }));
     $('login-dash').hidden = b.public_dashboard === false;
   } catch { /* defaults */ }
+  // AD: "@<domain>" is added to a bare account name by itself; not for a local account, nor when one was typed
+  let suffix = '', localName = '';
+  const bare = () => { const v = $('username').value.trim(); return v && !/[@\\]/.test(v) && v.toLowerCase() !== localName ? v : null; };
+  function paintSuffix() {
+    const tag = $('login-suffix');
+    if (!tag) return;
+    tag.textContent = suffix ? '@' + suffix : '';
+    tag.hidden = !suffix || (!!$('username').value.trim() && !bare());     // shown empty too, as a hint
+    $('username').style.paddingRight = tag.hidden ? '' : `${tag.offsetWidth + 20}px`;
+  }
+  $('username').addEventListener('input', paintSuffix);
   try {
     const st = await api('/api/auth/status');
     if (!st.auth) { location.replace(nextUrl); return; }
@@ -28,7 +39,12 @@
       const m = await api('/api/auth/me');
       if (m.user && !new URLSearchParams(location.search).get('change')) { location.replace(nextUrl); return; }
     } catch { /* not signed in */ }
-    $('login-hint').innerHTML = st.ldap
+    suffix = st.upn_suffix || '';
+    localName = (st.local_admin || '').toLowerCase();
+    paintSuffix();
+    $('login-hint').innerHTML = st.ldap && suffix
+      ? _t("用 Windows / AD 帳號密碼登入，只要輸入帳號，<code>@{0}</code> 會自動帶入。本機帳號不加後綴。", TT.esc(suffix))
+      : st.ldap
       ? _t("用 Windows / AD 帳號密碼登入（也可以輸入 <code>網域\\帳號</code> 或 <code>帳號@網域</code>）。")
       : st.entra ? _t('用公司的 Microsoft 帳號登入；本機管理員帳號只在緊急時使用。')
         : _t("尚未設定 AD 連線，目前只能用本機管理員帳號 <code>{0}</code> 登入。", TT.esc(st.local_admin));
@@ -81,7 +97,7 @@
   form.addEventListener('submit', async e => {
     e.preventDefault();
     err.hidden = true;
-    const username = $('username').value.trim();
+    const username = suffix && bare() ? `${bare()}@${suffix}` : $('username').value.trim();
     const password = $('password').value;
     if (!username || !password) { err.textContent = _t('請輸入帳號與密碼'); err.hidden = false; return; }
     btn.disabled = true;

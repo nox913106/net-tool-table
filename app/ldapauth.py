@@ -141,8 +141,11 @@ def authenticate(username: str, password: str, cfg=None) -> Optional[dict]:
                 return None
             return info
         # Active Directory: bind with the user principal name, then read our own entry
+        # (a full name@suffix typed in is used as it is: an account in another UPN suffix of the forest)
+        raw = (username or "").strip()
+        upn = raw if "@" in raw and USERNAME_RE.match(raw.split("@", 1)[0].lower()) else f"{user}@{c.domain}"
         try:
-            conn = _connect(f"{user}@{c.domain}", password, c)
+            conn = _connect(upn, password, c)
         except PermissionError:
             return None
         try:

@@ -32,3 +32,6 @@
 .link-facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 4px 0; font-size: 14px; }
 .link-facts dt { color: var(--text-3); }
 .link-facts dd { margin: 0; font-weight: 600; word-break: break-all; }
+.login-user { position: relative; display: flex; align-items: center; }
+.login-user .input { flex: 1; min-width: 0; }
+.login-suffix { position: absolute; right: 12px; pointer-events: none; color: var(--text-3); font-size: 14px; font-family: var(--mono, monospace); }

@@ -1777,7 +1777,7 @@
           field(_t('Base DN（搜尋起點）'), f.base_dn),
           field(_t('服務帳號 DN（建議）'), f.bind_dn, _t('唯讀帳號即可。有它才能在看板 @ 還沒登入過的同事、在「帳號與權限」預先加入帳號')),
           el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('服務帳號密碼') }), f.bind_password, clearBtn),
-          field(_t('或：網域（不用服務帳號時）'), f.domain, _t('以「帳號@網域」直接登入，例如 corp.local')),
+          field(_t('網域（UPN 後綴）'), f.domain, _t('登入頁會在帳號後面自動帶入「@網域」，例如 ad.corp.local；不用服務帳號時也用它登入 AD。本機帳號不會加上後綴')),
           field(_t('只允許這些帳號登入（選填）'), f.user_filter, _t('LDAP 篩選，例如某個群組的成員')),
           el('details', { class: 'sys-advanced' }, el('summary', { text: _t('進階：屬性名稱、TLS、逾時') }),
             el('div', { class: 'sys-form' },
