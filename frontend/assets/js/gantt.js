@@ -401,7 +401,10 @@
       if (force) await TTBoard.load(true).catch(() => {});
       paint(true);
     }
-    const onTasks = () => { clearTimeout(pending); pending = setTimeout(() => { if (!host.isConnected) return cleanup(); refresh(true); }, 250); };
+    // the board's cards were just (re)loaded — that is what 'tt:tasks' says: fetch only the Gantt's own rows.
+    // (Reloading the cards here would fire 'tt:tasks' again: an endless loop that redraws the radar, the alert
+    // list and the board several times a second.)
+    const onTasks = () => { clearTimeout(pending); pending = setTimeout(() => { if (!host.isConnected) return cleanup(); refresh(false); }, 250); };
     const onView = () => { if (!host.isConnected) return cleanup(); if (linked) paint(true); };
     const cleanup = () => { document.removeEventListener('tt:tasks', onTasks); board?.root.removeEventListener('kb:view', onView); };
     document.addEventListener('tt:tasks', onTasks);
