@@ -198,6 +198,7 @@ footer a { color: var(--ink-2); }
       <a href="#split">專案與維運</a>
       <a href="#radar">任務雷達</a>
       <a href="#projects">多專案</a>
+      <a href="#export">匯出</a>
       <a href="#offline">單機版<span class="dev">開發中</span></a>
       <a href="#install">安裝</a>
     </nav>
@@ -306,7 +307,40 @@ footer a { color: var(--ink-2); }
     </div>
   </section>
 
-  <section class="s">
+  <section class="s" id="export">
+    <div class="w">
+      <div class="head">
+        <div class="label">匯出成品</div>
+        <h2>給長官的報告、給 MS Project 的排程，一鍵產生</h2>
+        <p>看板、專案頁、甘特圖都能匯出，選格式就好：Excel 工作進度報告、加上甘特圖分頁的 Excel，或 Microsoft Project 直接開得起來的 XML。以下是示範專案實際匯出的檔案。</p>
+      </div>
+      <div class="duo">
+        <div class="card">
+          <div class="frame"><img src="img/export-report.jpg" width="1229" height="814" alt="匯出的 Excel 工作進度報告：樹狀編號、狀態、前置任務、工時與最新進度" loading="lazy"></div>
+          <h3>Excel 工作進度報告</h3>
+          <p>一張樹狀表，編號 1、1.1、1.1.1… 可以逐層折疊；狀態上色，逾期標紅，附工時紀錄與最新留言。另有「專案總覽」「人員負載」「問題清單」分頁，頁首頁尾與列印範圍都設好了，直接列印或轉 PDF 就能交出去。</p>
+        </div>
+        <div class="card">
+          <div class="frame"><img src="img/export-gantt.jpg" width="1373" height="878" alt="匯出的 Excel 甘特圖分頁：狀態色長條、里程碑、基準線與今天標示" loading="lazy"></div>
+          <h3>報告＋甘特圖（Excel）</h3>
+          <p>多一個「甘特圖」分頁：依狀態上色的長條、◆ 里程碑、灰色基準線、紅框標出今天，刻度依專案長度自動選日、週或月。A3 橫向列印，每頁重複表頭與項目欄。</p>
+        </div>
+      </div>
+      <div class="split" style="margin-top:48px">
+        <div class="frame"><img src="img/export-dialog.jpg" width="641" height="354" alt="匯出視窗：工作進度報告、報告＋甘特圖、MS Project 三種格式" loading="lazy"></div>
+        <div class="copy">
+          <h3>MS Project、依人員匯出、改完再匯回</h3>
+          <ul class="points">
+            <li><span><b>MS Project（XML）</b>：Microsoft Project、ProjectLibre 直接開啟，保留階層、前置任務（含間隔天數）、里程碑、基準線、負責人與完成度</span></li>
+            <li><span><b>依人員匯出</b>：選人或整個部門、狀態、一般或專案，只匯出他們參與的部分，週會、考核直接用</span></li>
+            <li><span><b>改完匯回</b>：在 Excel 修改狀態、日期、負責人或新增項目後匯入，先預覽每一列會怎麼變再套用</span></li>
+            <li><span>歷史區的案件也能匯出，結案的專案照樣產生完整報告</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section class="s alt">
     <div class="w">
       <div class="head">
         <div class="label">每天的工作</div>
@@ -327,7 +361,7 @@ footer a { color: var(--ink-2); }
     </div>
   </section>
 
-  <section class="s alt" id="offline">
+  <section class="s" id="offline">
     <div class="w split">
       <div class="copy">
         <div class="label">單機版與同步<span class="dev">開發中</span></div>
@@ -366,7 +400,7 @@ footer a { color: var(--ink-2); }
     </div>
   </section>
 
-  <section class="s">
+  <section class="s alt">
     <div class="w">
       <div class="head">
         <div class="label">也都有</div>
@@ -387,7 +421,7 @@ footer a { color: var(--ink-2); }
     </div>
   </section>
 
-  <section class="s alt" id="install">
+  <section class="s" id="install">
     <div class="w">
       <div class="head">
         <div class="label">安裝</div>
