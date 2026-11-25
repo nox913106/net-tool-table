@@ -1597,19 +1597,35 @@
   async function renderAutoBackup(box) {
     let B;
     try { B = await api('/api/system/backup'); } catch (e) { box.replaceChildren(el('p', { class: 'hint', text: e.message })); return; }
-    const on = switchCtl(B.enabled, _t('每天自動備份'), () => {});
+    const on = switchCtl(B.enabled, _t('完整備份'), () => {});
     const time = input(B.time, { type: 'time' });
+    const DAYS = [_t('一'), _t('二'), _t('三'), _t('四'), _t('五'), _t('六'), _t('日')];
+    let days = [...(B.full_days || [6])];
+    const dayBox = el('div', { class: 'scope-box' }, ...DAYS.map((d, i) => {
+      const b = el('button', { type: 'button', class: 'scope-chip', 'aria-pressed': String(days.includes(i)), text: d });
+      b.addEventListener('click', () => { days = days.includes(i) ? days.filter(x => x !== i) : [...days, i]; b.setAttribute('aria-pressed', String(days.includes(i))); });
+      return b;
+    }));
+    const incOn = switchCtl(B.inc_enabled !== false, _t('增量備份'), () => {});
+    const every = el('select', { class: 'select' }, ...[1, 2, 3, 4, 6, 8, 12, 24].map(h => el('option', { value: h, text: _t("每 {0} 小時", h), selected: h === (B.inc_every_hours || 6) })));
     const keep = input(B.keep_days, { type: 'number', min: '1', max: '3650' });
     const save = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + _t('儲存排程') });
     save.addEventListener('click', async () => {
-      try { B = await api('/api/system/backup', { method: 'PUT', body: { enabled: on.querySelector('input').checked, time: time.value, keep_days: Number(keep.value) } }); toast(_t('已儲存')); }
-      catch (e) { toast(e.message, true); }
+      try {
+        B = await api('/api/system/backup', { method: 'PUT', body: { enabled: on.querySelector('input').checked, time: time.value, keep_days: Number(keep.value),
+          full_days: days, inc_enabled: incOn.querySelector('input').checked, inc_every_hours: Number(every.value) } });
+        toast(_t('已儲存'));
+      } catch (e) { toast(e.message, true); }
     });
-    const now = el('button', { class: 'btn', type: 'button', html: svg('database') + _t('立即備份') });
-    now.addEventListener('click', async () => {
-      now.disabled = true;
-      try { const b = await api('/api/system/backups', { method: 'POST' }); toast(_t("已備份：{0}", b.name)); renderAutoBackup(box); } catch (e) { toast(e.message, true); now.disabled = false; }
-    });
+    const nowBtn = (kind, label) => {
+      const b = el('button', { class: 'btn', type: 'button', html: svg('database') + label });
+      b.addEventListener('click', async () => {
+        b.disabled = true;
+        try { const r = await api('/api/system/backups', { method: 'POST', body: { kind } }); toast(_t("已備份：{0}", r.name) + (r.check ? `（${r.check}）` : ''), r.check_ok === false); renderAutoBackup(box); }
+        catch (e) { toast(e.message, true); b.disabled = false; }
+      });
+      return b;
+    };
     const upFile = el('input', { type: 'file', accept: '.gz,.tgz,application/gzip', hidden: true });
     const upBtn = el('button', { class: 'btn btn-ghost', type: 'button', html: svg('upload') + _t('上傳備份檔') });
     upBtn.addEventListener('click', () => upFile.click());
@@ -1620,33 +1636,45 @@
       try { const b = await api('/api/system/backups/upload', { method: 'POST', form }); toast(_t("已上傳：{0}，可以按「還原」", b.name)); renderAutoBackup(box); }
       catch (e) { toast(e.message, true); }
     });
-    const size = n => n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+    const size = n => n > 1073741824 ? `${(n / 1073741824).toFixed(2)} GB` : n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
     const rows = B.backups.length ? B.backups.map(b => {
-      const restore = el('button', { class: 'btn btn-sm', type: 'button', html: svg('refresh') + _t('還原') });
+      const restore = el('button', { class: 'btn btn-sm', type: 'button', html: svg('refresh') + _t('還原'), disabled: b.complete === false,
+        title: b.complete === false ? _t('這份增量備份需要的備份檔不見了，無法還原') : '' });
       const del = el('button', { class: 'icon-btn danger', type: 'button', title: _t('刪除'), html: svg('trash') });
       restore.addEventListener('click', async () => {
-        if (!(await confirmDialog(_t("還原 {0} 的備份？", b.created.replace('T', ' ')), _t('資料庫、圖示與加密設定會換成這份備份的內容（帳號、看板、連結、設定）。還原前會自動再備份一次目前的狀態。還原後需要重新登入。'), _t('還原')))) return;
+        if (!(await confirmDialog(_t("還原 {0} 的備份？", b.created.replace('T', ' ')),
+          _t('資料庫、圖示、所有附件與加密設定會換成這份備份的內容（帳號、看板、連結、設定）。還原前會先驗證每個檔案的檢查碼，並自動再備份一次目前的狀態。還原後需要重新登入。'), _t('還原')))) return;
         try { const r = await api(`/api/system/backups/${encodeURIComponent(b.name)}/restore`, { method: 'POST' }); toast(_t("已還原（還原前的狀態存成 {0}）", r.safety_backup)); setTimeout(() => location.reload(), 1200); }
         catch (e) { toast(e.message, true); }
       });
       del.addEventListener('click', async () => {
-        if (!(await confirmDialog(_t('刪除這份備份？'), b.name, _t('刪除')))) return;
-        try { await api(`/api/system/backups/${encodeURIComponent(b.name)}`, { method: 'DELETE' }); renderAutoBackup(box); } catch (e) { toast(e.message, true); }
+        const warn = b.needed_by ? _t("有 {0} 份增量備份需要這份備份的檔案，刪掉後它們就無法還原。", b.needed_by) : '';
+        if (!(await confirmDialog(_t('刪除這份備份？'), (warn ? warn + '\n' : '') + b.name, _t('刪除')))) return;
+        try { await api(`/api/system/backups/${encodeURIComponent(b.name)}${b.needed_by ? '?force=true' : ''}`, { method: 'DELETE' }); renderAutoBackup(box); } catch (e) { toast(e.message, true); }
       });
-      return el('div', { class: 'bk-row' },
+      const info = [b.type === 'inc' ? _t("新增／變更 {0} 個檔案，共 {1}", b.added ?? 0, size(b.total || 0)) : b.files != null ? _t("{0} 個檔案，共 {1}", b.files, size(b.total || 0)) : '',
+        b.type === 'inc' && b.chain?.length ? _t("需要 {0} 份較早的備份", b.chain.length) : '', b.needed_by ? _t("{0} 份增量依賴它", b.needed_by) : ''].filter(Boolean).join(' · ');
+      return el('div', { class: 'bk-row' + (b.type === 'inc' ? ' is-inc' : '') },
         el('span', { class: 'bk-when', text: b.created.replace('T', ' ') }),
-        el('span', { class: 'bk-kind', text: b.kind }),
+        el('span', { class: 'bk-kind' + (b.type === 'inc' ? ' inc' : ''), text: b.kind }),
         el('span', { class: 'bk-size', text: size(b.size) }),
-        el('span', { class: 'bk-actions' }, el('a', { class: 'btn btn-sm btn-ghost', href: `/api/system/backups/${encodeURIComponent(b.name)}`, download: b.name, html: svg('download') + _t('下載') }), restore, del));
+        el('span', { class: 'bk-info' }, info ? el('span', { text: info }) : '',
+          b.check ? el('span', { class: 'bk-check' + (b.check_ok ? ' ok' : ' bad'), text: (b.check_ok ? '✓ ' : '⚠ ') + b.check }) : ''),
+        el('span', { class: 'bk-actions' }, el('a', { class: 'btn btn-sm btn-ghost', href: `/api/system/backups/${encodeURIComponent(b.name)}`, download: b.name,
+          title: b.type === 'inc' ? _t('下載時會把它需要的較早備份合成一份完整的檔案') : '', html: svg('download') + _t('下載') }), restore, del));
     }) : [el('p', { class: 'hint', text: _t('還沒有備份') })];
     box.replaceChildren(
-      el('h3', { class: 'settings-card-title', html: svg('database') + _t('自動備份（完整：資料庫、圖示、帳號與加密設定）') }),
-      el('div', { class: 'sys-form' }, el('div', { class: 'field' }, on), field(_t('每天幾點'), time), field(_t('保留天數'), keep)),
+      el('h3', { class: 'settings-card-title', html: svg('database') + _t('自動備份（資料庫、所有附件與圖示、帳號與加密設定）') }),
+      el('div', { class: 'sys-form' }, el('div', { class: 'field' }, on), field(_t('時間'), time),
+        el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('完整備份：每週') }), dayBox)),
+      el('div', { class: 'sys-form' }, el('div', { class: 'field' }, incOn), field(_t('間隔'), every), field(_t('保留天數'), keep)),
+      el('p', { class: 'hint', text: _t('完整備份包含所有檔案；增量備份每次都有完整的資料庫，檔案只存上次備份後新增或變更的，還原時自動從較早的備份補齊並逐一核對檢查碼。每次備份都會檢查資料庫記錄的附件是否都在。超過保留天數的備份會刪除，但還有增量備份需要的會保留。') }),
       el('p', { class: 'hint', text: B.last_run ? _t("上次自動備份：{0}　{1}", B.last_run.replace('T', ' '), B.last_result) : _t('尚未執行過自動備份') }),
-      el('div', { class: 'sys-actions' }, now, upBtn, upFile, el('span', { class: 'spacer' }), save),
+      el('div', { class: 'sys-actions' }, nowBtn('full', _t('立即完整備份')), nowBtn('inc', _t('立即增量備份')), upBtn, upFile, el('span', { class: 'spacer' }), save),
       el('div', { class: 'bk-list' }, rows),
       el('p', { class: 'hint', text: _t("備份存放在伺服器的 {0}。下載的備份檔含有解密金鑰，請妥善保管。", B.dir) }));
   }
+
 
 
 

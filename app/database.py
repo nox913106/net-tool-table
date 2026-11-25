@@ -363,6 +363,23 @@ async def init_db():
             if col not in task_cols:
                 await db.execute(f"ALTER TABLE tasks ADD COLUMN {col} {ddl}")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
+        # 歷史區: when a card was closed (complete / canceled), whichever way it got there (editor, drag,
+        # roll-up, sync, import …); 72 hours later it is a history case (read-only, app/routes/tasks.py)
+        if "closed_at" not in task_cols:
+            await db.execute("ALTER TABLE tasks ADD COLUMN closed_at TIMESTAMP")
+            await db.execute("""UPDATE tasks SET closed_at = COALESCE(completed_at, updated_at, created_at)
+                                WHERE status IN ('complete', 'canceled')""")
+        await db.execute("DROP TRIGGER IF EXISTS tasks_closed_at")
+        await db.execute("""CREATE TRIGGER tasks_closed_at AFTER UPDATE OF status ON tasks
+                            WHEN (NEW.status IN ('complete', 'canceled')) != (OLD.status IN ('complete', 'canceled'))
+                              AND NEW.closed_at IS OLD.closed_at
+                            BEGIN UPDATE tasks SET closed_at = CASE WHEN NEW.status IN ('complete', 'canceled')
+                                                               THEN CURRENT_TIMESTAMP END WHERE id = NEW.id; END""")
+        await db.execute("DROP TRIGGER IF EXISTS tasks_closed_at_i")
+        await db.execute("""CREATE TRIGGER tasks_closed_at_i AFTER INSERT ON tasks
+                            WHEN NEW.status IN ('complete', 'canceled') AND NEW.closed_at IS NULL
+                            BEGIN UPDATE tasks SET closed_at = COALESCE(NEW.completed_at, CURRENT_TIMESTAMP) WHERE id = NEW.id; END""")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_tasks_closed ON tasks(status, closed_at)")
 
         # Teams: card / subtask changes waiting to be sent as a digest, and the send queue (app/teams.py)
         await db.execute("""CREATE TABLE IF NOT EXISTS change_log (

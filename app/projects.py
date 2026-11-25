@@ -265,7 +265,8 @@ async def daily_events(db, today: Optional[date] = None) -> int:
     from .auth import full_user
     from .routes.tasks import notify, _visible_sql
     today = today or date.today()
-    cur = await db.execute("SELECT id FROM tasks")
+    from .routes.tasks import hist_sql
+    cur = await db.execute(f"SELECT t.id FROM tasks t WHERE NOT {hist_sql()}")        # 歷史區 cases send nothing
     ids = [r[0] for r in await cur.fetchall()]
     a = await analyze(db, ids, today)
     cur = await db.execute("SELECT value FROM settings WHERE key = '_proj_events'")

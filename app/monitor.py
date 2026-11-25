@@ -115,7 +115,7 @@ def checks(c=None, slow: bool = False, hourly: bool = False, lang: str = "zh-TW"
         pass
     # ---------------- backups
     b = sysconfig.backup()
-    if b.enabled:
+    if b.enabled or b.inc_enabled:
         age_h = None
         if b.last_run:
             try:
@@ -124,6 +124,8 @@ def checks(c=None, slow: bool = False, hourly: bool = False, lang: str = "zh-TW"
                 pass
         if b.last_result.startswith("失敗"):
             lvl, d = "fail", Z(f"上次自動備份失敗：{b.last_result[3:]}", f"the last automatic backup failed: {b.last_result[3:]}")
+        elif b.last_result.startswith("警告"):
+            lvl, d = "warn", Z(f"備份完成但檢查有問題：{b.last_result[3:]}", f"backup done, but the check found problems: {b.last_result[3:]}")
         elif age_h is None or age_h > c.backup_hours:
             lvl, d = "warn", Z(f"超過 {c.backup_hours} 小時沒有成功的自動備份", f"no successful automatic backup for over {c.backup_hours} hours")
         else:

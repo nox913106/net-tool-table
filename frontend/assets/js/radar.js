@@ -53,7 +53,7 @@
     const top = (t.subtasks?.items || []).map(x => ({ ...x, parent: null }));
     const all = [...top, ...(t.subtasks?.below || [])];
     const byId = new Map(all.map(x => [x.id, x]));
-    const path = x => { const p = []; for (let c = x, n = 0; c && n < 5; c = c.parent ? byId.get(c.parent) : null, n++) p.unshift(c.id); return p; };
+    const path = x => { const p = []; for (let c = x, n = 0; c && n < 1000; c = c.parent ? byId.get(c.parent) : null, n++) p.unshift(c.id); return p; };
     return all.filter(x => !CLOSED.has(x.status)).map(x => ({ ...x, path: path(x) }));
   }
   /** Every open item the radar knows about, for the counts (also used by the collapsed square). */
@@ -226,7 +226,7 @@
       drawRings();
       const probs = probMap();
       const phaseOf = r => { let c = r, n = 0; while (c.parent && by.get(c.parent) && n++ < 1000) c = by.get(c.parent); return c.card !== pid ? 'att' : c.id; };
-      const pathOf = r => { const out = []; for (let c = r, n = 0; c && n < 6; c = c.parent ? by.get(c.parent) : null, n++) out.unshift(c.id); return out; };
+      const pathOf = r => { const out = []; for (let c = r, n = 0; c && n < 1000; c = c.parent ? by.get(c.parent) : null, n++) out.unshift(c.id); return out; };
       const isParent = new Set(mine.map(r => r.parent).filter(Boolean));
       const nodes = []; let normal = 0;
       const counts = new Map(), open = new Map();

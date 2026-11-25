@@ -1731,3 +1731,16 @@ button.g-tog:focus-visible { outline: 2px solid var(--accent); outline-offset: -
 .guest-notice-text p { margin: 0; font-size: 13.5px; color: var(--text-2); }
 .guest-contacts { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; font-size: 13.5px; }
 .guest-mail { margin-left: 8px; font-family: var(--mono, monospace); font-size: 12.5px; user-select: all; color: var(--accent-text); }
+
+/* ---------------------------------------------------------------- 歷史區 (history) */
+.hist-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0; }
+.hist-tools .input { flex: 1 1 240px; max-width: 360px; }
+.hist-tools .select { width: auto; }
+.hist-tools .spacer { flex: 1; }
+.hist-n { margin-left: 6px; font: 600 11px var(--mono); color: var(--text-3); }
+.hist-table td.bad { color: var(--danger); }
+.hist-tags { font-size: 12px; }
+.kb-readonly.is-history { border-color: color-mix(in srgb, var(--text-3) 45%, transparent); background: color-mix(in srgb, var(--text-3) 10%, transparent); }
+.kb-readonly.is-history svg { width: 16px; height: 16px; flex: none; }
+.pj-history { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.pj-history a { margin-left: auto; white-space: nowrap; }

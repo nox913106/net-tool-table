@@ -448,48 +448,76 @@ cmd_uninstall() {
 }
 
 # ---------------------------------------------------------------- backup ---
+# The same backup as the admin UI (app/backup.py): database, encryption key, icons, every attachment,
+# a manifest with each file's checksum and a database ↔ files check. It is made in the data folder's
+# backups/ (listed in the admin UI) and a complete copy goes to $BACKUP_DIR (separate from the data).
 cmd_backup() {
     local quiet=0
     [[ "${1:-}" == "--quiet" ]] && quiet=1
     require_root
-    local data_dir icon_dir backup_dir keep stamp work out
+    local data_dir backup_dir keep stamp json name out rc=0
     data_dir="$(env_get TOOL_TABLE_DATA_DIR)"; data_dir="${data_dir:-$DATA_DIR_DEFAULT}"
-    icon_dir="$(env_get TOOL_TABLE_ICON_DIR)"; icon_dir="${icon_dir:-$data_dir/icons}"
     backup_dir="$(env_get TOOL_TABLE_BACKUP_DIR)"; backup_dir="${backup_dir:-$BACKUP_DIR_DEFAULT}"
     keep="$(env_get TOOL_TABLE_BACKUP_KEEP_DAYS)"; keep="${keep:-14}"
     stamp="$(date +%Y%m%d-%H%M%S)"
     install -d -m 0700 "$backup_dir"
-    work="$(mktemp -d)"
-    mkdir -p "$work/tool-table"
 
-    # Consistent online copy of SQLite (safe while the service is running)
-    if [[ -f "$data_dir/tool-table.db" ]]; then
-        python3 - "$data_dir/tool-table.db" "$work/tool-table/tool-table.db" <<'PY'
-import sqlite3, sys
-src = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
-dst = sqlite3.connect(sys.argv[2])
-src.backup(dst)
-dst.close(); src.close()
-PY
-    fi
-    [[ -d "$icon_dir" ]] && cp -a "$icon_dir" "$work/tool-table/icons"
-    [[ -d "$data_dir/attachments" ]] && cp -a "$data_dir/attachments" "$work/tool-table/attachments"
-    [[ -f "$ENV_FILE" ]] && cp -a "$ENV_FILE" "$work/tool-table/"
-
-    out="$backup_dir/tool-table-$stamp.tar.gz"
-    tar -C "$work" -czf "$out" tool-table
+    json="$(app_cli backup)" || rc=$?
+    [[ -n "$json" ]] || die "備份失敗"
+    name="$(printf '%s' "$json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])')"
+    out="$backup_dir/tool-table-$stamp-full.tar.gz"
+    cp "$data_dir/backups/$name" "$out"
     chmod 0600 "$out"
-    rm -rf "$work"
+    # the host's own settings, for rebuilding the machine: /etc/tool-table (settings, TLS certificate and key,
+    # initial admin note) and the nginx site
+    local etc_list=()
+    [[ -d "$ETC_DIR" ]] && etc_list+=("${ETC_DIR#/}")
+    [[ -f "$NGINX_SITE" ]] && etc_list+=("${NGINX_SITE#/}")
+    if (( ${#etc_list[@]} )); then
+        tar -C / -czf "$backup_dir/tool-table-$stamp-host.tar.gz" "${etc_list[@]}" 2>/dev/null || warn "主機設定備份不完整"
+        chmod 0600 "$backup_dir/tool-table-$stamp-host.tar.gz"
+    fi
 
-    find "$backup_dir" -maxdepth 1 -name 'tool-table-*.tar.gz' -mtime +"$keep" -delete
-    (( quiet )) || log "備份完成：$out（保留 $keep 天）"
+    find "$backup_dir" -maxdepth 1 \( -name 'tool-table-*.tar.gz' -o -name 'tool-table-*.env' \) -mtime +"$keep" -delete
+    if (( rc == 3 )); then
+        warn "備份完成但檢查有問題：$(printf '%s' "$json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["check"])')"
+    fi
+    (( quiet )) || log "備份完成：$out（$(printf '%s' "$json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["check"])')；保留 $keep 天）"
     return 0
 }
 
 cmd_restore() {
     local file="${1:-}"
     require_root
-    [[ -f "$file" ]] || die "用法：tool-table.sh restore /var/backups/tool-table/tool-table-YYYYmmdd-HHMMSS.tar.gz"
+    [[ -f "$file" ]] || die "用法：tool-table.sh restore /var/backups/tool-table/tool-table-YYYYmmdd-HHMMSS-full.tar.gz"
+    if [[ "$file" == *-host.tar.gz ]]; then             # the host's settings: /etc/tool-table + nginx site
+        tar -C / -xzf "$file"
+        nginx -t >/dev/null 2>&1 && systemctl reload nginx
+        systemctl restart tool-table.service
+        log "已還原主機設定：$file"
+        return
+    fi
+    if tar -tzf "$file" 2>/dev/null | head -1 | grep -q '^tool-table/'; then
+        cmd_restore_legacy "$file"          # made by earlier versions of this script
+        return
+    fi
+    local data_dir staged
+    data_dir="$(env_get TOOL_TABLE_DATA_DIR)"; data_dir="${data_dir:-$DATA_DIR_DEFAULT}"
+    install -d -m 0700 -o "$APP_USER" -g "$APP_USER" "$data_dir/backups"
+    staged="$data_dir/backups/tool-table-$(date +%Y%m%d-%H%M%S)-upload.tar.gz"
+    install -m 0600 -o "$APP_USER" -g "$APP_USER" "$file" "$staged"
+    systemctl stop tool-table.service
+    if app_cli restore "$staged"; then
+        systemctl start tool-table.service
+        log "已還原：$file"
+    else
+        systemctl start tool-table.service
+        die "還原失敗（資料沒有變更）"
+    fi
+}
+
+cmd_restore_legacy() {
+    local file="${1:-}"
     local data_dir icon_dir work
     data_dir="$(env_get TOOL_TABLE_DATA_DIR)"; data_dir="${data_dir:-$DATA_DIR_DEFAULT}"
     icon_dir="$(env_get TOOL_TABLE_ICON_DIR)"; icon_dir="${icon_dir:-$data_dir/icons}"

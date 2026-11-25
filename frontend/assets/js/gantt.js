@@ -55,7 +55,7 @@
       el('span', { class: 'gl gl-ms', text: _t('里程碑') }), el('span', { class: 'gl gl-dep', text: _t('前置相依') }),
       el('span', { class: 'gl gl-bad', text: _t('排程衝突') }), el('span', { class: 'gl gl-base', text: _t('基準線') }),
       el('span', { class: 'gl gl-start', text: _t('實際開始') }), el('span', { class: 'gl gl-late', text: _t('逾期') }),
-      el('span', { class: 'hint', text: _t('拖曳長條改日期，拖邊緣改開始／到期') }));
+      el('span', { class: 'hint', text: opts.project && TTBoard.find(opts.project)?.history ? _t('歷史案件，只能檢視') : _t('拖曳長條改日期，拖邊緣改開始／到期') }));
     const undatedSw = el('label', { class: 'switch', title: _t('沒有開始日、到期日，子任務也都沒有日期的卡片不列出') },
       el('input', { type: 'checkbox', checked: hideUndated }), el('span', { class: 'track' }), el('span', { text: _t('隱藏未排日期') }));
     undatedSw.querySelector('input').addEventListener('change', e => { hideUndated = e.target.checked; TT.store.set('gantt-hide-undated', hideUndated); paint(); });
@@ -88,7 +88,7 @@
     // ---------------------------------------------------------------- data
     function cardsShown() {
       // one project's page: the project and the everyday cards attached to it, finished work included
-      if (opts.project) return TTBoard.tasks.filter(t => t.id === opts.project || (t.project_id === opts.project && (t.kind || 'ops') !== 'project'));
+      if (opts.project) return TTBoard.all().filter(t => t.id === opts.project || (t.project_id === opts.project && (t.kind || 'ops') !== 'project'));
       if (linked && board) return board.cards();
       return TTBoard.tasks.filter(t => !(solo.hideClosed && CLOSED.has(t.status))
         && (solo.who !== 'mine' || t.mine !== false));
@@ -271,7 +271,7 @@
     const find = key => { let hit = null; items().forEach(x => { const rec = y => { if (y.key === key) hit = y; y.kids.forEach(rec); }; rec(x); }); return hit; };
     function openItem(x) {
       if (linked && board) board.flash(x.cardId);
-      if (x.kind === 't') TTBoard.openEditor(TTBoard.tasks.find(t => t.id === x.id) || x.card);
+      if (x.kind === 't') TTBoard.openEditor(TTBoard.find(x.id) || x.card);
       else TTBoard.openNavigator(x.card, x.path);
     }
     well.addEventListener('click', e => {
@@ -397,7 +397,9 @@
     // ---------------------------------------------------------------- refresh
     let pending = null;
     async function refresh(force = false) {
-      try { subs = await TTBoard.ganttRows(force); } catch (e) { subs = []; }
+      // a history project (歷史區) is not on the board: its own subtasks, history included
+      const archived = opts.project && !TTBoard.tasks.some(t => t.id === opts.project);
+      try { subs = archived ? await TT.api(`/api/tasks/gantt?project=${opts.project}`) : await TTBoard.ganttRows(force); } catch (e) { subs = []; }
       if (force) await TTBoard.load(true).catch(() => {});
       paint(true);
     }

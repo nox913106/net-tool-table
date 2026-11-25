@@ -24,10 +24,10 @@ import json
 import os
 from urllib.parse import quote
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, field_validator
 
@@ -38,7 +38,54 @@ from ..auth import current_user, is_admin
 from ..roles import board_access
 from ..database import get_db
 
-router = APIRouter(prefix="/api/tasks", tags=["tasks"])
+# ---------------------------------------------------------------- 歷史區 (history)
+# A card closed (complete / canceled) for more than 72 hours is a history case: it leaves the board and
+# the project views for the 歷史區, keeps everything it had (subtasks, comments, time, attachments,
+# Gantt, Excel) and can no longer be changed by anyone — the guard below refuses every write to it.
+HISTORY_HOURS = 72
+
+
+def hist_sql(alias: str = "t") -> str:
+    return (f"({alias}.status IN ('complete', 'canceled') AND {alias}.closed_at IS NOT NULL "
+            f"AND {alias}.closed_at <= datetime('now', '-{HISTORY_HOURS} hours'))")
+
+
+HISTORY_MSG = "這是歷史案件（結案超過 72 小時），只能檢視，不能修改"
+
+
+async def is_history(db, task_id) -> bool:
+    try:
+        tid = int(task_id)
+    except (TypeError, ValueError):
+        return False
+    cur = await db.execute(f"SELECT 1 FROM tasks t WHERE t.id = ? AND {hist_sql()}", (tid,))
+    return bool(await cur.fetchone())
+
+
+async def history_ids(db, ids) -> set:
+    ids = [int(i) for i in ids if str(i).isdigit()]
+    if not ids:
+        return set()
+    cur = await db.execute(f"SELECT t.id FROM tasks t WHERE t.id IN ({','.join('?' * len(ids))}) AND {hist_sql()}", ids)
+    return {r[0] for r in await cur.fetchall()}
+
+
+async def history_guard(request: Request):
+    """Every change to a history case is refused (its card, subtasks, comments, time, attachments)."""
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return
+    tid = request.path_params.get("task_id")
+    if tid is None or request.url.path.endswith("/watch"):      # one's own notification setting: allowed
+        return
+    db = await get_db()
+    try:
+        if await is_history(db, tid):
+            raise HTTPException(status_code=403, detail=HISTORY_MSG)
+    finally:
+        await db.close()
+
+
+router = APIRouter(prefix="/api/tasks", tags=["tasks"], dependencies=[Depends(history_guard)])
 
 STATUSES = ("recurring", "overdue", "new", "ongoing", "pending", "onhold", "complete", "canceled")
 CLOSED = ("complete", "canceled")
@@ -47,7 +94,7 @@ REMINDS = (0, 15, 60, 1440, 2880, 10080)       # minutes before due; None = no r
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$")
 REPEAT_RE = re.compile(r"^(daily|weekdays|weekly(:[1-7](,[1-7]){0,6})?|monthly(:\d{1,2})?|yearly)$")
 COLUMNS = ("id, title, description, status, priority, start_at, due_at, remind, repeat, repeat_every, next_id, "
-           "overdue_from, overdue_ack, owner_id, sort_order, created_at, updated_at, completed_at, "
+           "overdue_from, overdue_ack, owner_id, sort_order, created_at, updated_at, completed_at, closed_at, "
            "blocked_at, blocked_reason, blocked_by, tags, milestone, deps, base_start, base_due, started_at, win, kind, project_id, rank")
 
 
@@ -646,7 +693,23 @@ async def _enrich(db, rows: List[dict], user: dict) -> List[dict]:
         r["can_delete"] = in_scope or (me is not None and r.get("owner_id") == me)
         r["can_assign"] = in_scope or (acc["team_edit"] and involved)
         r["can_comment"] = True                   # only visible cards are ever returned
+        r["history"] = bool(r.get("status") in CLOSED and r.get("closed_at") and
+                            (_utcnow() - _ts(r["closed_at"])).total_seconds() >= HISTORY_HOURS * 3600)
+        if r["history"]:                          # 歷史區: read-only for everyone
+            for k in [k for k in r if k.startswith("can_")]:
+                r[k] = False
     return rows
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _ts(v) -> datetime:
+    try:
+        return datetime.fromisoformat(str(v).replace("T", " ")[:19])
+    except ValueError:
+        return _utcnow()
 
 
 async def _rollup(db, ids: List[int], me) -> dict:
@@ -799,12 +862,24 @@ async def add_mentions(db, task_id: int, text: Optional[str], actor: dict, title
 
 # ---------------------------------------------------------------- endpoints
 @router.get("")
-async def list_tasks(request: Request):
+async def list_tasks(request: Request, history: int = 0, project: Optional[int] = None):
+    """The board's cards (history cases left out). ?history=1: the 歷史區 — only the history cases,
+    newest closed first. ?project=ID with history=1: that project and the cards attached to it."""
     user = current_user(request)
     where, args = _visible_sql(user)
     db = await get_db()
     try:
-        cur = await db.execute(f"SELECT {COLUMNS} FROM tasks t WHERE {where} ORDER BY sort_order, id", args)
+        if history:
+            extra, extra_args = "", []
+            if project:
+                extra, extra_args = " AND (t.id = ? OR t.project_id = ?)", [project, project]
+                hist = ""                         # a history project's page also shows its cards that are not history yet
+            else:
+                hist = f" AND {hist_sql()}"
+            cur = await db.execute(f"SELECT {COLUMNS} FROM tasks t WHERE {where}{hist}{extra} ORDER BY t.closed_at DESC, t.id DESC",
+                                   (*args, *extra_args))
+        else:
+            cur = await db.execute(f"SELECT {COLUMNS} FROM tasks t WHERE {where} AND NOT {hist_sql()} ORDER BY sort_order, id", args)
         return await _enrich(db, [row_dict(r) for r in await cur.fetchall()], user)
     finally:
         await db.close()
@@ -1446,7 +1521,7 @@ async def order_projects(body: OrderIds, request: Request):
     db = await get_db()
     try:
         where, args = _visible_sql(user)
-        cur = await db.execute(f"SELECT t.id FROM tasks t WHERE t.kind = 'project' AND {where} ORDER BY COALESCE(t.rank, 1e9), t.id", args)
+        cur = await db.execute(f"SELECT t.id FROM tasks t WHERE t.kind = 'project' AND {where} AND NOT {hist_sql()} ORDER BY COALESCE(t.rank, 1e9), t.id", args)
         mine = [r[0] for r in await cur.fetchall()]
         cur = await db.execute("SELECT id FROM tasks WHERE kind = 'project' AND id NOT IN (%s) ORDER BY COALESCE(rank, 1e9), id"
                                % (",".join("?" * len(mine)) or "NULL"), mine)
@@ -1470,7 +1545,7 @@ async def projects_analysis(request: Request):
     where, args = _visible_sql(user)
     db = await get_db()
     try:
-        cur = await db.execute(f"SELECT t.id FROM tasks t WHERE {where}", args)
+        cur = await db.execute(f"SELECT t.id FROM tasks t WHERE {where} AND NOT {hist_sql()}", args)
         ids = [r[0] for r in await cur.fetchall()]
         out = await pj.analyze(db, ids)
         out["can_rank"] = can_rank(user)
@@ -1656,12 +1731,17 @@ async def deps_out(db, raws) -> dict:
 
 
 @router.get("/gantt")
-async def gantt(request: Request):
-    """Every subtask (all levels) of the cards the viewer can see, with the Gantt fields.
+async def gantt(request: Request, project: Optional[int] = None):
+    """Every subtask (all levels) of the cards the viewer can see, with the Gantt fields (history cases
+    left out). ?project=ID: that project's and its cards' subtasks, history included (a history project's page).
     The cards themselves come from GET /api/tasks (same fields)."""
     user = current_user(request)
     me = user.get("id")
     where, args = _visible_sql(user)
+    if project:
+        where, args = f"{where} AND (t.id = ? OR t.project_id = ?)", [*args, project, project]
+    else:
+        where = f"{where} AND NOT {hist_sql()}"
     db = await get_db()
     try:
         cur = await db.execute(f"""SELECT c.id, c.task_id, c.task_parent_id, c.title, c.status, c.priority, c.start_at, c.due_at,
@@ -1672,6 +1752,7 @@ async def gantt(request: Request):
                                    WHERE c.is_task = 1 AND c.parent_id IS NULL AND {where}
                                    ORDER BY c.task_id, COALESCE(c.sort_order, c.id), c.id""", args)
         rows = [dict(r) for r in await cur.fetchall()]
+        hist = await history_ids(db, {r["task_id"] for r in rows}) if project else set()
         dep_map = await deps_out(db, [r["deps"] for r in rows])
         by = {r["id"]: r for r in rows}
 
@@ -1689,7 +1770,8 @@ async def gantt(request: Request):
                  "started_at": r["started_at"], "completed_at": r["completed_at"], "estimate": r["estimate_minutes"],
                  "spent": r["spent"], "assignee": {"id": r["assignee_id"], "username": r["username"],
                                                     "name": r["display_name"] or r["username"]} if r["assignee_id"] else None,
-                 "win": r["win"], "mine_edit": me is not None and me in owners(r["id"])} for r in rows]
+                 "win": r["win"], "mine_edit": me is not None and me in owners(r["id"]) and r["task_id"] not in hist,
+                 "history": r["task_id"] in hist} for r in rows]
     finally:
         await db.close()
 
@@ -1750,7 +1832,7 @@ async def search_tasks(request: Request, q: str = "", limit: int = 30):
     db = await get_db()
     try:
         cur = await db.execute(f"""
-            SELECT t.id, t.title, t.description, t.status, t.due_at, t.updated_at, t.tags,
+            SELECT t.id, t.title, t.description, t.status, t.due_at, t.updated_at, t.tags, {hist_sql()} AS hist,
                    (SELECT COALESCE(c.title || '：', '') || c.body FROM task_comments c WHERE c.task_id = t.id AND (c.body LIKE ? ESCAPE '\\' OR c.title LIKE ? ESCAPE '\\')
                      ORDER BY c.id DESC LIMIT 1) AS hit_comment,
                    (SELECT COALESCE(u.display_name, u.username) FROM users u
@@ -1781,7 +1863,9 @@ async def search_tasks(request: Request, q: str = "", limit: int = 30):
                 continue
             if r["status"] in ("complete", "canceled"):
                 score -= 5                                  # open work first
-            out.append({"id": r["id"], "title": title, "status": r["status"], "due_at": r["due_at"],
+            if r["hist"]:
+                score -= 10                                 # history cases last
+            out.append({"id": r["id"], "title": title, "status": r["status"], "due_at": r["due_at"], "history": bool(r["hist"]),
                         "match": field, "snippet": snip, "score": score, "updated_at": r["updated_at"]})
         out.sort(key=lambda x: (-x["score"], -(x["id"])))
         return out[:max(1, min(limit, 100))]
@@ -1953,7 +2037,7 @@ async def reorder(r: Reorder, request: Request):
     try:
         where, args = _scope_sql(user, "edit")
         if r.ids:
-            cur = await db.execute(f"SELECT t.id FROM tasks t WHERE t.id IN ({','.join('?' * len(r.ids))}) AND {where}", (*r.ids, *args))
+            cur = await db.execute(f"SELECT t.id FROM tasks t WHERE t.id IN ({','.join('?' * len(r.ids))}) AND {where} AND NOT {hist_sql()}", (*r.ids, *args))
             allowed = {row["id"] for row in await cur.fetchall()}
             ids = [i for i in r.ids if i in allowed]       # never touch cards the viewer cannot edit
         else:
@@ -2160,7 +2244,7 @@ class TimerIn(BaseModel):
 
 async def _can_edit(db, task_id: int, user: dict) -> bool:
     where, args = _scope_sql(user, "edit")
-    cur = await db.execute(f"SELECT 1 FROM tasks t WHERE t.id = ? AND {where}", (task_id, *args))
+    cur = await db.execute(f"SELECT 1 FROM tasks t WHERE t.id = ? AND {where} AND NOT {hist_sql()}", (task_id, *args))
     return bool(await cur.fetchone())
 
 
@@ -2304,9 +2388,24 @@ async def list_comments(task_id: int, request: Request):
                 by_id[c["id"]] = item
             elif c["parent_id"] in by_id:
                 by_id[c["parent_id"]]["replies"].append(item)
+        if await is_history(db, task_id):                  # 歷史區: nothing in it can be changed
+            _read_only(out)
         return out
     finally:
         await db.close()
+
+
+def _read_only(x):
+    """Every can_* flag in a structure → False."""
+    if isinstance(x, list):
+        for v in x:
+            _read_only(v)
+    elif isinstance(x, dict):
+        for k, v in x.items():
+            if k.startswith("can_") and isinstance(v, bool):
+                x[k] = False
+            else:
+                _read_only(v)
 
 
 @router.post("/{task_id}/comments")
@@ -3317,3 +3416,15 @@ async def import_tasks(db, items) -> int:
                                          (cur.lastrowid, u["id"], role))
         n += 1
     return n
+
+
+@router.get("/{task_id}")
+async def get_task(task_id: int, request: Request):
+    """One card with everything the board shows (history cases too: history = true, read-only)."""
+    user = current_user(request)
+    db = await get_db()
+    try:
+        t = await _get_visible(db, task_id, user)
+        return (await _enrich(db, [t], user))[0]
+    finally:
+        await db.close()

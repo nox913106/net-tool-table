@@ -3,6 +3,8 @@
    #/mine         everything assigned to me (every project and level, everyday cards), by due date
    #/projects     the projects side by side: managers' order, health, problems; cards that look like projects
    #/project/ID   one project: Gantt, project board (its L2… work by status), list, Excel
+   #/history      歷史區: main cards closed for more than 72 hours — everyday work and projects apart,
+                  everything they had, view only (the server refuses any change to them)
    All of it reads the same data as the board (TTBoard) and the server's analysis (projects' health).
    ============================================================================= */
 (() => {
@@ -15,6 +17,85 @@
   const stChip = (k, late) => el('span', { class: 'pj-st', style: { '--c': late ? 'var(--danger)' : st(k).color }, text: late ? _t('逾期') : st(k).zh });
   const me = () => TTBoard.meInfo?.user?.id ?? null;
   const isProject = t => (t.kind || 'ops') === 'project';
+  const ymd = v => (v || '').slice(0, 10);
+  /** The head figures of a history project (it is not in the live analysis). */
+  const historyStats = c => ({ pct: c.subtasks?.total ? Math.round(100 * (c.subtasks.done || 0) / Math.max(1, c.subtasks.total - (c.subtasks.canceled || 0))) : (c.status === 'complete' ? 100 : 0),
+    slip: c.base_due && c.due_at ? day(c.due_at) - day(c.base_due) : null, next: null, problem_items: 0 });
+
+  // ---------------------------------------------------------------- 歷史區 (history)
+  async function renderHistory(view) {
+    let tab = TT.store.get('history-tab', 'ops');
+    const q = el('input', { class: 'input', type: 'search', placeholder: _t('搜尋標題、標籤、人員…'), 'aria-label': _t('搜尋歷史案件') });
+    const stSel = el('select', { class: 'select', 'aria-label': _t('狀態') },
+      el('option', { value: '', text: _t('完成與取消') }), el('option', { value: 'complete', text: _t('只看完成') }), el('option', { value: 'canceled', text: _t('只看取消') }));
+    const yearSel = el('select', { class: 'select', 'aria-label': _t('結案年份') }, el('option', { value: '', text: _t('所有年份') }));
+    const xls = el('button', { class: 'btn', type: 'button', html: svg('download') + _t('匯出 Excel') });
+    const head = el('div', { class: 'page-head' }, el('div', { class: 'page-title' },
+      el('span', { class: 'page-icon', html: svg('archive') }),
+      el('div', {}, el('h1', { text: _t('歷史區') }),
+        el('p', { class: 'page-desc', text: _t('主卡結案（完成或取消）超過 72 小時就移到這裡：子任務、留言、工時、附件、甘特圖都保留，只能檢視，不能修改。') }))));
+    const tabs = el('div', { class: 'pj-tabs', role: 'tablist' });
+    const tools = el('div', { class: 'hist-tools' }, q, stSel, yearSel, el('span', { class: 'spacer' }), xls);
+    const body = el('div', { class: 'hist-body' }, el('p', { class: 'hint', text: _t('載入中…') }));
+    view.replaceChildren(head, tabs, tools, body);
+    let all = [];
+    try { all = await api('/api/tasks?history=1'); } catch (e) { body.replaceChildren(el('p', { class: 'hint', text: e.message })); return; }
+    TTBoard.remember(all);
+    [...new Set(all.map(t => ymd(t.closed_at).slice(0, 4)).filter(Boolean))].sort().reverse()
+      .forEach(y => yearSel.append(el('option', { value: y, text: _t("{0} 年", y) })));
+    const people = t => [t.owner, ...(t.assignees || [])].filter(Boolean);
+    const titleOf = id => TTBoard.find(id)?.title || '';
+    const shown = () => {
+      const kw = q.value.trim().toLowerCase();
+      return all.filter(t => (tab === 'project') === isProject(t)
+        && (!stSel.value || t.status === stSel.value)
+        && (!yearSel.value || ymd(t.closed_at).startsWith(yearSel.value))
+        && (!kw || [t.title, t.description, ...(t.tags || []).map(x => '#' + x), ...people(t).map(p => TT.nameOf(p)), titleOf(t.project_id)]
+          .some(v => (v || '').toLowerCase().includes(kw))));
+    };
+    function paintTabs() {
+      const n = k => all.filter(t => (k === 'project') === isProject(t)).length;
+      tabs.replaceChildren(...[['ops', _t('維運')], ['project', _t('專案')]].map(([k, l]) => {
+        const b = el('button', { class: 'pj-tab', type: 'button', role: 'tab', 'aria-selected': String(tab === k) }, l, el('span', { class: 'hist-n', text: n(k) }));
+        b.addEventListener('click', () => { tab = k; TT.store.set('history-tab', k); paintTabs(); paint(); });
+        return b;
+      }));
+    }
+    function paint() {
+      const list = shown();
+      if (!list.length) {
+        body.replaceChildren(el('div', { class: 'empty small' }, el('div', { class: 'empty-icon', html: svg('archive') }),
+          el('h3', { text: all.length ? _t('沒有符合的歷史案件') : _t('還沒有歷史案件') }),
+          el('p', { text: _t('主卡完成或取消 72 小時後，會自動移到這裡。') })));
+        return;
+      }
+      const proj = tab === 'project';
+      const cols = proj ? [_t('專案'), _t('負責'), _t('期間'), _t('相對基準線'), _t('狀態'), _t('結案')] : [_t('卡片'), _t('負責'), _t('所屬專案'), _t('到期'), _t('狀態'), _t('結案')];
+      body.replaceChildren(el('div', { class: 'pj-tw' }, el('table', { class: 'pj-table hist-table' },
+        el('thead', {}, el('tr', {}, ...cols.map(h => el('th', { text: h })))),
+        el('tbody', {}, ...list.map(t => {
+          const who = (t.assignees || [])[0] || t.owner;
+          const slip = t.base_due && t.due_at ? day(t.due_at) - day(t.base_due) : null;
+          const tr = el('tr', { class: 'pj-row', tabindex: '0' },
+            el('td', {}, el('b', { text: t.title }), (t.tags || []).length ? el('span', { class: 'hint hist-tags', text: ' ' + t.tags.map(x => '#' + x).join(' ') }) : null),
+            el('td', { text: who ? TT.nameOf(who) : '—' }),
+            proj ? el('td', { class: 'n', text: t.start_at || t.due_at ? `${ymd(t.start_at) || '—'} – ${ymd(t.due_at) || '—'}` : '—' })
+              : el('td', { text: t.project_id ? titleOf(t.project_id) || _t('（專案）') : '—' }),
+            proj ? el('td', { class: 'n' + (slip > 0 ? ' bad' : ''), text: slip == null ? '—' : _t("{0}{1} 天", slip > 0 ? '+' : '', slip) })
+              : el('td', { class: 'n', text: ymd(t.due_at) || '—' }),
+            el('td', {}, stChip(t.status)),
+            el('td', { class: 'n', text: ymd(t.closed_at) }));
+          const open = () => { if (proj) location.hash = `#/project/${t.id}`; else TTBoard.openEditor(t); };
+          tr.addEventListener('click', open);
+          tr.addEventListener('keydown', e => { if (e.key === 'Enter') open(); });
+          return tr;
+        })))),
+        el('p', { class: 'hint', text: _t("{0} 件；點一列{1}。", list.length, proj ? _t('開啟專案頁（甘特圖、專案看板、清單）') : _t('檢視卡片、子任務、留言與附件')) }));
+    }
+    xls.addEventListener('click', () => { const ids = shown().map(t => t.id); if (ids.length) TTBoard.exportReport(ids); else toast(_t('沒有可匯出的案件'), true); });
+    [q, stSel, yearSel].forEach(x => x.addEventListener(x === q ? 'input' : 'change', paint));
+    paintTabs(); paint();
+  }
 
   // ---------------------------------------------------------------- my work (every source)
   async function myItems() {
@@ -23,7 +104,7 @@
     const cards = new Map(TTBoard.tasks.map(t => [t.id, t]));
     const hasKids = new Set(rows.map(r => r.card));
     const out = [];
-    const pathOf = (r, byId) => { const p = []; for (let c = r, n = 0; c && n < 5; c = c.parent ? byId.get(c.parent) : null, n++) p.unshift(c.id); return p; };
+    const pathOf = (r, byId) => { const p = []; for (let c = r, n = 0; c && n < 1000; c = c.parent ? byId.get(c.parent) : null, n++) p.unshift(c.id); return p; };
     const byId = new Map(rows.map(r => [r.id, r]));
     rows.forEach(r => {
       if (CLOSED.has(r.status) || r.milestone || !(id == null || r.assignee?.id === id)) return;
@@ -230,22 +311,26 @@
   async function renderProject(view, id, tab = 'gantt') {
     view.replaceChildren(el('p', { class: 'hint', text: _t('載入中…') }));
     await TTBoard.load().catch(() => {});
-    const card = () => TTBoard.tasks.find(t => t.id === id);
+    const card = () => TTBoard.find(id);
+    if (!card()) {                                    // a history project (歷史區): it and its cards, read-only
+      TTBoard.remember(await api(`/api/tasks?history=1&project=${id}`).catch(() => []));
+    }
     if (!card()) { view.replaceChildren(el('p', { class: 'hint', text: _t('找不到這個專案，或你沒有權限看到它。') })); return; }
+    const archived = !!card().history;
     const head = el('div', { class: 'pj-head' });
     const strip = el('div', { class: 'pj-strip' });
     const tabs = el('div', { class: 'pj-tabs', role: 'tablist' });
     const pane = el('div', { class: 'pj-pane' });
     view.replaceChildren(head, strip, tabs, pane);
     let gantt = null;
-    const attached = () => TTBoard.tasks.filter(t => t.project_id === id && !isProject(t));
+    const attached = () => TTBoard.all().filter(t => t.project_id === id && !isProject(t));
     async function paintHead() {
       if (!head.isConnected) return;
       const c = card();
       if (!c) return;
-      const a = await TTBoard.projectAnalysis().catch(() => null);
-      const p = a?.projects.find(x => x.id === id);
-      const edit = el('button', { class: 'btn', type: 'button', html: svg('edit') + _t('編輯專案卡') });
+      const a = archived ? null : await TTBoard.projectAnalysis().catch(() => null);
+      const p = archived ? historyStats(c) : a?.projects.find(x => x.id === id);
+      const edit = el('button', { class: 'btn', type: 'button', html: svg(archived ? 'layout' : 'edit') + (archived ? _t('檢視專案卡') : _t('編輯專案卡')) });
       edit.addEventListener('click', () => TTBoard.openEditor(c));
       const xls = el('button', { class: 'btn', type: 'button', html: svg('download') + _t('Excel 報告') });
       xls.addEventListener('click', () => TTBoard.exportReport([id, ...attached().map(t => t.id)]));
@@ -254,13 +339,17 @@
       // my notifications for this project: all / only mine / a daily summary / off
       const bell = el('select', { class: 'select pj-watch', 'aria-label': _t('這個專案的通知'), title: _t('每天在「每日提醒時間」送出：落後基準線、跨專案前置延誤、時段衝突、3 天內到期的里程碑') },
         ...[['all', _t('通知：全部')], ['mine', _t('通知：只跟我有關')], ['digest', _t('通知：每日摘要')], ['off', _t('通知：關閉')]].map(([v, l]) => el('option', { value: v, text: l })));
-      api(`/api/tasks/${id}/watch`).then(w => { bell.value = w.mode; bell.title += w.default ? _t("\n（目前是預設值：{0}）", w.lead ? _t('負責人預設「全部」') : _t('參與者預設「只跟我有關」')) : ''; }).catch(() => { bell.hidden = true; });
+      if (archived) bell.hidden = true;
+      else api(`/api/tasks/${id}/watch`).then(w => { bell.value = w.mode; bell.title += w.default ? _t("\n（目前是預設值：{0}）", w.lead ? _t('負責人預設「全部」') : _t('參與者預設「只跟我有關」')) : ''; }).catch(() => { bell.hidden = true; });
       bell.addEventListener('change', async () => {
         try { await api(`/api/tasks/${id}/watch`, { method: 'PUT', body: { mode: bell.value } }); toast(_t('已更新這個專案的通知設定'), 'success'); }
         catch (e) { toast(e.message, 'error'); }
       });
       head.replaceChildren(
-        el('div', { class: 'pj-title' }, el('span', { class: 'pj-kicker', text: _t("L1 // 專案{0}", p?.rank ? _t(" · 排序 #{0}", p.rank) : '') }),
+        archived ? el('div', { class: 'kb-readonly is-history pj-history', html: svg('archive') },
+          el('span', { text: _t("歷史案件：{0} 結案，超過 72 小時，只能檢視，不能修改。", (c.closed_at || '').slice(0, 10)) }),
+          el('a', { href: '#/history', text: _t('回歷史區') })) : '',
+        el('div', { class: 'pj-title' }, el('span', { class: 'pj-kicker', text: archived ? _t('L1 // 專案 · 歷史') : _t("L1 // 專案{0}", p?.rank ? _t(" · 排序 #{0}", p.rank) : '') }),
           el('h1', { text: c.title }),
           el('p', { class: 'page-desc', text: [c.owner ? _t("負責 {0}", TT.nameOf(c.owner)) : '', c.start_at || c.due_at ? `${md(c.start_at)} – ${md(c.due_at)}` : '', c.base_due ? _t("基準線結案 {0}", md(c.base_due)) : _t('尚未設定基準線')].filter(Boolean).join(' · ') })),
         el('div', { class: 'pj-stats' },
@@ -270,6 +359,7 @@
           el('div', { class: 'pj-stat' + (p?.problem_items ? ' bad' : '') }, el('b', { text: p?.problem_items ?? 0 }), el('span', { text: _t('有問題的項目') }))),
         el('div', { class: 'pj-actions' }, bell, nav, edit, xls));
       // what needs me elsewhere — no need to leave this page to find out
+      if (archived) { strip.hidden = true; return; }
       const mine = await myItems();
       const T = todayN();
       const elsewhere = mine.filter(x => x.due && day(x.due) <= T && !x.src.includes(c.title));
@@ -290,13 +380,14 @@
         return;
       }
       gantt = null;
-      const rows = (await TTBoard.ganttRows().catch(() => [])).filter(r => r.card === id || attached().some(t => t.id === r.card));
+      const rows = (archived ? await api(`/api/tasks/gantt?project=${id}`).catch(() => []) : await TTBoard.ganttRows().catch(() => []))
+        .filter(r => r.card === id || attached().some(t => t.id === r.card));
       const byId = new Map(rows.map(r => [r.id, r]));
-      const pathOf = r => { const p = []; for (let c = r, n = 0; c && n < 5; c = c.parent ? byId.get(c.parent) : null, n++) p.unshift(c.id); return p; };
-      const phaseOf = r => { let c = r; while (c?.parent && byId.get(c.parent)) c = byId.get(c.parent); return c?.card === id ? c.title : (TTBoard.tasks.find(t => t.id === c?.card)?.title || ''); };
+      const pathOf = r => { const p = []; for (let c = r, n = 0; c && n < 1000; c = c.parent ? byId.get(c.parent) : null, n++) p.unshift(c.id); return p; };
+      const phaseOf = r => { let c = r; while (c?.parent && byId.get(c.parent)) c = byId.get(c.parent); return c?.card === id ? c.title : (TTBoard.find(c?.card)?.title || ''); };
       const T = todayN();
       if (tab === 'board') {
-        const items = rows.filter(r => !r.milestone).map(r => ({ r, lv: pathOf(r).length + 1, phase: phaseOf(r), card: TTBoard.tasks.find(t => t.id === r.card) }));
+        const items = rows.filter(r => !r.milestone).map(r => ({ r, lv: pathOf(r).length + 1, phase: phaseOf(r), card: TTBoard.find(r.card) }));
         const ops = attached().filter(t => !rows.some(r => r.card === t.id));
         const cols = ['new', 'ongoing', 'pending', 'onhold', 'complete'];
         const board = el('div', { class: 'kb pj-kb' }, ...cols.map(s => {
@@ -308,7 +399,7 @@
           const box = el('div', { class: 'kb-list' });
           [...list.map(x => {
             const late = x.r.due_at && day(x.r.due_at) < T && !CLOSED.has(x.r.status);
-            const c = el('article', { class: 'kb-card pj-item', draggable: 'true', tabindex: '0', dataset: { sid: x.r.id } },
+            const c = el('article', { class: 'kb-card pj-item', draggable: String(!archived), tabindex: '0', dataset: { sid: x.r.id } },
               el('div', { class: 'kb-card-title' }, el('span', { text: x.r.title })),
               el('div', { class: 'kb-chips' }, el('span', { class: 'kb-chip', text: `L${x.lv}` }), x.phase && x.lv > 2 ? el('span', { class: 'kb-chip pj-phase', text: x.phase }) : null,
                 x.r.due_at ? el('span', { class: 'kb-chip' + (late ? ' due-overdue' : ''), text: late ? _t("逾期 {0} 天", T - day(x.r.due_at)) : _t("{0} 到期", md(x.r.due_at)) }) : null),
@@ -317,19 +408,20 @@
             c.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', 's:' + x.r.id); });
             return c;
           }), ...opsHere.map(t => {
-            const c = el('article', { class: 'kb-card pj-item', draggable: 'true', tabindex: '0' },
+            const c = el('article', { class: 'kb-card pj-item', draggable: String(!archived), tabindex: '0' },
               el('div', { class: 'kb-card-title' }, el('span', { text: t.title })), el('div', { class: 'kb-chips' }, el('span', { class: 'kb-chip', text: _t('一般卡') }),
                 t.due_at ? el('span', { class: 'kb-chip', text: _t("{0} 到期", md(t.due_at)) }) : null));
             c.addEventListener('click', () => TTBoard.openEditor(t));
             c.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', 't:' + t.id); });
             return c;
           })].forEach(x => box.append(x));
-          if (!box.children.length) box.append(el('div', { class: 'kb-empty', text: _t('拖曳到這裡') }));
+          if (!box.children.length) box.append(el('div', { class: 'kb-empty', text: archived ? '—' : _t('拖曳到這裡') }));
           col.append(box);
           col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('drop-over'); });
           col.addEventListener('dragleave', e => { if (!col.contains(e.relatedTarget)) col.classList.remove('drop-over'); });
           col.addEventListener('drop', async e => {
             e.preventDefault(); col.classList.remove('drop-over');
+            if (archived) return;
             const [k, v] = (e.dataTransfer.getData('text/plain') || '').split(':');
             try {
               if (k === 's') { const r = byId.get(+v); await api(`/api/tasks/${r.card}/comments/${r.id}/task`, { method: 'PUT', body: { status: s } }); }
@@ -341,7 +433,7 @@
           });
           return col;
         }));
-        pane.replaceChildren(el('p', { class: 'hint', text: _t('這個專案的各層工作（L2 以下）與歸屬的一般卡，依狀態分欄；拖到其他欄改狀態，上層狀態會自動彙總。') }), board);
+        pane.replaceChildren(el('p', { class: 'hint', text: archived ? _t('這個專案結案時各層工作（L2 以下）與歸屬的一般卡的狀態（歷史案件，只能檢視）。') : _t('這個專案的各層工作（L2 以下）與歸屬的一般卡，依狀態分欄；拖到其他欄改狀態，上層狀態會自動彙總。') }), board);
       } else {
         // list with WBS numbers (the same numbering as the Excel report)
         const kids = new Map();
@@ -372,5 +464,5 @@
     document.addEventListener('tt:analysis', onAna);
   }
 
-  window.TTProjects = { renderMine, renderProjects, renderProject, mineCounts, myItems };
+  window.TTProjects = { renderMine, renderProjects, renderProject, renderHistory, mineCounts, myItems };
 })();

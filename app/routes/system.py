@@ -7,10 +7,10 @@ System settings API (admins only) — everything an operator needs, without a sh
   GET  /api/system/security          session lifetime, lockout
   PUT  /api/system/security
   GET  /api/system/info              version, edition, paths, ports (read only)
-  GET  /api/system/backup            schedule + list of backups
-  PUT  /api/system/backup            schedule (enabled, time, keep_days)
-  POST /api/system/backups           back up now
-  GET  /api/system/backups/{name}    download
+  GET  /api/system/backup            schedule + list of backups (kind, chain, database ↔ files check)
+  PUT  /api/system/backup            schedule: full (days, time), incremental (every N hours), keep_days
+  POST /api/system/backups           back up now ({kind: full | inc})
+  GET  /api/system/backups/{name}    download (an incremental one: one complete archive built from its chain)
   DELETE /api/system/backups/{name}
   POST /api/system/backups/{name}/restore
   POST /api/system/backups/upload    upload a backup file (then restore it)
@@ -383,6 +383,13 @@ class BackupIn(BaseModel):
     enabled: bool
     time: str
     keep_days: int
+    full_days: Optional[List[int]] = None
+    inc_enabled: Optional[bool] = None
+    inc_every_hours: Optional[int] = None
+
+
+class BackupNow(BaseModel):
+    kind: str = "full"
 
 
 @router.get("/backup")
@@ -397,15 +404,23 @@ async def put_backup(body: BackupIn):
         raise HTTPException(status_code=400, detail="備份時間格式為 HH:MM")
     if not 1 <= body.keep_days <= 3650:
         raise HTTPException(status_code=400, detail="保留天數需在 1–3650 之間")
-    sysconfig.save_backup(body.model_dump())
+    values = body.model_dump(exclude_none=True)
+    if "full_days" in values:
+        values["full_days"] = sorted({d for d in values["full_days"] if isinstance(d, int) and 0 <= d <= 6})
+        if body.enabled and not values["full_days"]:
+            raise HTTPException(status_code=400, detail="完整備份至少要選一天")
+    if "inc_every_hours" in values and not 1 <= values["inc_every_hours"] <= 168:
+        raise HTTPException(status_code=400, detail="增量備份間隔需在 1–168 小時之間")
+    sysconfig.save_backup(values)
     return await get_backup()
 
 
 @router.post("/backups")
-async def backup_now():
+async def backup_now(body: Optional[BackupNow] = None):
     loop = asyncio.get_running_loop()
+    inc = bool(body and body.kind == "inc")
     try:
-        b = await loop.run_in_executor(None, bk.make_backup, "manual")
+        b = await loop.run_in_executor(None, lambda: bk.make_backup("manual", incremental=inc))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"備份失敗：{e}")
     return b
@@ -423,12 +438,26 @@ def _existing(name: str):
 
 @router.get("/backups/{name}")
 async def download_backup(name: str):
-    return FileResponse(_existing(name), media_type="application/gzip", filename=name)
+    p = _existing(name)
+    if bk.kind_of(name) != "inc":
+        return FileResponse(p, media_type="application/gzip", filename=name)
+    from starlette.background import BackgroundTask
+    loop = asyncio.get_running_loop()
+    try:                                            # one complete archive: this state, gathered from its chain
+        out = await loop.run_in_executor(None, bk.consolidate, p)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return FileResponse(out, media_type="application/gzip", filename=name.replace("-inc", "-full"),
+                        background=BackgroundTask(lambda: out.unlink(missing_ok=True)))
 
 
 @router.delete("/backups/{name}")
-async def delete_backup(name: str):
-    _existing(name).unlink()
+async def delete_backup(name: str, force: bool = False):
+    p = _existing(name)
+    deps = bk.dependents(name)
+    if deps and not force:
+        raise HTTPException(status_code=409, detail=f"有 {len(deps)} 份增量備份需要這份備份的檔案，刪掉後它們就無法還原")
+    p.unlink()
     return {"success": True}
 
 
@@ -452,11 +481,14 @@ async def upload_backup(file: UploadFile = File(...)):
             while chunk := await file.read(1024 * 1024):
                 size += len(chunk)
                 if size > bk.MAX_UPLOAD:
-                    raise HTTPException(status_code=413, detail="檔案太大（上限 500 MB）")
+                    raise HTTPException(status_code=413, detail="檔案太大（上限 2 GB）")
                 out.write(chunk)
         import tarfile
         with tarfile.open(target, "r:gz") as tar:
             bk._check_members(tar)
+        m = bk.read_manifest(target)
+        if m and any(v.get("in") != m.get("name") for v in m.get("files", {}).values()):
+            raise ValueError("這是增量備份，只有它本身不完整；請上傳完整備份（增量備份在後台按「下載」會得到完整的檔案）")
     except HTTPException:
         target.unlink(missing_ok=True)
         raise

@@ -313,7 +313,7 @@ async def drop_device(device_id: int, request: Request):
 # ------------------------------------------------------------------ permissions (server)
 def _guard(db, user: dict):
     """The same rules as the board's own endpoints, applied to rows arriving from a standalone copy."""
-    from .tasks import _can_edit, _check_assignees, _comment_rights, _visible_sql, can_delete
+    from .tasks import HISTORY_MSG, _can_edit, _check_assignees, _comment_rights, _visible_sql, can_delete, is_history
     from fastapi import HTTPException as HE
     me = user["id"]
     acc = board_access(user)
@@ -334,6 +334,8 @@ def _guard(db, user: dict):
                 return None
             if not await visible(local["_rid"]):
                 return "你已經看不到這張卡片"
+            if await is_history(db, local["_rid"]):
+                return HISTORY_MSG
             if op == "update":
                 return None if await _can_edit(db, local["_rid"], user) else "這張卡片你只能檢視（唯讀）"
             t = dict(local)
@@ -356,6 +358,8 @@ def _guard(db, user: dict):
         card = changes.get("task_id") if op == "insert" else local["task_id"]
         if card is None or not await visible(card):
             return "你看不到這張卡片"
+        if await is_history(db, card):
+            return HISTORY_MSG
         if table == "task_comments":
             if op == "insert":
                 changes["user_id"] = me

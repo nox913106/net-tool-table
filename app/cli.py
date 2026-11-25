@@ -105,6 +105,46 @@ def ldap_test(username: str, password: str) -> int:
     return 0
 
 
+def backup_cmd(incremental: bool) -> int:
+    """Same backup as the admin UI (database, key, icons, every attachment, manifest + check). Prints JSON."""
+    import json
+    from . import backup as bk
+    b = bk.make_backup("manual", incremental=incremental)
+    print(json.dumps({"name": b["name"], "path": str(bk.BACKUP_DIR / b["name"]), "type": b["type"],
+                      "check": b.get("check"), "ok": b.get("check_ok", True)}, ensure_ascii=False))
+    return 0 if b.get("check_ok", True) else 3
+
+
+def export_cmd(name: str, out: str) -> int:
+    """A complete archive of a backup (an incremental one gathered from its chain) at `out`."""
+    import shutil
+    from pathlib import Path
+    from . import backup as bk
+    p = bk.safe_path(name)
+    if bk.kind_of(name) == "inc":
+        tmp = bk.consolidate(p)
+        shutil.move(str(tmp), out)
+    else:
+        shutil.copy2(p, out)
+    print(Path(out).resolve())
+    return 0
+
+
+def restore_cmd(file: str) -> int:
+    """Restore a backup file (a full one, or an incremental one whose chain is in the backup folder)."""
+    import shutil
+    from pathlib import Path
+    from . import backup as bk
+    src = Path(file).resolve()
+    if src.parent != bk.BACKUP_DIR.resolve() or not bk.NAME_RE.match(src.name):
+        target = bk.new_name("upload")
+        shutil.copy2(src, target)
+        src = target
+    r = bk.restore(src)
+    print(f"已還原 {r['restored']}（{r['files']} 個檔案）；還原前的狀態存成 {r['safety_backup']}")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m app.cli")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -115,7 +155,20 @@ def main(argv=None) -> int:
     sub.add_parser("ldap-check")
     lt = sub.add_parser("ldap-test")
     lt.add_argument("username")
+    bp = sub.add_parser("backup")
+    bp.add_argument("--incremental", action="store_true")
+    ep = sub.add_parser("backup-export")
+    ep.add_argument("name")
+    ep.add_argument("out")
+    rp = sub.add_parser("restore")
+    rp.add_argument("file")
     a = ap.parse_args(argv)
+    if a.cmd == "backup":
+        return backup_cmd(a.incremental)
+    if a.cmd == "backup-export":
+        return export_cmd(a.name, a.out)
+    if a.cmd == "restore":
+        return restore_cmd(a.file)
     if a.cmd == "ldap-check":
         return ldap_check()
     if a.cmd == "ldap-test":

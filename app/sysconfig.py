@@ -259,11 +259,17 @@ def save_security(values: dict):
 # ------------------------------------------------------------------ backups
 @dataclass
 class Backup:
-    enabled: bool = True
-    time: str = "03:30"                  # daily, server local time
+    enabled: bool = True                 # full backups on full_days at `time`
+    time: str = "03:30"                  # server local time
+    full_days: list = field(default_factory=lambda: [6])     # weekdays, 0 = Monday … 6 = Sunday
+    inc_enabled: bool = True             # incremental backups in between
+    inc_every_hours: int = 6
     keep_days: int = 14
     last_run: str = ""
     last_result: str = ""
+    last_full: str = ""
+    last_inc: str = ""
+    last_fail: str = ""
 
 
 def backup() -> Backup:

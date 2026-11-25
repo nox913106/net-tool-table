@@ -120,7 +120,7 @@ sudo bash /opt/tool-table/scripts/tool-table.sh install --https-port 443 --http-
 | 系統設定 → 登入安全 | 閒置登出時間、最長登入天數、密碼連續錯誤鎖定（次數 / 分鐘）、每個來源 IP 上限 |
 | 系統設定 → HTTPS 憑證 | 目前憑證資訊與到期天數；貼上或選擇正式憑證（fullchain）與私鑰套用；重新產生自簽憑證 |
 | 系統設定 → 連線埠與名稱 | HTTPS 埠、HTTP 埠（0 = 不開）、伺服器名稱（FQDN） |
-| 備份與匯入 → 自動備份 | 每天幾點、保留天數、立即備份、下載、上傳備份檔、還原 |
+| 備份與匯入 → 自動備份 | 完整備份（每週哪幾天、幾點）、增量備份（每幾小時）、保留天數、立即備份、下載、上傳備份檔、還原 |
 | 帳號與權限 | 指定權限（系統管理者、看板總管理者 RW / RO、部門看板管理者 RW / RO、使用者、訪客）與管理部門；新登入的 AD 帳號是「訪客」，在這裡開通、停用帳號、預先加入 AD 帳號 |
 
 | 權限 | 後台 | 看板：看得到 | 看板：可編輯 / 刪除 / 指派 |
@@ -268,20 +268,41 @@ sudo bash /opt/tool-table/scripts/tool-table.sh upgrade
 
 ## 5. 備份與還原
 
-在後台「備份與匯入 → 自動備份」設定每天幾點備份、保留幾天；也可以「立即備份」、下載、上傳備份檔與還原。
-備份內容是資料庫一致性快照（帳號、看板、連結、設定）、所有圖示、看板附件與加密金鑰，存在 `/var/lib/tool-table/backups/`。
-還原前會自動再備份一次目前的狀態。下載的備份檔含有解密金鑰，請妥善保管。
+在後台「備份與匯入 → 自動備份」設定兩種排程（預設：每週日 03:30 完整備份、每 6 小時增量備份、保留 14 天）：
+
+| 種類 | 內容 |
+|---|---|
+| 完整備份（`…-full.tar.gz`） | 資料庫一致性快照（帳號、看板、連結、設定）、加密金鑰、所有圖示、所有看板／留言附件（圖片、PDF、Office、文字檔…） |
+| 增量備份（`…-inc.tar.gz`） | 每次都有**完整的資料庫**與金鑰；檔案只存上次備份後新增或變更的 |
+
+- 每份備份都有清單（manifest）：當下**每一個檔案**的大小與 SHA-256，以及它存在哪一份備份裡；資料庫的附件紀錄（`task_images`、同步中的檔案）就是靠檔名對到這些檔案。
+- 每次備份都會**檢查資料庫 ↔ 檔案**：資料庫完整性、每個附件紀錄都有對應的檔案；有缺漏時備份結果標「警告」，系統告警也會提醒。
+- 還原增量備份時，自動從它需要的較早備份補齊檔案，**逐一核對檢查碼**後才換上；還原前會先完整備份一次目前的狀態。
+- 下載增量備份時，會把它和需要的較早備份合成一份完整的檔案（可以直接上傳到別台還原）。
+- 超過保留天數的備份會刪除，但還有增量備份需要的會保留；有增量備份依賴的完整備份，刪除前會提醒。
+- 也可以「立即完整備份」「立即增量備份」。備份存在 `/var/lib/tool-table/backups/`；下載的備份檔含有解密金鑰，請妥善保管。
 
 **示範資料**（測試機用）：「備份與匯入 → 示範資料 → 建立示範資料」會建立 7 個部門的 16 位示範人員（帳號 `demo.*`，只存在 IPMS 資料庫、不能登入、不會寫入 AD）、
 一年期的主機房改建專案與各部門日常卡片（標籤 `#示範`），公開進度看板也會有近 8 週的趨勢；「移除示範資料」只刪除它建立的東西。
 
 另外，「備份與匯入」的「匯出 / 匯入」可以把設定、連結、快速連結與看板卡片匯出成一個 JSON，適合搬家或分享範本（不含帳號、加密設定與圖示檔）。
 
-伺服器另有系統層級的每日備份（含 TLS 憑證與 nginx 設定，`/var/backups/tool-table/`），整台主機重建時使用：
+伺服器另有系統層級的每日備份（`tool-table-backup.timer`，存在 `/var/backups/tool-table/`，與資料目錄分開）：
+內容與後台的完整備份相同（同一套程式產生、同樣檢查），另外加一份主機設定 `…-host.tar.gz`（`/etc/tool-table`：設定、TLS 憑證與金鑰；nginx 站台設定），整台主機重建時使用：
 
 ```bash
-sudo bash /opt/tool-table/scripts/tool-table.sh restore /var/backups/tool-table/tool-table-YYYYmmdd-HHMMSS.tar.gz
+sudo bash /opt/tool-table/scripts/tool-table.sh backup
 ```
+
+```bash
+sudo bash /opt/tool-table/scripts/tool-table.sh restore /var/backups/tool-table/tool-table-YYYYmmdd-HHMMSS-full.tar.gz
+```
+
+```bash
+sudo bash /opt/tool-table/scripts/tool-table.sh restore /var/backups/tool-table/tool-table-YYYYmmdd-HHMMSS-host.tar.gz
+```
+
+舊版腳本做的備份（`tool-table-YYYYmmdd-HHMMSS.tar.gz`）也一樣可以還原。
 
 ---
 

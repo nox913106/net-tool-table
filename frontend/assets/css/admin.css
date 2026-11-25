@@ -433,7 +433,12 @@ body.link-dragging .quick-admin { outline: 2px dashed var(--accent-line); outlin
 .sys-info dd { font-family: var(--mono); font-size: 12.5px; word-break: break-all; }
 .auto-backup { margin-bottom: 16px; }
 .bk-list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
-.bk-row { display: grid; grid-template-columns: 170px 1fr 80px auto; align-items: center; gap: 10px; padding: 8px 12px; font-size: 13px; }
+.bk-row { display: grid; grid-template-columns: 150px 110px 80px 1fr auto; align-items: center; gap: 10px; padding: 8px 12px; font-size: 13px; }
+.bk-row.is-inc .bk-when { padding-left: 14px; }
+.bk-kind.inc { color: var(--accent-text); }
+.bk-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 12px; color: var(--text-3); }
+.bk-check.ok { color: var(--success, #16a34a); }
+.bk-check.bad { color: var(--danger); font-weight: 600; }
 .bk-row + .bk-row { border-top: 1px solid var(--border); }
 .bk-row:hover { background: var(--surface-2); }
 .bk-when { font-family: var(--mono); font-size: 12.5px; }
@@ -443,7 +448,7 @@ body.link-dragging .quick-admin { outline: 2px dashed var(--accent-line); outlin
 @media (max-width: 720px) {
   .sys-form, .sys-test-row { grid-template-columns: 1fr; }
   .bk-row { grid-template-columns: 1fr auto; }
-  .bk-kind, .bk-size { display: none; }
+  .bk-kind, .bk-size, .bk-info { display: none; }
 }
 
 .role-cell { display: flex; flex-direction: column; gap: 6px; min-width: 0; }

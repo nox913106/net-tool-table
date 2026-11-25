@@ -880,10 +880,18 @@ const TTBoard = window.TTBoard = (() => {
     } catch { /* ignore */ }
   }
   async function openTask(id) {
-    let t = tasks.find(x => x.id === id);
-    if (!t) { await load(true); t = tasks.find(x => x.id === id); }
+    let t = find(id);
+    if (!t) { await load(true); t = find(id); }
+    if (!t) t = await api(`/api/tasks/${id}`).then(x => { remember([x]); return x; }).catch(() => null);   // a history case
     if (t) openEditor(t); else toast(_t('這張卡片已被刪除，或你已經看不到它了'), true);
   }
+
+  // 歷史區: cards closed for more than 72 hours are not in `tasks` (the board); the ones a page has
+  // fetched are kept here, so the editor, the task window and a history project's page find them.
+  const extra = new Map();
+  function remember(list) { (list || []).forEach(t => extra.set(t.id, t)); }
+  function find(id) { return tasks.find(x => x.id === id) || extra.get(id); }
+  function all() { return [...tasks, ...[...extra.values()].filter(t => !tasks.some(x => x.id === t.id))]; }
 
   async function init(s) {
     settings = s || {};
@@ -2694,9 +2702,24 @@ const TTBoard = window.TTBoard = (() => {
         .forEach(x => { x.disabled = true; });
       ok.hidden = true;
       cancel.textContent = _t('關閉');
-      wrap.querySelector('.modal-head h3').innerHTML = svg('kanban') + _t('檢視卡片');
-      wrap.querySelector('.modal-body').prepend(el('div', { class: 'kb-readonly', html: svg('lock') + _t('<span>唯讀：這張卡片你可以檢視與留言，不能修改。</span>') }));
-      if (comments) comments.querySelectorAll('input, textarea, button').forEach(x => { x.disabled = false; });
+      wrap.querySelector('.modal-head h3').innerHTML = svg('kanban') + (task.history ? _t('歷史案件') : _t('檢視卡片'));
+      if (task.history) {                                       // 歷史區: view only, for everyone
+        const day = (task.closed_at || '').slice(0, 10);
+        const note = el('div', { class: 'kb-readonly is-history', html: svg('archive') });
+        note.append(el('span', { text: _t("歷史案件：{0} 結案，超過 72 小時，只能檢視，不能修改或留言。", day) }));
+        wrap.querySelector('.modal-body').prepend(note);
+        if (comments) {
+          comments.querySelectorAll('button').forEach(x => { x.disabled = false; });   // open / fold threads, files
+          const inp = comments.querySelector('.kb-comment-input');                       // no new comments
+          let box = inp && inp.parentElement;
+          while (box && box !== comments && !box.querySelector('.kb-comment-attach')) box = box.parentElement;
+          if (box && box !== comments) box.style.display = 'none'; else if (inp) inp.style.display = 'none';
+          comments.querySelectorAll('.kb-comment-attach, .kb-comment-pending').forEach(x => { x.style.display = 'none'; });
+        }
+      } else {
+        wrap.querySelector('.modal-body').prepend(el('div', { class: 'kb-readonly', html: svg('lock') + _t('<span>唯讀：這張卡片你可以檢視與留言，不能修改。</span>') }));
+        if (comments) comments.querySelectorAll('input, textarea, button').forEach(x => { x.disabled = false; });
+      }
     }
 
     document.addEventListener('keydown', onKey);
@@ -2836,7 +2859,7 @@ const TTBoard = window.TTBoard = (() => {
     const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': _t('關閉'), html: svg('x') });
     closeBtn.addEventListener('click', close);
     const full = el('button', { class: 'btn btn-sm', type: 'button', html: svg('edit') + _t('完整編輯') });
-    full.addEventListener('click', () => { close(); openEditor(tasks.find(x => x.id === card.id) || card); });
+    full.addEventListener('click', () => { close(); openEditor(find(card.id) || card); });
     const wrap = el('div', { class: 'modal kb-nav-modal' },
       el('div', { class: 'modal-card kb-nav', role: 'dialog', 'aria-modal': 'true', 'aria-label': _t('任務視窗') },
         el('div', { class: 'modal-head' }, el('h3', { html: svg('layout') + _t('任務視窗') }), el('span', { class: 'kb-nav-crumbs' }), el('span', { class: 'spacer' }), full, closeBtn),
@@ -2855,7 +2878,7 @@ const TTBoard = window.TTBoard = (() => {
     const kids = pid => subs().filter(c => (c.task_parent_id || null) === pid)
       .sort((a, b) => (a.task.sort_order ?? a.id) - (b.task.sort_order ?? b.id) || a.id - b.id);
     const treeMinutes = id => { const c = byId(id); return (c ? c.task.spent_minutes || 0 : 0) + kids(id).reduce((n, k) => n + treeMinutes(k.id), 0); };
-    const cardNow = () => tasks.find(x => x.id === card.id) || card;
+    const cardNow = () => find(card.id) || card;
     async function reload(board = true) {
       try { threads = await api(`/api/tasks/${card.id}/comments`); fetchedAt = Date.now(); }
       catch (e) { toast(e.message, true); return; }
@@ -3179,5 +3202,5 @@ const TTBoard = window.TTBoard = (() => {
     reload(false).then(() => { if (path.length) paint(true); });
   }
 
-  return { init, load, refresh, openNavigator, exportByPeople, exportReport, ganttRows, baselineText, save, projectAnalysis, isProject, PROBLEM_ZH, get meInfo() { return meInfo; }, mount, mountBell, openEditor, openTask, exportXlsx, importXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; } };
+  return { init, load, refresh, openNavigator, exportByPeople, exportReport, ganttRows, baselineText, save, projectAnalysis, isProject, PROBLEM_ZH, get meInfo() { return meInfo; }, mount, mountBell, openEditor, openTask, exportXlsx, importXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; }, find, all, remember };
 })();
