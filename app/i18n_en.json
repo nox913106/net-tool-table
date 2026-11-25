@@ -304,7 +304,6 @@
  "暫停": "Paused",
  "暫緩": "On hold",
  "最多 {0} 個附件": "At most {0} attachments",
- "最多四層（主卡＋三層子任務）": "At most four levels (card + three levels of subtasks)",
  "最多設定 300 個標籤顏色": "At most 300 tag colours",
  "最新進度／說明": "Latest progress / notes",
  "最長登入天數需在 0.1–90 天之間": "Maximum session length must be 0.1–90 days",
@@ -542,5 +541,7 @@
  "下載的檔案不完整（檢查碼不符）": "The download is incomplete (checksum mismatch)",
  "更新檔內容不正確": "The update package is not valid",
  "更新後的版本不符（{0}）": "The unpacked version does not match ({0})",
- "下載了伺服器的版本，但無法替換程式檔案（可能被防毒或其他程式鎖住）：請關閉 IPMS 再開一次，或執行完整安裝程式": "The server's version was downloaded but the program files could not be replaced (an antivirus or another program may be holding them): close IPMS and open it again, or run the full installer"
+ "下載了伺服器的版本，但無法替換程式檔案（可能被防毒或其他程式鎖住）：請關閉 IPMS 再開一次，或執行完整安裝程式": "The server's version was downloaded but the program files could not be replaced (an antivirus or another program may be holding them): close IPMS and open it again, or run the full installer",
+ "最多五層（主卡＋四層子任務）": "At most five levels (card + four levels of subtasks)",
+ "最多五層（主卡＋四層子任務），編號最多五段，例如 1.2.3.4.5": "At most five levels (card + four levels of subtasks): numbers have at most five parts, e.g. 1.2.3.4.5"
 }

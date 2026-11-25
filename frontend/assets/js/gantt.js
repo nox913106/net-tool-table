@@ -1,6 +1,6 @@
 /* =============================================================================
    IPMS — Gantt view of the board
-   Cards (L1) and their subtasks (L2–L4) on a day scale: bars by status, milestones as diamonds,
+   Cards (L1) and their subtasks (L2–L5) on a day scale: bars by status, milestones as diamonds,
    predecessor arrows (red when the schedule breaks them), the baseline as a thin line under a bar,
    the actual start as a small mark, today as a red line.
    Drag a bar to move it, drag its edges to change start / due (saved at once, the board follows).

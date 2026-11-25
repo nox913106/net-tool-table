@@ -253,7 +253,7 @@ async def init_db():
                          ("assignee_id", "INTEGER REFERENCES users(id) ON DELETE SET NULL"),
                          ("estimate_minutes", "INTEGER"), ("completed_at", "TIMESTAMP"), ("sort_order", "INTEGER"),
                          ("priority", "TEXT"), ("remind", "INTEGER"), ("edited_at", "TIMESTAMP"),
-                         # a subtask of a subtask (card → subtask → … at most 4 levels including the card)
+                         # a subtask of a subtask (card → subtask → … at most 5 levels including the card)
                          ("task_parent_id", "INTEGER REFERENCES task_comments(id) ON DELETE CASCADE"),
                          *GANTT_COLS):
             if col not in comment_cols:

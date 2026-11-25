@@ -680,7 +680,7 @@ async def _rollup(db, ids: List[int], me) -> dict:
         if me is not None and c["assignee_id"] == me and c["status"] not in CLOSED:
             s["mine"].append({"id": c["id"], "title": c["title"], "status": c["status"], "priority": c["priority"],
                               "start_at": c["start_at"], "due_at": c["due_at"], "remind": c["remind"]})
-    # subtasks below subtasks (L3, L4): for the radar / overdue counts and my reminders
+    # subtasks below subtasks (L3–L5): for the radar / overdue counts and my reminders
     cur = await db.execute(f"""SELECT c.id, c.task_id, c.task_parent_id, c.title, c.status, c.start_at, c.due_at, c.assignee_id,
                                       c.priority, c.remind
                                FROM task_comments c WHERE c.task_id IN ({marks}) AND c.is_task = 1 AND c.task_parent_id IS NOT NULL
@@ -1168,7 +1168,7 @@ async def _import_plan(items: List[dict], user: dict, extra_people: Optional[Lis
                     parent = None
                     if it.get("depth", 1) >= 2:
                         if it["depth"] > SUB_MAX_DEPTH:
-                            out["errors"].append("最多四層（主卡＋三層子任務），編號最多四段，例如 1.2.3.4")
+                            out["errors"].append("最多五層（主卡＋四層子任務），編號最多五段，例如 1.2.3.4.5")
                             continue
                         pnum = (it.get("num") or "").rsplit(".", 1)[0]
                         pi = by_num.get(pnum)
@@ -2707,7 +2707,7 @@ async def rollup_status(db, task_id: int) -> Optional[str]:
     return want
 
 
-SUB_MAX_DEPTH = 3          # subtask levels below the card (card + 3 = 4 levels)
+SUB_MAX_DEPTH = 4          # subtask levels below the card (card + 4 = 5 levels)
 
 
 async def subtask_depth(db, comment_id) -> int:
@@ -2852,7 +2852,7 @@ class SubtaskNew(BaseModel):
 
 @router.post("/{task_id}/subtasks")
 async def create_subtask(task_id: int, body: SubtaskNew, request: Request):
-    """New subtask on the card, or below another subtask (card + 3 levels at most).
+    """New subtask on the card, or below another subtask (card + 4 levels at most).
     Card editors may add anywhere; a subtask's assignee may add below their own subtask."""
     user = current_user(request)
     me = user.get("id")
@@ -2865,7 +2865,7 @@ async def create_subtask(task_id: int, body: SubtaskNew, request: Request):
             if not p["is_task"] or p["parent_id"]:
                 raise HTTPException(status_code=400, detail="只能在子任務底下新增子任務")
             if await subtask_depth(db, body.parent) >= SUB_MAX_DEPTH:
-                raise HTTPException(status_code=400, detail="最多四層（主卡＋三層子任務）")
+                raise HTTPException(status_code=400, detail="最多五層（主卡＋四層子任務）")
             if not editor and not (me is not None and me in await _owners_above(db, body.parent)):
                 raise HTTPException(status_code=403, detail="只有能編輯卡片的人或這個子任務的負責人可以新增下層子任務")
         elif not editor:

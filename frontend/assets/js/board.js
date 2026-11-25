@@ -2032,7 +2032,7 @@ const TTBoard = window.TTBoard = (() => {
     const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: _t('取消') });
     const del = task && task.can_delete !== false ? el('button', { class: 'btn btn-danger kb-del', type: 'button', html: svg('trash') + _t('刪除') }) : null;
     const xlsBtn = task ? el('button', { class: 'btn btn-ghost', type: 'button', title: _t('把這張卡片（含子任務、留言、工時）匯出成 Excel'), html: svg('download') + 'Excel' }) : null;
-    const navBtn = task ? el('button', { class: 'btn btn-ghost', type: 'button', title: _t('任務視窗：子任務由左至右展開，最多四層'), html: svg('layout') + _t('任務視窗') }) : null;
+    const navBtn = task ? el('button', { class: 'btn btn-ghost', type: 'button', title: _t('任務視窗：子任務由左至右展開，最多五層'), html: svg('layout') + _t('任務視窗') }) : null;
     navBtn?.addEventListener('click', () => { close(); openNavigator(task); });
     xlsBtn?.addEventListener('click', () => exportReport([task.id]));
     const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': _t('關閉'), html: svg('x') });
@@ -2311,10 +2311,10 @@ const TTBoard = window.TTBoard = (() => {
       }
 
       let addBelow = null;                // subtask id with the "new subtask below" input open
-      /** The subtasks below subtask c (L3, L4), each a full subtask with its own comments, time and children. */
+      /** The subtasks below subtask c (L3–L5), each a full subtask with its own comments, time and children. */
       function subTree(c, level) {
         const kids = allThreads.filter(x => x.task_parent_id === c.id).sort(byOrder);
-        const canAdd = level < 4 && (task.can_edit !== false || c.task.can_edit);
+        const canAdd = level < 5 && (task.can_edit !== false || c.task.can_edit);
         if (!kids.length && !canAdd) return null;
         const box = el('div', { class: 'kb-subtree' });
         if (kids.length) box.append(el('div', { class: 'kb-subtree-head', text: _t("下層子任務（L{0}）· {1}", level + 1, kids.length) }), ...kids.map(k => commentNode(k, null, level + 1)));
@@ -2341,7 +2341,7 @@ const TTBoard = window.TTBoard = (() => {
         const actions = el('span', { class: 'kb-comment-actions' },
           linkBtn(_t('回覆'), 'message', () => { replyTo = { root: (root || c).id, mention: isRoot ? null : c.author?.username }; paint(); }),
           c.task ? linkBtn(_t("任務樹{0}", (() => { const n = allThreads.filter(x => x.task_parent_id === c.id).length; return n ? `（${n}）` : ''; })()), 'layout',
-            () => openNavigator(task, [c.id]), _t('在任務視窗展開：工時、留言與下層子任務（最多四層）')) : null,
+            () => openNavigator(task, [c.id]), _t('在任務視窗展開：工時、留言與下層子任務（最多五層）')) : null,
           c.can_edit_body && !c.task ? linkBtn(_t('編輯'), 'edit', () => { editing = c.id; paint(); }) : null,
           isRoot && c.can_make_task && !c.task_parent_id ? (c.task
             ? linkBtn(_t('取消子任務'), 'x', () => { if (confirm(_t("把「{0}」改回一般留言？（工時記錄會保留）", c.task.title))) subPut(c, { is_task: false }); }, _t('改回一般留言'))
@@ -2821,8 +2821,8 @@ const TTBoard = window.TTBoard = (() => {
   // ------------------------------------------------------------ task window (navigator)
   // A floating window: the card on the left, its subtasks as title-only cards to the right; clicking one
   // opens its details (status, time log, comments, its own subtasks) in the next column. One open path:
-  // clicking another card of the same level folds the previous one back. Card + 3 levels at most.
-  const NAV_MAX = 4;
+  // clicking another card of the same level folds the previous one back. Card + 4 levels at most.
+  const NAV_MAX = 5;
   function openNavigator(card, startPath = []) {
     document.querySelector('.kb-nav-modal')?.remove();
     let threads = [];
@@ -2903,7 +2903,7 @@ const TTBoard = window.TTBoard = (() => {
           if (!r) input.disabled = false;
         });
         box.append(input);
-      } else if (!list.length) box.append(el('p', { class: 'hint', text: level >= NAV_MAX ? _t('已是第四層') : _t('沒有子任務') }));
+      } else if (!list.length) box.append(el('p', { class: 'hint', text: level >= NAV_MAX ? _t('已是第五層') : _t('沒有子任務') }));
       return box;
     }
 

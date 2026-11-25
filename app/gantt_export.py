@@ -4,7 +4,7 @@ Gantt exports of the same cards the progress report takes (selection, by person,
 - add_sheet(): a 甘特 sheet in the Excel report — the tree (編號, 項目, 負責人, 開始, 到期, 狀態, 前置任務) on the
   left, one column per day / week / month on the right, bars in the status colours, ◆ milestones, a red
   frame for today, overdue bars in red and the baseline as a grey line under the bar. Excel outline levels
-  fold L2–L4; A3 landscape with the header and the tree repeated on every page. Import ignores the sheet.
+  fold L2–L5; A3 landscape with the header and the tree repeated on every page. Import ignores the sheet.
 - mspdi(): Microsoft Project XML (MSPDI), opened by MS Project, ProjectLibre and others: the same tree as
   summary tasks, manually scheduled (the dates stay exactly as in IPMS), finish-to-start predecessors with
   their lag, milestones, baselines, % complete and the people as resources.

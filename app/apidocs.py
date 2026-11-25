@@ -27,7 +27,7 @@ IPMS 的所有 API。頁面上的「Try it out」會直接呼叫這台伺服器�
 # (tag, description) in the order they appear on the page
 TAGS = [
     ("待辦看板", "卡片的新增、修改、刪除、排序、結案、卡住標記、搜尋與標籤"),
-    ("子任務、留言與工時", "留言串、子任務（最多四層）、計時與工時紀錄"),
+    ("子任務、留言與工時", "留言串、子任務（最多五層）、計時與工時紀錄"),
     ("專案與甘特圖", "專案分析（健康度、問題、人員負載、共用時段）、排序、甘特圖資料、基準線、順延、專案通知設定"),
     ("附件", "卡片與留言的圖片和文件"),
     ("Excel 報告", "工作進度報告的匯出與匯入"),
@@ -227,7 +227,7 @@ calls that change data really change it.
 **Dates**: `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM` (server local time).
 """
 TAGS_EN = {"待辦看板": ("Board", "Cards: create, change, delete, order, close, blocked, search and tags"),
-           "子任務、留言與工時": ("Subtasks, comments & time", "Comment threads, subtasks (up to four levels), timers and time logs"),
+           "子任務、留言與工時": ("Subtasks, comments & time", "Comment threads, subtasks (up to five levels), timers and time logs"),
            "專案與甘特圖": ("Projects & Gantt", "Project analysis (health, problems, people load, shared windows), ranking, Gantt data, baselines, shifting, project notifications"),
            "附件": ("Attachments", "Images and documents on cards and comments"),
            "Excel 報告": ("Excel report", "Export and import the progress report"),

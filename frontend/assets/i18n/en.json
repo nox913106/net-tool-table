@@ -258,7 +258,6 @@
  "以「帳號@網域」直接登入，例如 corp.local": "Sign in directly as “account@domain”, e.g. corp.local",
  "任務樹{0}": "Task tree{0}",
  "任務視窗": "Task window",
- "任務視窗：子任務由左至右展開，最多四層": "Task window: subtasks open from left to right, up to four levels",
  "任務進度 · {0}": "Task progress · {0}",
  "任務進度看板": "Task progress board",
  "任務雷達": "Task radar",
@@ -520,7 +519,6 @@
  "在 Entra 系統管理中心 →「應用程式註冊」新增應用程式：重新導向 URI 選「Web」並填下方的網址，建立一組用戶端密碼，API 權限保留 Microsoft Graph 的 User.Read（委派）。": "In the Entra admin center → “App registrations”, add an application: redirect URI type “Web” with the address below, create a client secret, and keep the Microsoft Graph User.Read (delegated) API permission.",
  "在 Teams 頻道新增工作流程「收到 webhook 要求時張貼到頻道」（Post to a channel when a webhook request is received），把它產生的網址貼到下面。不需要 Entra ID 應用程式；網址等同密碼，加密保存。": "In a Teams channel, add the workflow “Post to a channel when a webhook request is received” and paste the address it gives below. No Entra ID application is needed; the address is a secret and is stored encrypted.",
  "在任何連結卡片上點 ☆，就會收進這裡。": "Click ☆ on any link card to collect it here.",
- "在任務視窗展開：工時、留言與下層子任務（最多四層）": "Open in the task window: time, comments and sub-items (up to four levels)",
  "在入口顯示": "Show on the portal",
  "在卡片留言…": "Comment on the card…",
  "在新分頁開啟": "Open in a new tab",
@@ -629,7 +627,6 @@
  "已排入 {0} 個頻道": "Queued for {0} channels",
  "已改回你的版本，會同步到伺服器": "Changed back to your version; it will be synced to the server",
  "已新增「{0}」": "Added “{0}”",
- "已是第四層": "Already at the fourth level",
  "已更新這個專案的通知設定": "Notification settings for this project updated",
  "已更新順序": "Order updated",
  "已標記卡住，已通知負責人與上級": "Marked as blocked; owners and their managers have been notified",
@@ -1166,7 +1163,6 @@
  "這一次完成了嗎？點這裡結案並排下一次。": "Is this one done? Click here to close it and schedule the next one.",
  "這一頁有尚未儲存的修改。": "This page has unsaved changes.",
  "這些卡片已經過了到期日，還沒結案：": "These cards are past due and not closed:",
- "這個專案的工作（L2～L4）與歸屬的一般卡，依狀態分欄；拖到其他欄改狀態，上層狀態會自動彙總。": "This project's work (L2–L4) and attached everyday cards, in columns by status; drag to another column to change status, and the levels above roll up automatically.",
  "這個專案的通知": "Notifications for this project",
  "這個環境沒有由安裝腳本設定的 nginx（Windows 單機版或開發模式），這一區不適用。": "This environment has no nginx set up by the installer (Windows standalone or development), so this section does not apply.",
  "這個程式沒有可用的圖示": "This program has no usable icon",
@@ -1560,5 +1556,9 @@
  "＋ 加入人員…": "+ Add a person…",
  "看得到：{0} 個部門、{1} 位人員（系統管理員一律看得到）": "Visible to: {0} departments, {1} people (system administrators always see it)",
  "尚未選擇：儲存後等同所有人": "Nothing selected: saving this means everyone",
- "可見範圍": "Visible to"
+ "可見範圍": "Visible to",
+ "任務視窗：子任務由左至右展開，最多五層": "Task window: subtasks open from left to right, up to five levels",
+ "在任務視窗展開：工時、留言與下層子任務（最多五層）": "Open in the task window: time, comments and sub-items (up to five levels)",
+ "已是第五層": "Already at the fifth level",
+ "這個專案的工作（L2～L5）與歸屬的一般卡，依狀態分欄；拖到其他欄改狀態，上層狀態會自動彙總。": "This project's work (L2–L5) and attached everyday cards, in columns by status; drag to another column to change status, and the levels above roll up automatically."
 }
