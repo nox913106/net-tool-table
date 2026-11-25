@@ -272,11 +272,11 @@
       const n = k => base.filter(p => (k === 'all' || p.type === k) && (!state.mine || (me && p.who === me))).length;
       const chip = (k, label) => {
         const b = el('button', { type: 'button', class: 'radar-chip', 'aria-pressed': String(state.type === k) }, label, el('b', { text: n(k) }));
-        b.addEventListener('click', () => { state.type = k; paintList(); });
+        b.addEventListener('click', () => { state.type = k; list.querySelector('.radar-alerts')?.scrollTo(0, 0); paintList(); });
         return b;
       };
       const mineBox = el('input', { type: 'checkbox', checked: state.mine });
-      mineBox.addEventListener('change', () => { state.mine = mineBox.checked; TT.store.set('radar-mine', state.mine); paintList(); });
+      mineBox.addEventListener('change', () => { state.mine = mineBox.checked; TT.store.set('radar-mine', state.mine); list.querySelector('.radar-alerts')?.scrollTo(0, 0); paintList(); });
       const rowsEl = alerts().slice(0, 200).map(p => {
         const b = el('button', { type: 'button', class: `radar-alert t-${p.type}` },
           el('span', { class: 'radar-alert-k', text: ZH[p.type] }),
@@ -291,10 +291,13 @@
         });
         return b;
       });
+      const keep = list.querySelector('.radar-alerts')?.scrollTop || 0;     // a refresh (sync, an edit) keeps the reader's place
+      const box = el('div', { class: 'radar-alerts' }, ...(rowsEl.length ? rowsEl : [el('p', { class: 'radar-empty', text: ana ? _t('沒有警示') : _t('載入中…') })]));
       list.replaceChildren(
         el('div', { class: 'radar-chips' }, chip('all', _t('全部')), ...PROB_TYPES.filter(k => n(k)).map(k => chip(k, ZH[k])),
           el('label', { class: 'radar-mine' }, mineBox, _t('只看我的'))),
-        el('div', { class: 'radar-alerts' }, ...(rowsEl.length ? rowsEl : [el('p', { class: 'radar-empty', text: ana ? _t('沒有警示') : _t('載入中…') })])));
+        box);
+      if (keep) box.scrollTop = keep;
     }
     function paintTabs() {
       const n = (ana?.problems || []).filter(p => !state.project || p.project === state.project).length;
