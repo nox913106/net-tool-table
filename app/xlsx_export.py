@@ -237,7 +237,7 @@ def _extra_sheets(wb, analysis: dict, today):
 def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[int, list], times: Dict[int, list],
                  names: Dict[int, str], author: str = "", now: Optional[datetime] = None,
                  sub_deps: Optional[Dict[int, list]] = None, analysis: Optional[dict] = None,
-                 project_titles: Optional[Dict[int, str]] = None, scope_note=None) -> bytes:
+                 project_titles: Optional[Dict[int, str]] = None, scope_note=None, gantt: Optional[str] = None) -> bytes:
     """cards: enriched rows (owner / assignees / mentions as dicts with id, username, name, done).
     subtasks / comments / times are keyed by card id; names maps user id → display name."""
     now = now or datetime.now()
@@ -443,6 +443,9 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
     ws.oddFooter.center.text = "第 &P 頁，共 &N 頁"
     ws.oddFooter.right.text = f"{now:%Y-%m-%d}"
     out = io.BytesIO()
+    if gantt:                                          # 甘特圖 sheet right after the report (auto | day | week | month)
+        from . import gantt_export
+        gantt_export.add_sheet(wb, gantt_export.nodes(cards, subtasks, names, sub_deps), today, gantt)
     _extra_sheets(wb, analysis, today)
     from . import i18n
     if i18n.lang() == "en":
@@ -465,7 +468,7 @@ def localize_workbook(wb):
         head = None
         for row in ws.iter_rows(min_row=1, max_row=min(ws.max_row, 12)):
             names = {str(c.value).strip() for c in row if c.value is not None}
-            if {"項目", "類型"} <= names or {"專案", "狀態"} <= names or {"人員"} & names or {"類型", "說明"} <= names:
+            if {"項目", "類型"} <= names or {"項目", "狀態"} <= names or {"專案", "狀態"} <= names or {"人員"} & names or {"類型", "說明"} <= names:
                 head = row[0].row
                 break
         sys_cols = set()

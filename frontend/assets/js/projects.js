@@ -248,7 +248,7 @@
       const edit = el('button', { class: 'btn', type: 'button', html: svg('edit') + _t('編輯專案卡') });
       edit.addEventListener('click', () => TTBoard.openEditor(c));
       const xls = el('button', { class: 'btn', type: 'button', html: svg('download') + _t('Excel 報告') });
-      xls.addEventListener('click', () => TTBoard.exportXlsx([id, ...attached().map(t => t.id)]));
+      xls.addEventListener('click', () => TTBoard.exportReport([id, ...attached().map(t => t.id)]));
       const nav = el('button', { class: 'btn', type: 'button', html: svg('layout') + _t('任務視窗') });
       nav.addEventListener('click', () => TTBoard.openNavigator(c));
       // my notifications for this project: all / only mine / a daily summary / off

@@ -50,6 +50,7 @@
     const expand = el('button', { class: 'btn btn-sm', type: 'button', html: svg('chevron-down') + _t('全部展開') });
     const collapse = el('button', { class: 'btn btn-sm', type: 'button', html: svg('chevron-right') + _t('全部收合') });
     const todayBtn = el('button', { class: 'btn btn-sm', type: 'button', html: svg('clock') + _t('今天') });
+    const exportBtn = el('button', { class: 'btn btn-sm', type: 'button', title: _t('匯出目前甘特圖上的卡片：Excel 甘特圖或 MS Project'), html: svg('download') + _t('匯出') });
     const legend = el('div', { class: 'gantt-legend' },
       el('span', { class: 'gl gl-ms', text: _t('里程碑') }), el('span', { class: 'gl gl-dep', text: _t('前置相依') }),
       el('span', { class: 'gl gl-bad', text: _t('排程衝突') }), el('span', { class: 'gl gl-base', text: _t('基準線') }),
@@ -58,7 +59,7 @@
     const undatedSw = el('label', { class: 'switch', title: _t('沒有開始日、到期日，子任務也都沒有日期的卡片不列出') },
       el('input', { type: 'checkbox', checked: hideUndated }), el('span', { class: 'track' }), el('span', { text: _t('隱藏未排日期') }));
     undatedSw.querySelector('input').addEventListener('change', e => { hideUndated = e.target.checked; TT.store.set('gantt-hide-undated', hideUndated); paint(); });
-    const tools = el('div', { class: 'gantt-tools' }, linkSw, soloTools, undatedSw, el('span', { class: 'spacer' }), expand, collapse, todayBtn, zoomSeg);
+    const tools = el('div', { class: 'gantt-tools' }, linkSw, soloTools, undatedSw, el('span', { class: 'spacer' }), expand, collapse, todayBtn, zoomSeg, exportBtn);
     const well = el('div', { class: 'gantt-well', tabindex: '-1' });
     const tip = el('div', { class: 'gantt-tip', hidden: true });
     host.classList.add('gantt-host');
@@ -72,6 +73,10 @@
     expand.addEventListener('click', () => { const rec = x => { if (x.kids.length) { open.add(x.key); x.kids.forEach(rec); } }; items().forEach(rec); saveOpen(); paint(); });
     collapse.addEventListener('click', () => { open.clear(); saveOpen(); paint(); });
     todayBtn.addEventListener('click', () => scrollToday(true));
+    exportBtn.addEventListener('click', () => {
+      if (TT.store.get('export-format', 'xlsx') === 'xlsx') TT.store.set('export-format', 'gantt');   // from here the Gantt is what is wanted
+      TTBoard.exportReport([...new Set(items().map(x => x.cardId))]);
+    });
     const paintTools = () => {
       soloTools.hidden = linked || fixed;
       undatedSw.hidden = fixed;

@@ -1708,3 +1708,9 @@ button.g-tog:focus-visible { outline: 2px solid var(--accent); outline-offset: -
 .kb-exp-status { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .kb-exp-st { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
 .kb-exp-st i { width: 9px; height: 9px; border-radius: 2px; background: var(--c); }
+.kb-fmt { display: flex; flex-direction: column; gap: 6px; }
+.kb-fmt-opt { display: grid; grid-template-columns: 18px 1fr; gap: 8px; align-items: start; padding: 9px 11px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+.kb-fmt-opt.is-on { border-color: var(--accent); background: var(--accent-soft); }
+.kb-fmt-opt > span { display: flex; flex-direction: column; gap: 3px; }
+.kb-fmt-opt small { color: var(--text-3); font-size: 12px; }
+.kb-fmt-opt select { margin-top: 4px; width: auto; align-self: flex-start; }

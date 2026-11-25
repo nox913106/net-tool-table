@@ -828,8 +828,11 @@ class ExportIn(BaseModel):
     statuses: List[str] = []               # only these statuses (cards, and the people's subtasks)
     kind: str = "all"                      # all | ops | project
     only_people: bool = True               # cards they do not lead list only their subtasks (and the ones above)
+    format: str = "xlsx"                   # xlsx (the report) | gantt (the report + a 甘特圖 sheet) | mspdi (MS Project XML)
+    scale: str = "auto"                    # 甘特圖 columns: auto | day | week | month
 
 
+@router.post("/export")
 @router.post("/export.xlsx")
 async def export_xlsx(body: ExportIn, request: Request):
     """Selected cards (only ones this user may see) → a one-sheet progress report (card > subtasks / collaborators)."""
@@ -935,13 +938,27 @@ async def export_xlsx(body: ExportIn, request: Request):
         await db.close()
     from datetime import datetime
     author = user.get("display_name") or user.get("username") or ""
+    from .. import i18n
+    stamp = datetime.now().strftime("%Y%m%d-%H%M")
+    if body.format == "mspdi":                         # Microsoft Project XML
+        from .. import gantt_export
+        rows_g = gantt_export.nodes(cards, subtasks, names, sub_deps)
+        projs = [c for c in cards if (c.get("kind") or "ops") == "project"]
+        title = cards[0]["title"] if len(cards) == 1 else projs[0]["title"] if len(projs) == 1 and not scope_note \
+            else (i18n.tr("工作進度-{0}", scope_note[0]) if scope_note else i18n.tr("工作進度"))
+        data = gantt_export.mspdi(rows_g, title, author)
+        safe = re.sub(r'[\\/:*?"<>|\s]+', "_", title)[:60]
+        name = f"{safe}-{stamp}.xml"
+        return Response(data, media_type="application/xml", headers={
+            "Content-Disposition": f"attachment; filename=\"project-{stamp}.xml\"; filename*=UTF-8''{quote(name)}",
+            "Cache-Control": "no-store",
+        })
+    gantt = (body.scale if body.scale in ("auto", "day", "week", "month") else "auto") if body.format == "gantt" else None
     import contextvars
     ctx = contextvars.copy_context()                   # the worker thread keeps the request's language
     data = await asyncio.get_running_loop().run_in_executor(
         None, lambda: ctx.run(xlsx_export.build_report, cards, subtasks, comments, times, names, author, sub_deps=sub_deps,
-                              analysis=analysis, project_titles=project_titles, scope_note=scope_note))
-    from .. import i18n
-    stamp = datetime.now().strftime("%Y%m%d-%H%M")
+                              analysis=analysis, project_titles=project_titles, scope_note=scope_note, gantt=gantt))
     safe = re.sub(r'[\\/:*?"<>|\s]+', "_", cards[0]["title"])[:60]
     name = i18n.tr("工作進度報告-{0}.xlsx", stamp) if len(cards) > 1 else f"{safe}-{stamp}.xlsx"
     if scope_note:

@@ -1507,5 +1507,20 @@
  "狀態（不勾＝全部）": "Statuses (none ticked = all)",
  "選人員或部門，匯出他們參與的所有卡片": "Pick people or departments and export every card they take part in",
  "依人員匯出…": "Export by person…",
- "未設定部門": "No department"
+ "未設定部門": "No department",
+ "工作進度報告（Excel）": "Progress report (Excel)",
+ "樹狀表，可在 Excel 修改後匯回": "The tree; edit it in Excel and import it back",
+ "報告＋甘特圖（Excel）": "Report + Gantt chart (Excel)",
+ "多一個「甘特圖」分頁：狀態色長條、里程碑、今天、基準線，A3 橫向列印": "Adds a Gantt sheet: status-coloured bars, milestones, today, baseline; prints on A3 landscape",
+ "MS Project（XML）": "MS Project (XML)",
+ "Microsoft Project、ProjectLibre 可直接開啟：階層、前置任務、里程碑、基準線、負責人": "Opens in Microsoft Project and ProjectLibre: outline, predecessors, milestones, baseline, people",
+ "甘特圖刻度": "Gantt scale",
+ "自動（依期間長短）": "Automatic (by length)",
+ "每欄一天": "One column per day",
+ "每欄一週": "One column per week",
+ "每欄一個月": "One column per month",
+ "匯出格式": "Export format",
+ "匯出 {0} 張卡片": "Export {0} cards",
+ "格式": "Format",
+ "匯出目前甘特圖上的卡片：Excel 甘特圖或 MS Project": "Export the cards on this Gantt chart: Excel Gantt or MS Project"
 }

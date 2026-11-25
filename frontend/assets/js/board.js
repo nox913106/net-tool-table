@@ -178,9 +178,7 @@ const TTBoard = window.TTBoard = (() => {
       all.addEventListener('click', () => shownIds().forEach(i => toggleSelect(i, true)));
       none.addEventListener('click', () => [...selection].forEach(i => toggleSelect(i, false)));
       xls.addEventListener('click', async () => {
-        if (!selection.size) { toast(_t('先勾選要匯出的卡片'), true); return; }
-        xls.disabled = true;
-        try { await exportXlsx([...selection]); } finally { xls.disabled = false; }
+        exportReport([...selection]);
       });
       imp.addEventListener('click', () => importXlsx());
       done.addEventListener('click', () => setSelecting(false));
@@ -197,7 +195,7 @@ const TTBoard = window.TTBoard = (() => {
   /** Download the cards as a one-sheet progress report (.xlsx): 主任務 > 子任務／協作. */
   async function exportXlsx(ids, extra = null) {
     try {
-      const res = await fetch('/api/tasks/export.xlsx', { method: 'POST', headers: { 'X-Tool-Table': '1', 'X-Lang': TT_LANG, 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, ...(extra || {}) }) });
+      const res = await fetch('/api/tasks/export', { method: 'POST', headers: { 'X-Tool-Table': '1', 'X-Lang': TT_LANG, 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, ...(extra || {}) }) });
       if (!res.ok) {
         let msg = `HTTP ${res.status}`;
         try { msg = (await res.json()).detail || msg; } catch { /* not json */ }
@@ -206,13 +204,55 @@ const TTBoard = window.TTBoard = (() => {
       const blob = await res.blob();
       const cd = res.headers.get('Content-Disposition') || '';
       const m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
-      const name = m ? decodeURIComponent(m[1]) : 'cards.xlsx';
+      const name = m ? decodeURIComponent(m[1]) : extra?.format === 'mspdi' ? 'project.xml' : 'cards.xlsx';
       const url = URL.createObjectURL(blob);
       const a = el('a', { href: url, download: name });
       document.body.append(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 30000);
       toast(extra ? _t("已匯出：{0}", name) : _t("已匯出 {0} 張卡片：{1}", ids.length, name));
     } catch (e) { toast(_t('匯出失敗：') + e.message, true); }
+  }
+
+  /** Export format: the report (Excel), the report + a 甘特圖 sheet (Excel), or Microsoft Project XML. Remembers the last choice. */
+  function formatField() {
+    const FORMATS = [['xlsx', _t('工作進度報告（Excel）'), _t('樹狀表，可在 Excel 修改後匯回')],
+      ['gantt', _t('報告＋甘特圖（Excel）'), _t('多一個「甘特圖」分頁：狀態色長條、里程碑、今天、基準線，A3 橫向列印')],
+      ['mspdi', _t('MS Project（XML）'), _t('Microsoft Project、ProjectLibre 可直接開啟：階層、前置任務、里程碑、基準線、負責人')]];
+    let fmt = TT.store.get('export-format', 'xlsx');
+    if (!FORMATS.some(f => f[0] === fmt)) fmt = 'xlsx';
+    const scale = el('select', { class: 'select input-sm', 'aria-label': _t('甘特圖刻度') },
+      ...[['auto', _t('自動（依期間長短）')], ['day', _t('每欄一天')], ['week', _t('每欄一週')], ['month', _t('每欄一個月')]]
+        .map(([v, l]) => el('option', { value: v, text: l, selected: v === TT.store.get('export-scale', 'auto') })));
+    scale.addEventListener('change', () => TT.store.set('export-scale', scale.value));
+    const box = el('div', { class: 'kb-fmt', role: 'radiogroup', 'aria-label': _t('匯出格式') });
+    const paint = () => box.replaceChildren(...FORMATS.map(([v, l, h]) => {
+      const r = el('input', { type: 'radio', name: 'kb-fmt', value: v, checked: v === fmt });
+      r.addEventListener('change', () => { fmt = v; TT.store.set('export-format', v); paint(); });
+      return el('label', { class: 'kb-fmt-opt' + (v === fmt ? ' is-on' : '') }, r,
+        el('span', {}, el('strong', { text: l }), el('small', { text: h }), v === 'gantt' && fmt === 'gantt' ? scale : null));
+    }));
+    paint();
+    return { el: box, value: () => ({ format: fmt, scale: scale.value }) };
+  }
+
+  /** Ask for the format, then export these cards. */
+  function exportReport(ids) {
+    if (!ids.length) { toast(_t('先勾選要匯出的卡片'), true); return; }
+    const f = formatField();
+    const go = el('button', { class: 'btn btn-primary', type: 'button', html: svg('download') + _t('匯出') });
+    const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: _t('取消') });
+    const wrap = el('div', { class: 'modal' },
+      el('div', { class: 'modal-card kb-exp', role: 'dialog', 'aria-modal': 'true', 'aria-label': _t('匯出') },
+        el('div', { class: 'modal-head' }, el('h3', { html: svg('download') + _t("匯出 {0} 張卡片", ids.length) })),
+        el('div', { class: 'modal-body' }, f.el),
+        el('div', { class: 'modal-foot' }, cancel, go)));
+    const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey, true); };
+    const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+    document.addEventListener('keydown', onKey, true);
+    cancel.addEventListener('click', close);
+    go.addEventListener('click', async () => { go.disabled = true; try { await exportXlsx(ids, f.value()); close(); } finally { go.disabled = false; } });
+    document.body.append(wrap);
+    go.focus();
   }
 
   /** 依人員匯出: pick people (or whole departments), statuses and the kind of work → one report of what they take part in. */
@@ -265,6 +305,7 @@ const TTBoard = window.TTBoard = (() => {
       return b;
     }));
     const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: _t('取消') });
+    const fmtField = formatField();
     const wrap = el('div', { class: 'modal' },
       el('div', { class: 'modal-card kb-exp', role: 'dialog', 'aria-modal': 'true', 'aria-label': _t('依人員匯出') },
         el('div', { class: 'modal-head' }, el('h3', { html: svg('download') + _t('依人員匯出工作進度報告') })),
@@ -272,7 +313,8 @@ const TTBoard = window.TTBoard = (() => {
           el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('人員（勾部門＝整個部門）') }), search, list),
           el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('狀態（不勾＝全部）') }), stBox),
           el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('類型') }), kindSeg),
-          only),
+          only,
+          el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('格式') }), fmtField.el)),
         el('div', { class: 'modal-foot' }, cancel, go)));
     const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey, true); };
     const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
@@ -281,7 +323,7 @@ const TTBoard = window.TTBoard = (() => {
     go.addEventListener('click', async () => {
       go.disabled = true;
       try {
-        await exportXlsx([], { people: [...chosen], statuses: [...pickedStatus], kind, only_people: only.querySelector('input').checked });
+        await exportXlsx([], { people: [...chosen], statuses: [...pickedStatus], kind, only_people: only.querySelector('input').checked, ...fmtField.value() });
         close();
       } finally { paintGo(); }
     });
@@ -1992,7 +2034,7 @@ const TTBoard = window.TTBoard = (() => {
     const xlsBtn = task ? el('button', { class: 'btn btn-ghost', type: 'button', title: _t('把這張卡片（含子任務、留言、工時）匯出成 Excel'), html: svg('download') + 'Excel' }) : null;
     const navBtn = task ? el('button', { class: 'btn btn-ghost', type: 'button', title: _t('任務視窗：子任務由左至右展開，最多四層'), html: svg('layout') + _t('任務視窗') }) : null;
     navBtn?.addEventListener('click', () => { close(); openNavigator(task); });
-    xlsBtn?.addEventListener('click', () => exportXlsx([task.id]));
+    xlsBtn?.addEventListener('click', () => exportReport([task.id]));
     const closeBtn = el('button', { class: 'icon-btn', type: 'button', 'aria-label': _t('關閉'), html: svg('x') });
     const meta = task ? el('p', { class: 'hint', text: (task.owner ? _t("{0} 建立於 ", TT.nameOf(task.owner)) : _t('建立於 ')) + (task.created_at?.slice(0, 16) || '')
       + (task.completed_at ? _t(" · 完成於 {0}", task.completed_at.slice(0, 16)) : '')
@@ -3137,5 +3179,5 @@ const TTBoard = window.TTBoard = (() => {
     reload(false).then(() => { if (path.length) paint(true); });
   }
 
-  return { init, load, refresh, openNavigator, exportByPeople, ganttRows, baselineText, save, projectAnalysis, isProject, PROBLEM_ZH, get meInfo() { return meInfo; }, mount, mountBell, openEditor, openTask, exportXlsx, importXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; } };
+  return { init, load, refresh, openNavigator, exportByPeople, exportReport, ganttRows, baselineText, save, projectAnalysis, isProject, PROBLEM_ZH, get meInfo() { return meInfo; }, mount, mountBell, openEditor, openTask, exportXlsx, importXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; } };
 })();

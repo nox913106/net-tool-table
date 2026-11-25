@@ -522,5 +522,14 @@
  "沒有符合的人員": "No matching people",
  "這些人員沒有可以匯出的卡片": "These people have no cards to export",
  "這些人員沒有符合條件的卡片": "These people have no cards matching the conditions",
- "工作進度報告-{0}-{1}.xlsx": "Progress report-{0}-{1}.xlsx"
+ "工作進度報告-{0}-{1}.xlsx": "Progress report-{0}-{1}.xlsx",
+ "工作進度-{0}": "Progress-{0}",
+ "工作進度": "Progress",
+ "甘特圖": "Gantt",
+ "圖例：長條＝狀態顏色　紅色長條＝逾期　◆＝里程碑　灰色底線＝基準線　紅框欄＝今天": "Legend: bar = status colour   red bar = overdue   ◆ = milestone   grey underline = baseline   red-framed column = today",
+ "甘特圖　（每欄一天，{0} – {1}）": "Gantt   (one column per day, {0} – {1})",
+ "甘特圖　（每欄一週（週一起），{0} – {1}）": "Gantt   (one column per week from Monday, {0} – {1})",
+ "甘特圖　（每欄一個月，{0} – {1}）": "Gantt   (one column per month, {0} – {1})",
+ "這些卡片都還沒有日期": "None of these cards has dates yet",
+ "第 &P / &N 頁": "Page &P of &N"
 }
