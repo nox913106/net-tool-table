@@ -886,11 +886,14 @@ const TTBoard = window.TTBoard = (() => {
     if (t) openEditor(t); else toast(_t('這張卡片已被刪除，或你已經看不到它了'), true);
   }
 
-  // 歷史區: cards closed for more than 72 hours are not in `tasks` (the board); the ones a page has
+  // 歷史區: cards closed longer ago than board_history_hours are not in `tasks` (the board); the ones a page has
   // fetched are kept here, so the editor, the task window and a history project's page find them.
   const extra = new Map();
   function remember(list) { (list || []).forEach(t => extra.set(t.id, t)); }
   function find(id) { return tasks.find(x => x.id === id) || extra.get(id); }
+  /** How long after closing a main card goes to the 歷史區 (setting board_history_hours), as text. */
+  function historyHours() { return Math.max(1, Number(settings.board_history_hours ?? 72) || 72); }
+  function historyText() { const h = historyHours(); return h % 24 === 0 && h >= 48 ? _t("{0} 天", h / 24) : _t("{0} 小時", h); }
   function all() { return [...tasks, ...[...extra.values()].filter(t => !tasks.some(x => x.id === t.id))]; }
 
   async function init(s) {
@@ -2706,7 +2709,7 @@ const TTBoard = window.TTBoard = (() => {
       if (task.history) {                                       // 歷史區: view only, for everyone
         const day = (task.closed_at || '').slice(0, 10);
         const note = el('div', { class: 'kb-readonly is-history', html: svg('archive') });
-        note.append(el('span', { text: _t("歷史案件：{0} 結案，超過 72 小時，只能檢視，不能修改或留言。", day) }));
+        note.append(el('span', { text: _t("歷史案件：{0} 結案，超過 {1}，只能檢視，不能修改或留言。", day, historyText()) }));
         wrap.querySelector('.modal-body').prepend(note);
         if (comments) {
           comments.querySelectorAll('button').forEach(x => { x.disabled = false; });   // open / fold threads, files
@@ -3202,5 +3205,5 @@ const TTBoard = window.TTBoard = (() => {
     reload(false).then(() => { if (path.length) paint(true); });
   }
 
-  return { init, load, refresh, openNavigator, exportByPeople, exportReport, ganttRows, baselineText, save, projectAnalysis, isProject, PROBLEM_ZH, get meInfo() { return meInfo; }, mount, mountBell, openEditor, openTask, exportXlsx, importXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; }, find, all, remember };
+  return { init, load, refresh, openNavigator, exportByPeople, exportReport, ganttRows, baselineText, save, projectAnalysis, isProject, PROBLEM_ZH, get meInfo() { return meInfo; }, mount, mountBell, openEditor, openTask, exportXlsx, importXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; }, find, all, remember, historyHours, historyText };
 })();

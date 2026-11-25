@@ -1326,6 +1326,7 @@
       { key: 'board_enabled', label: _t('啟用待辦看板（側邊欄入口與右上角 🔔 提醒）'), type: 'switch' },
       { key: 'board_notify', label: _t('桌面通知'), type: 'switch', hint: _t('到期、提醒時間或開始日到了會跳出系統通知；每位使用者第一次要在瀏覽器按「允許」') },
       { key: 'board_due_soon_days', label: _t('幾天內到期算「即將到期」'), type: 'number' },
+      { key: 'board_history_hours', label: _t('結案多久後移到歷史區（小時）'), type: 'number', hint: _t('主卡完成或取消超過這個時間，就從看板移到「歷史區」，只能檢視不能修改。預設 72 小時；1～8760（一年）') },
       { key: 'board_supervisor', label: _t('上級對下級卡片的權限'), type: 'seg', options: [['rw', _t('可編輯')], ['ro', _t('檢視＋留言')], ['off', _t('不分享')]], hint: _t('上級＝帳號的上級（AD 的 manager 或在「帳號與權限」設定），可以多層。可編輯：瀏覽、留言、增刪修、指派給下級；檢視＋留言：只能看與留言') },
       { key: 'board_wip_high', label: _t('工作量：每欄幾張起算「高負荷」'), type: 'number', hint: _t('預設 6：每欄 ≤5 張為正常、6～8 張顯示「高負荷」') },
       { key: 'board_wip_over', label: _t('工作量：每欄幾張起算「超量」'), type: 'number', hint: _t('預設 9：≥9 張顯示「超量」，顯示在看板欄位標題') },

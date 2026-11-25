@@ -364,7 +364,7 @@ async def init_db():
                 await db.execute(f"ALTER TABLE tasks ADD COLUMN {col} {ddl}")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)")
         # 歷史區: when a card was closed (complete / canceled), whichever way it got there (editor, drag,
-        # roll-up, sync, import …); 72 hours later it is a history case (read-only, app/routes/tasks.py)
+        # roll-up, sync, import …); board_history_hours later (default 72) it is a history case (read-only, app/routes/tasks.py)
         if "closed_at" not in task_cols:
             await db.execute("ALTER TABLE tasks ADD COLUMN closed_at TIMESTAMP")
             await db.execute("""UPDATE tasks SET closed_at = COALESCE(completed_at, updated_at, created_at)

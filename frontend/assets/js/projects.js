@@ -3,7 +3,7 @@
    #/mine         everything assigned to me (every project and level, everyday cards), by due date
    #/projects     the projects side by side: managers' order, health, problems; cards that look like projects
    #/project/ID   one project: Gantt, project board (its L2… work by status), list, Excel
-   #/history      歷史區: main cards closed for more than 72 hours — everyday work and projects apart,
+   #/history      歷史區: main cards closed longer ago than the setting board_history_hours — everyday work and projects apart,
                   everything they had, view only (the server refuses any change to them)
    All of it reads the same data as the board (TTBoard) and the server's analysis (projects' health).
    ============================================================================= */
@@ -33,7 +33,7 @@
     const head = el('div', { class: 'page-head' }, el('div', { class: 'page-title' },
       el('span', { class: 'page-icon', html: svg('archive') }),
       el('div', {}, el('h1', { text: _t('歷史區') }),
-        el('p', { class: 'page-desc', text: _t('主卡結案（完成或取消）超過 72 小時就移到這裡：子任務、留言、工時、附件、甘特圖都保留，只能檢視，不能修改。') }))));
+        el('p', { class: 'page-desc', text: _t("主卡結案（完成或取消）超過 {0} 就移到這裡：子任務、留言、工時、附件、甘特圖都保留，只能檢視，不能修改。", TTBoard.historyText()) }))));
     const tabs = el('div', { class: 'pj-tabs', role: 'tablist' });
     const tools = el('div', { class: 'hist-tools' }, q, stSel, yearSel, el('span', { class: 'spacer' }), xls);
     const body = el('div', { class: 'hist-body' }, el('p', { class: 'hint', text: _t('載入中…') }));
@@ -66,7 +66,7 @@
       if (!list.length) {
         body.replaceChildren(el('div', { class: 'empty small' }, el('div', { class: 'empty-icon', html: svg('archive') }),
           el('h3', { text: all.length ? _t('沒有符合的歷史案件') : _t('還沒有歷史案件') }),
-          el('p', { text: _t('主卡完成或取消 72 小時後，會自動移到這裡。') })));
+          el('p', { text: _t("主卡完成或取消 {0}後，會自動移到這裡。", TTBoard.historyText()) })));
         return;
       }
       const proj = tab === 'project';
@@ -347,7 +347,7 @@
       });
       head.replaceChildren(
         archived ? el('div', { class: 'kb-readonly is-history pj-history', html: svg('archive') },
-          el('span', { text: _t("歷史案件：{0} 結案，超過 72 小時，只能檢視，不能修改。", (c.closed_at || '').slice(0, 10)) }),
+          el('span', { text: _t("歷史案件：{0} 結案，超過 {1}，只能檢視，不能修改。", (c.closed_at || '').slice(0, 10), TTBoard.historyText()) }),
           el('a', { href: '#/history', text: _t('回歷史區') })) : '',
         el('div', { class: 'pj-title' }, el('span', { class: 'pj-kicker', text: archived ? _t('L1 // 專案 · 歷史') : _t("L1 // 專案{0}", p?.rank ? _t(" · 排序 #{0}", p.rank) : '') }),
           el('h1', { text: c.title }),

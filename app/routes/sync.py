@@ -44,7 +44,7 @@ from ..roles import board_access
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 # board rules an administrator sets on the server; a linked standalone copy follows them
-BOARD_SETTINGS = ("board_tag_colors", "board_wip_high", "board_wip_over", "board_supervisor", "board_due_soon_days",
+BOARD_SETTINGS = ("board_tag_colors", "board_history_hours", "board_wip_high", "board_wip_over", "board_supervisor", "board_due_soon_days",
                   "board_overdue_remind_time", "board_windows", "board_load_hours", "board_default_estimate_hours")
 MAX_PAYLOAD = 50 * 1024 * 1024
 

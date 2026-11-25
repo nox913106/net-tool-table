@@ -85,6 +85,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "board_enabled": True,              # sidebar entry, header reminder bell
     "board_notify": True,               # desktop notifications for reminders (viewer must allow)
     "board_due_soon_days": 2,           # cards due within N days are highlighted
+    "board_history_hours": 72,          # 歷史區: a main card closed this many hours ago becomes a read-only history case
     "board_overdue_remind_time": "09:30",  # daily reminder for one-off cards past due (viewer's local time)
     "public_dashboard": True,           # /dashboard: per department / account status counts, no login
     "dashboard_projects": "anon",       # projects on /dashboard: off | anon (專案 A, B… — progress only) | names
@@ -135,6 +136,14 @@ def validate_setting(key: str, value: Any) -> Any:
             raise HTTPException(status_code=400, detail="工作量門檻必須是數字")
         if not 1 <= n <= 999:
             raise HTTPException(status_code=400, detail="工作量門檻要在 1～999 之間")
+        return n
+    if key == "board_history_hours":
+        try:
+            n = int(value)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="歷史區時間必須是數字")
+        if not 1 <= n <= 8760:
+            raise HTTPException(status_code=400, detail="歷史區時間要在 1～8760 小時（一年）之間")
         return n
     if key == "dashboard_rotate_seconds":
         try:

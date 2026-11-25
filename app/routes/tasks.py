@@ -39,18 +39,26 @@ from ..roles import board_access
 from ..database import get_db
 
 # ---------------------------------------------------------------- 歷史區 (history)
-# A card closed (complete / canceled) for more than 72 hours is a history case: it leaves the board and
+# A card closed (complete / canceled) longer ago than the setting board_history_hours (default 72 hours)
+# is a history case: it leaves the board and
 # the project views for the 歷史區, keeps everything it had (subtasks, comments, time, attachments,
 # Gantt, Excel) and can no longer be changed by anyone — the guard below refuses every write to it.
-HISTORY_HOURS = 72
+HISTORY_HOURS = 72                     # default of the setting board_history_hours
+_HOURS_SQL = (f"MAX(1, COALESCE((SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'board_history_hours'), {HISTORY_HOURS}))")
 
 
 def hist_sql(alias: str = "t") -> str:
+    """The SQL test for a history case (reads the setting, so a change applies at once)."""
     return (f"({alias}.status IN ('complete', 'canceled') AND {alias}.closed_at IS NOT NULL "
-            f"AND {alias}.closed_at <= datetime('now', '-{HISTORY_HOURS} hours'))")
+            f"AND {alias}.closed_at <= datetime('now', '-' || {_HOURS_SQL} || ' hours'))")
 
 
-HISTORY_MSG = "這是歷史案件（結案超過 72 小時），只能檢視，不能修改"
+async def history_hours(db) -> int:
+    cur = await db.execute(f"SELECT {_HOURS_SQL}")
+    return int((await cur.fetchone())[0])
+
+
+HISTORY_MSG = "這是歷史案件（已結案並移到歷史區），只能檢視，不能修改"
 
 
 async def is_history(db, task_id) -> bool:
@@ -634,6 +642,7 @@ async def _enrich(db, rows: List[dict], user: dict) -> List[dict]:
     """Add owner / assignees / mentions / comment count / permissions for the viewer."""
     if not rows:
         return rows
+    hist_hours = await history_hours(db)
     ids = [r["id"] for r in rows]
     marks = ",".join("?" * len(ids))
     people = {}
@@ -694,7 +703,7 @@ async def _enrich(db, rows: List[dict], user: dict) -> List[dict]:
         r["can_assign"] = in_scope or (acc["team_edit"] and involved)
         r["can_comment"] = True                   # only visible cards are ever returned
         r["history"] = bool(r.get("status") in CLOSED and r.get("closed_at") and
-                            (_utcnow() - _ts(r["closed_at"])).total_seconds() >= HISTORY_HOURS * 3600)
+                            (_utcnow() - _ts(r["closed_at"])).total_seconds() >= hist_hours * 3600)
         if r["history"]:                          # 歷史區: read-only for everyone
             for k in [k for k in r if k.startswith("can_")]:
                 r[k] = False
