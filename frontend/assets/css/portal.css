@@ -1320,6 +1320,15 @@ body.kb-selecting .view { padding-bottom: 90px; }
 @media (max-width: 520px) { .sync-vers { grid-template-columns: 1fr; } }
 .sync-card .modal-head h3 { display: flex; align-items: center; gap: 8px; }
 .sync-card .modal-head h3 svg { width: 18px; height: 18px; flex: none; }
+/* forced update: covers the page until this copy runs the server's version */
+.modal.sync-update { z-index: 400; backdrop-filter: blur(8px); }
+.sync-update-card { width: min(520px, 100%); }
+.sync-update-card .modal-head h3 { display: flex; align-items: center; gap: 8px; }
+.sync-update-card .modal-head h3 svg { width: 18px; height: 18px; flex: none; }
+.sync-update-card .muted { color: var(--text-2); font-size: 13px; }
+.sync-update-ver { font: 12px/1.4 var(--mono); color: var(--text-3); }
+.sync-update-spin { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--border-strong); border-top-color: var(--accent); animation: sync-spin 0.9s linear infinite; }
+@keyframes sync-spin { to { transform: rotate(360deg); } }
 .sync-kv > .sync-inline { justify-self: start; }
 
 /* ---------------------------------------------------------------- 公用區 / 個人區 */

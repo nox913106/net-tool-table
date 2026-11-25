@@ -58,6 +58,9 @@ jobs:
           Write-Host "python.exe signature: $($sig.Status) $($sig.SignerCertificate.Subject)"
           if ($sig.Status -ne 'Valid') { throw 'python.exe is not validly signed' }
 
+      - name: Client version id matches the source (what a server on Linux reports for this commit)
+        run: python -c "import sys; from pathlib import Path; from app import version; a = version.info(Path('.')); b = version.check_dir(Path('portable/stage/app')); print('source', a, 'client', b); sys.exit(a['build'] != b)"
+
       - name: Smoke test (start the exe and request pages)
         shell: pwsh
         run: |

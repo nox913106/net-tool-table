@@ -9,6 +9,8 @@ Server edition — used by standalone copies, with Authorization: Bearer <device
   PUT  /api/sync/blob/{uid}      an attachment's file, uploaded before its row
   GET  /api/sync/blob/{uid}      an attachment's file
   GET  /api/sync/devices         (signed in) my linked standalone copies; DELETE /api/sync/devices/{id}
+  GET  /api/sync/version         (public) the program version standalone copies must run → {build, deps, sha256, size}
+  GET  /api/sync/package         (device token / signed in) that program as a zip: a copy updates itself with it
 
 Both editions
   GET  /api/sync/wait?since=N    long poll: returns as soon as anything changed after N (≤ 25 s);
@@ -18,6 +20,7 @@ Standalone copy (portable edition, no login)
   GET  /api/sync/client          link state, online, waiting changes, last sync
   POST /api/sync/client/connect  {server, username, password, verify} → link to a server
   POST /api/sync/client/now      sync now
+  POST /api/sync/client/update   check the server's version now (and update to it)
   POST /api/sync/client/disconnect
   GET  /api/sync/client/log      conflicts (both versions kept) and refused / deleted notes
   POST /api/sync/client/resolve  {id, keep: mine|theirs}
@@ -73,6 +76,41 @@ async def _json(request: Request) -> dict:
     if not isinstance(data, dict):
         raise HTTPException(status_code=400, detail="格式錯誤")
     return data
+
+
+# ------------------------------------------------------------------ client updates (server edition)
+INSTALLER_URL = "https://github.com/nox913106/net-tool-table/releases/download/latest/IPMS-Setup.exe"
+_package = {"build": None, "data": b"", "sha256": ""}
+
+
+def _client_package() -> dict:
+    """The server's own program files, zipped once per version: what a standalone copy installs."""
+    from .. import version
+    info = version.info(C.PROJECT_ROOT)
+    if _package["build"] != info["build"]:
+        data = version.package(C.PROJECT_ROOT)
+        _package.update(build=info["build"], data=data, sha256=hashlib.sha256(data).hexdigest())
+    return {**info, "sha256": _package["sha256"], "size": len(_package["data"])}
+
+
+@router.get("/version")
+async def client_version():
+    """Standalone copies compare this with their own build and update when it differs (forced)."""
+    _server_only()
+    import asyncio
+    info = await asyncio.get_running_loop().run_in_executor(None, _client_package)
+    return {**info, "installer": C.CLIENT_INSTALLER_URL or INSTALLER_URL}
+
+
+@router.get("/package")
+async def client_package():
+    _server_only()
+    import asyncio
+    from fastapi.responses import Response
+    info = await asyncio.get_running_loop().run_in_executor(None, _client_package)
+    return Response(_package["data"], media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="ipms-{info["build"]}.zip"',
+                             "X-Build": info["build"], "X-Sha256": info["sha256"], "Cache-Control": "no-store"})
 
 
 # ------------------------------------------------------------------ live updates (both editions)
@@ -749,6 +787,15 @@ async def client_now():
     _client_only()
     from .. import syncclient
     await syncclient.sync_now()
+    return await syncclient.status()
+
+
+@router.post("/client/update")
+async def client_update():
+    """Check the server's version now (and update to it when it differs)."""
+    _client_only()
+    from .. import syncclient
+    await syncclient.update_now()
     return await syncclient.status()
 
 

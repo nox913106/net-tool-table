@@ -534,5 +534,13 @@
  "第 &P / &N 頁": "Page &P of &N",
  "帳號尚未開通：目前是訪客，請聯絡系統管理員開通為使用者或以上": "Account not activated: you are a guest; ask a system administrator for the user level or above",
  "帳號尚未開通：目前是訪客，請聯絡系統管理員開通為使用者或以上後再連線": "Account not activated: you are a guest; ask a system administrator for the user level or above, then connect again",
- "訪客（未開通）": "Guest (not activated)"
+ "訪客（未開通）": "Guest (not activated)",
+ "這份 IPMS 的版本與伺服器不同，需要更新": "This copy of IPMS is a different version from the server's and needs updating",
+ "伺服器已更新到需要新元件的版本：請下載並執行完整安裝程式（資料會保留）": "The server runs a version that needs new components: download and run the full installer (your data is kept)",
+ "這份 IPMS 的版本與伺服器不同，且無法自動更新（從原始碼執行）：請更新後再同步": "This copy of IPMS is a different version from the server's and cannot update itself (it runs from source): update it, then sync",
+ "自動更新失敗：{0}": "Automatic update failed: {0}",
+ "下載的檔案不完整（檢查碼不符）": "The download is incomplete (checksum mismatch)",
+ "更新檔內容不正確": "The update package is not valid",
+ "更新後的版本不符（{0}）": "The unpacked version does not match ({0})",
+ "下載了伺服器的版本，但無法替換程式檔案（可能被防毒或其他程式鎖住）：請關閉 IPMS 再開一次，或執行完整安裝程式": "The server's version was downloaded but the program files could not be replaced (an antivirus or another program may be holding them): close IPMS and open it again, or run the full installer"
 }

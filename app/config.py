@@ -38,6 +38,11 @@ ENABLE_DOCS = API_DOCS != "off"
 # Launch local programs / read shortcuts (Windows portable edition only;
 # portable/launcher.py sets it). Never enable this on a shared server.
 LOCAL_APPS = _bool("TOOL_TABLE_LOCAL_APPS", False)
+# Standalone copy: replace its own program files with the version its server runs (portable/launcher.py
+# sets the folder when the copy is an installed / unzipped one; unset = only report a different version).
+SELF_UPDATE_DIR = os.environ.get("TOOL_TABLE_SELF_UPDATE_DIR") or ""
+# Server: where a standalone copy gets the full installer when an update needs new Python packages
+CLIENT_INSTALLER_URL = os.environ.get("TOOL_TABLE_CLIENT_INSTALLER_URL") or ""
 
 # ---- Accounts (server edition) -------------------------------------------------
 # Login for the whole site except the public task dashboard. The installer turns this on

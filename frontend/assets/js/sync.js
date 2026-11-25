@@ -47,6 +47,9 @@
 
   function look(s) {
     if (!s.linked) return { cls: 'is-local', text: _t('單機'), title: _t('尚未連線到伺服器：點這裡設定同步') };
+    const u = s.update && s.update.state;
+    if (u === 'downloading' || u === 'restarting') return { cls: 'is-busy', text: _t('更新中…'), title: _t('正在更新到伺服器的版本') };
+    if (u) return { cls: 'is-err', text: _t('需要更新'), title: s.update.error || _t('這份 IPMS 的版本與伺服器不同') };
     if (s.syncing) return { cls: 'is-busy', text: _t('同步中…'), title: _t('正在與伺服器同步') };
     if (s.online === false) return { cls: 'is-off', text: s.pending ? _t("離線 · {0} 筆待同步", s.pending) : _t('離線'), title: (s.error || _t('連不到伺服器')) + _t('\n恢復連線後會自動送出') };
     if (s.error) return { cls: 'is-err', text: _t('同步錯誤'), title: s.error };
@@ -68,7 +71,72 @@
       st = await api('/api/sync/client');
     } catch { return; }
     paintPill();
+    paintUpdate();
     if (panel && panel.isConnected) panel.paint();
+  }
+
+  // --------------------------------------------------------------- forced update (standalone copy)
+  // A linked copy must run the server's version: while it differs this covers the page; the copy
+  // downloads that version from the server and restarts itself, and the page reloads when it is back.
+  let upd = null, upKey = '', waiting = false;
+  function paintUpdate() {
+    const u = st && st.linked && st.update;
+    const state = u && u.state;
+    if (!state) { if (upd) { upd.remove(); upd = null; upKey = ''; } return; }
+    const key = state + '|' + (u.error || '');
+    if (upd && upKey === key) return;
+    upKey = key;
+    const busy = state === 'downloading' || state === 'restarting';
+    const card = el('div', { class: 'modal-card sync-update-card', role: 'alertdialog', 'aria-modal': 'true' },
+      el('div', { class: 'modal-head' }, el('h3', { html: svg('refresh') + (busy ? _t('正在更新 IPMS') : _t('需要更新 IPMS')) })));
+    const body = el('div', { class: 'modal-body' });
+    const foot = el('div', { class: 'modal-foot' });
+    const ver = el('p', { class: 'sync-update-ver', text: _t('這台電腦 {0} · 伺服器 {1}', u.build || '—', u.server || '—') });
+    if (busy) {
+      body.append(el('div', { class: 'sync-update-spin' }),
+        el('p', { text: state === 'downloading' ? _t('伺服器已更新，正在下載同一版本…') : _t('下載完成，IPMS 正在重新啟動，畫面會自動重新整理。') }),
+        el('p', { class: 'muted', text: _t('請勿關閉 IPMS 視窗。資料不會受影響。') }), ver);
+    } else {
+      body.append(el('p', { text: u.error || _t('這份 IPMS 的版本與伺服器不同') }),
+        el('p', { class: 'muted', text: _t('更新完成前不會同步；你在這台電腦上的修改都會保留，更新後自動送出。') }), ver);
+      const again = el('button', { class: 'btn btn-primary', type: 'button', html: svg('refresh') + (state === 'failed' ? _t('重試更新') : _t('重新檢查')) });
+      again.addEventListener('click', async () => {
+        again.disabled = true;
+        try { st = await api('/api/sync/client/update', { method: 'POST' }); paintPill(); upKey = ''; paintUpdate(); }
+        catch (ex) { toast(ex.message, true); again.disabled = false; }
+      });
+      if (state === 'installer' && u.installer) foot.append(el('a', { class: 'btn btn-ghost', href: u.installer, target: '_blank', rel: 'noopener', text: _t('下載完整安裝程式') }));
+      foot.append(el('span', { class: 'spacer' }), again);
+    }
+    card.append(body);
+    if (foot.childNodes.length) card.append(foot);
+    const wrap = el('div', { class: 'modal sync-update' }, card);
+    if (upd) upd.replaceWith(wrap); else document.body.append(wrap);
+    upd = wrap;
+    if (state === 'restarting') awaitRestart(u.build);
+  }
+
+  async function awaitRestart(oldBuild) {
+    if (waiting) return;
+    waiting = true;
+    const end = Date.now() + 5 * 60 * 1000;
+    let down = false;
+    while (Date.now() < end) {
+      await new Promise(res => setTimeout(res, 1000));
+      try {
+        const r = await fetch('/api/sync/client', { cache: 'no-store' });
+        if (!r.ok) { down = true; continue; }
+        const s = await r.json();
+        if (down || (s.update && s.update.build !== oldBuild) || !(s.update && s.update.state)) {
+          if (navigator.serviceWorker) {                       // the new version's pages, not the cached ones
+            try { (await navigator.serviceWorker.getRegistrations()).forEach(x => x.update()); } catch { /* none */ }
+          }
+          location.reload();
+          return;
+        }
+      } catch { down = true; }
+    }
+    waiting = false;
   }
 
   async function mountPill() {
@@ -80,6 +148,7 @@
     right.prepend(pill);
     pill.addEventListener('click', openPanel);
     paintPill();
+    paintUpdate();
     let n = 0;
     setInterval(() => { n += 1; if (st && (st.syncing || st.pending || n % 3 === 0) && !document.hidden) refreshStatus(); }, 2000);
   }
@@ -237,6 +306,9 @@
 
     function paint() {
       if (!st.linked) {
+        // the status is re-read every few seconds: the form the person is typing in must stay put
+        // (putting it back into the window, even the same element, drops the focus and an IME composition)
+        if (form && form.f.parentNode === body) return;
         if (!form) form = connectForm();
         body.replaceChildren(form.f);
         foot.replaceChildren(closeBtn(), form.go);

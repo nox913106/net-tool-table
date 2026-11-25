@@ -15,6 +15,10 @@ Options:
   --no-browser    do not open the browser
   --tab           open in a normal browser tab instead of an app window
   --data-dir DIR  store data somewhere else
+
+Updates: once linked, the copy checks its server's version and, when it differs, downloads that
+version from the server (into app.new next to app), stops, swaps the folders and starts again on the
+same port; the open window reloads by itself. data\\ is never touched.
 """
 import argparse
 import os
@@ -155,6 +159,46 @@ def open_ui(url: str, tab: bool = False):
     webbrowser.open(url)
 
 
+def update_paths():
+    return BUNDLE_DIR.parent / (BUNDLE_DIR.name + ".new"), BUNDLE_DIR.parent
+
+
+def apply_update() -> bool:
+    """Swap in the version the sync client downloaded (app.new → app). The old folder is removed."""
+    new, parent = update_paths()
+    if not (new / ".build").is_file():
+        return False
+    old = parent / f"{BUNDLE_DIR.name}.old-{int(time.time())}"
+    for _ in range(20):                              # a virus scanner may hold a file for a moment
+        try:
+            os.replace(BUNDLE_DIR, old)
+            break
+        except OSError:
+            time.sleep(0.5)
+    else:
+        return False
+    try:
+        os.replace(new, BUNDLE_DIR)
+    except OSError:
+        os.replace(old, BUNDLE_DIR)
+        return False
+    (BUNDLE_DIR / ".build").unlink(missing_ok=True)
+    shutil.rmtree(old, ignore_errors=True)
+    return True
+
+
+def clean_old():
+    _, parent = update_paths()
+    for d in parent.glob(BUNDLE_DIR.name + ".old-*"):
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def wait_port_free(host: str, port: int, seconds: float = 15):
+    end = time.time() + seconds
+    while time.time() < end and not port_free(host, port):
+        time.sleep(0.3)
+
+
 def main():
     setup_console()
     parser = argparse.ArgumentParser(description=f"{APP_NAME} 單機版")
@@ -164,9 +208,13 @@ def main():
     parser.add_argument("--tab", action="store_true", help="用一般瀏覽器分頁開啟，而不是獨立視窗")
     parser.add_argument("--data-dir")
     parser.add_argument("--local-apps", action="store_true", help=argparse.SUPPRESS)  # testing off Windows
+    parser.add_argument("--self-update", action="store_true", help=argparse.SUPPRESS)  # testing from a copy
+    parser.add_argument("--after-update", action="store_true", help=argparse.SUPPRESS)  # restarted by an update
     args = parser.parse_args()
 
     host = "0.0.0.0" if args.lan else "127.0.0.1"
+    if args.after_update:                            # the previous run is still letting go of the port
+        wait_port_free(host, args.port)
 
     # Second double-click while it is running: just open the browser again
     if already_running(args.port):
@@ -177,6 +225,11 @@ def main():
         return
 
     data_dir = pick_data_dir(args.data_dir)
+    self_update = (EMBEDDED or args.self_update) and not data_dir.resolve().is_relative_to(BUNDLE_DIR.resolve())
+    if self_update:
+        clean_old()
+        if update_paths()[0].is_dir() and not apply_update():    # left from a run that was closed mid-update
+            os.environ["TOOL_TABLE_UPDATE_FAILED"] = "1"
     icon_dir = data_dir / "icons"
     data_dir.mkdir(parents=True, exist_ok=True)
     seed_icons(icon_dir)
@@ -188,6 +241,8 @@ def main():
     # Launching programs / reading shortcuts only makes sense when the server is this PC
     if os.name == "nt" or args.local_apps:
         os.environ["TOOL_TABLE_LOCAL_APPS"] = "1"
+    if self_update:                                  # the sync client may replace these program files
+        os.environ["TOOL_TABLE_SELF_UPDATE_DIR"] = str(BUNDLE_DIR)
 
     sys.path.insert(0, str(BUNDLE_DIR))
     import uvicorn
@@ -213,6 +268,34 @@ def main():
     config = uvicorn.Config(app, host=host, port=port, log_level="warning", access_log=False,
                             server_header=False, date_header=False)
     server = uvicorn.Server(config)
+    from app import syncclient
+
+    def restart():
+        """A new version was downloaded: once the server lets go of the port, swap it in and start again."""
+        server.should_exit = True
+
+        def go():
+            time.sleep(0.5)
+            wait_port_free(host, port, 20)
+            print("\n  更新到伺服器的版本，重新啟動中…", flush=True)
+            env = dict(os.environ)
+            env.pop("TOOL_TABLE_UPDATE_FAILED", None)
+            if not apply_update():
+                env["TOOL_TABLE_UPDATE_FAILED"] = "1"
+            import subprocess
+            argv, skip = [], False
+            for a in sys.argv[1:]:                    # same options, this port, no second window
+                if skip:
+                    skip = False
+                elif a == "--port":
+                    skip = True
+                elif not a.startswith("--port=") and a not in ("--after-update", "--no-browser"):
+                    argv.append(a)
+            subprocess.Popen([sys.executable, str(BUNDLE_DIR / "portable" / "launcher.py"), *argv,
+                              "--port", str(port), "--no-browser", "--after-update"], env=env)
+            os._exit(0)                               # not waiting for a long poll still open to the server
+        threading.Thread(target=go, daemon=True).start()
+    syncclient.on_restart = restart
 
     def open_browser():
         for _ in range(100):
@@ -228,6 +311,8 @@ def main():
         server.run()
     except KeyboardInterrupt:
         pass
+    if syncclient.restart_wanted:                    # restart() finishes the job
+        time.sleep(30)
 
 
 if __name__ == "__main__":

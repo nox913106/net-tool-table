@@ -25,6 +25,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Optional
 
 from fastapi import HTTPException
@@ -39,6 +40,11 @@ _lock: Optional[asyncio.Lock] = None
 _remote_seq = {"seen": -1}
 _retry = {"at": 0.0, "wait": 5.0}
 _task = None
+# program version: a copy runs exactly what its server runs (checked on link and every few minutes)
+_update = {"state": None, "server": None, "error": None, "installer": None, "checked": 0.0}
+UPDATE_EVERY = 300
+on_restart = None            # set by portable/launcher.py: stop the server so the new version can start
+restart_wanted = False
 
 
 class SyncError(Exception):
@@ -207,6 +213,9 @@ async def startup():
     """Load the link (if any) and start the background loop. Standalone copy only."""
     global LOCAL_USER, _lock, _task
     _lock = asyncio.Lock()
+    if os.environ.pop("TOOL_TABLE_UPDATE_FAILED", None):
+        _update.update(state="failed", checked=time.time(),
+                       error="下載了伺服器的版本，但無法替換程式檔案（可能被防毒或其他程式鎖住）：請關閉 IPMS 再開一次，或執行完整安裝程式")
     db = await get_db()
     try:
         cfg = await _cfg(db)
@@ -321,6 +330,7 @@ async def _finish_link(server: str, verify: bool, res: dict, sent: float, old: d
     finally:
         await db.close()
     _retry["at"] = 0
+    _update.update(checked=0.0, state=None if _update["state"] != "restarting" else "restarting")
     try:
         await sync_now()
     except Exception:
@@ -364,6 +374,8 @@ async def sync_now():
             return
         _status.update(syncing=True, last_try=time.time())
         try:
+            if not await _check_version(cfg):
+                raise SyncError(_update["error"] or "這份 IPMS 的版本與伺服器不同，需要更新")
             await _pull(cfg)
             await _push(cfg)
             await _profile(cfg)
@@ -378,6 +390,121 @@ async def sync_now():
             _retry["at"] = time.time() + _retry["wait"]
         finally:
             _status["syncing"] = False
+
+
+# ------------------------------------------------------------------ program version (forced update)
+def local_build() -> str:
+    from . import config as C
+    from . import version
+    return version.info(C.PROJECT_ROOT)["build"]
+
+
+async def _check_version(cfg, force: bool = False) -> bool:
+    """True when this copy runs the server's version (or the server is too old to say). Otherwise get the
+    server's version and restart into it; until then nothing is synced."""
+    if _update["state"] in ("downloading", "restarting"):
+        return False
+    recent = time.time() - _update["checked"] < UPDATE_EVERY
+    if not force and recent and _update["state"] is None:
+        return True
+    if not force and recent and _update["state"] == "failed":    # not a download every minute
+        return False
+    try:
+        info = await _call(cfg, "GET", "/api/sync/version", token=False, timeout=20)
+    except SyncError as e:
+        if e.status == 404:                          # a server from before version checks
+            _update.update(state=None, server=None, error=None, checked=time.time())
+            return True
+        raise
+    _update["checked"] = time.time()
+    from . import config as C
+    from . import version
+    mine = version.info(C.PROJECT_ROOT)
+    _update.update(server=info.get("build"), installer=info.get("installer"))
+    if not info.get("build") or info["build"] == mine["build"]:
+        _update.update(state=None, error=None)
+        return True
+    if info.get("deps") != mine["deps"]:
+        _update.update(state="installer", error="伺服器已更新到需要新元件的版本：請下載並執行完整安裝程式（資料會保留）")
+        return False
+    if not C.SELF_UPDATE_DIR:
+        _update.update(state="manual", error="這份 IPMS 的版本與伺服器不同，且無法自動更新（從原始碼執行）：請更新後再同步")
+        return False
+    _update.update(state="downloading", error=None)
+    try:
+        await _download_update(cfg, info, Path(C.SELF_UPDATE_DIR))
+    except Exception as e:
+        _update.update(state="failed", error=f"自動更新失敗：{e}")
+        _update["checked"] = time.time()
+        return False
+    _update.update(state="restarting")
+    asyncio.get_running_loop().call_later(1.5, _restart)    # the page has a moment to show it
+    return False
+
+
+async def _download_update(cfg, info: dict, bundle: Path):
+    """Download the server's program, check it, unpack it next to this one (app.new) for the launcher to swap in."""
+    import hashlib
+    import io
+    import shutil
+    import zipfile
+    from . import version
+    data = await _call(cfg, "GET", "/api/sync/package", timeout=300, as_json=False)
+    if info.get("sha256") and hashlib.sha256(data).hexdigest() != info["sha256"]:
+        raise RuntimeError("下載的檔案不完整（檢查碼不符）")
+    new = bundle.parent / (bundle.name + ".new")
+
+    def unpack():
+        if new.exists():
+            shutil.rmtree(new)
+        new.mkdir(parents=True)
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            for name in z.namelist():
+                target = (new / name).resolve()
+                if not str(target).startswith(str(new.resolve())) or name.startswith(("/", "\\")):
+                    raise RuntimeError("更新檔內容不正確")
+            z.extractall(new)
+        got = version.check_dir(new)
+        if got != info["build"]:
+            shutil.rmtree(new, ignore_errors=True)
+            raise RuntimeError(f"更新後的版本不符（{got}）")
+        (new / ".build").write_text(info["build"])
+    await asyncio.get_running_loop().run_in_executor(None, unpack)
+
+
+async def update_now():
+    db = await get_db()
+    try:
+        cfg = await _cfg(db)
+    finally:
+        await db.close()
+    if not _linked(cfg):
+        return
+    try:
+        if _update["state"] == "failed":
+            _update["state"] = None
+        if await _check_version(cfg, force=True):
+            _retry["at"] = 0
+            sync.poke()
+    except SyncError as e:
+        _update["error"] = str(e)
+
+
+def _restart():
+    global restart_wanted
+    restart_wanted = True
+    if on_restart:
+        on_restart()
+
+
+def update_status() -> dict:
+    from . import config as C
+    try:
+        build = local_build()
+    except Exception:
+        build = None
+    return {"build": build, "state": _update["state"], "server": _update["server"], "error": _update["error"],
+            "installer": _update["installer"], "can_update": bool(C.SELF_UPDATE_DIR)}
 
 
 async def _profile(cfg):
@@ -814,7 +941,7 @@ async def status() -> dict:
             "user": {"username": user.get("username"), "display_name": user.get("display_name"), "role": user.get("role")} if user else None,
             "online": _status["online"], "syncing": _status["syncing"], "pending": pending, "conflicts": conflicts,
             "last_ok": _status["last_ok"], "last_try": _status["last_try"], "error": _status["error"],
-            "rev": _status["rev"], "device": device, "verify": cfg.get("verify", True)}
+            "rev": _status["rev"], "device": device, "verify": cfg.get("verify", True), "update": update_status()}
 
 
 async def _display(db, table, field, raw):

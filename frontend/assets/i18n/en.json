@@ -1536,5 +1536,18 @@
  "AD 帳號第一次登入後會出現在這裡，預設是「訪客」（只能看入口連結）；在這裡開通為「使用者」或指定管理員。": "AD accounts appear here after their first sign-in, as guests (portal links only); give them the user level or make them administrators here.",
  "用 Windows / AD 帳號密碼登入，只要輸入帳號，<code>@{0}</code> 會自動帶入。本機帳號不加後綴。": "Sign in with your Windows / AD account: type the account name only, <code>@{0}</code> is added for you. Local accounts get no suffix.",
  "網域（UPN 後綴）": "Domain (UPN suffix)",
- "登入頁會在帳號後面自動帶入「@網域」，例如 ad.corp.local；不用服務帳號時也用它登入 AD。本機帳號不會加上後綴": "The sign-in page adds “@domain” to the account name by itself, e.g. ad.corp.local; without a service account it is also used to sign in to AD. Local accounts get no suffix"
+ "登入頁會在帳號後面自動帶入「@網域」，例如 ad.corp.local；不用服務帳號時也用它登入 AD。本機帳號不會加上後綴": "The sign-in page adds “@domain” to the account name by itself, e.g. ad.corp.local; without a service account it is also used to sign in to AD. Local accounts get no suffix",
+ "正在更新 IPMS": "Updating IPMS",
+ "需要更新 IPMS": "IPMS needs an update",
+ "這台電腦 {0} · 伺服器 {1}": "This computer {0} · server {1}",
+ "伺服器已更新，正在下載同一版本…": "The server was updated; downloading the same version…",
+ "下載完成，IPMS 正在重新啟動，畫面會自動重新整理。": "Downloaded. IPMS is restarting; this page reloads by itself.",
+ "請勿關閉 IPMS 視窗。資料不會受影響。": "Don't close the IPMS window. Your data is not affected.",
+ "這份 IPMS 的版本與伺服器不同": "This copy of IPMS is a different version from the server's",
+ "更新完成前不會同步；你在這台電腦上的修改都會保留，更新後自動送出。": "Nothing syncs until it is updated; changes made on this computer are kept and sent after the update.",
+ "重試更新": "Retry update",
+ "下載完整安裝程式": "Download the full installer",
+ "更新中…": "Updating…",
+ "正在更新到伺服器的版本": "Updating to the server's version",
+ "需要更新": "Update needed"
 }

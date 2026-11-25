@@ -39,7 +39,7 @@ ANON = {"id": None, "username": "local", "display_name": "本機", "role": "supe
 PUBLIC_EXACT = {
     "/login", "/dashboard", "/manifest.webmanifest", "/sw.js", "/favicon.ico",
     "/api/health", "/api/auth/login", "/api/sync/link", "/api/auth/status", "/api/public/dashboard", "/api/public/branding",
-    "/api/auth/entra/start", "/api/auth/entra/callback", "/api/sync/link/start", "/api/sync/link/poll",
+    "/api/auth/entra/start", "/api/auth/entra/callback", "/api/sync/link/start", "/api/sync/link/poll", "/api/sync/version",
     "/api/profile",                                  # GET answers an empty profile to someone not signed in; PUT needs an account
 }
 PUBLIC_PREFIX = ("/assets/", "/resource/icon/")

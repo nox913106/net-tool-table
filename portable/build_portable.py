@@ -97,6 +97,7 @@ def main():
     shutil.copytree(ROOT / "resource" / "icon", app / "resource" / "icon")
     (app / "portable").mkdir()
     shutil.copy2(HERE / "launcher.py", app / "portable" / "launcher.py")
+    shutil.copy2(ROOT / "requirements.txt", app / "requirements.txt")   # part of the version id (app/version.py)
     shutil.copy2(HERE / "tooltable.ico", STAGE / "tooltable.ico")
     shutil.copy2(HERE / "README.txt", STAGE / "README.txt")
     (STAGE / "IPMS.cmd").write_text(
