@@ -1093,6 +1093,7 @@ def _diff(label, old, new, fmt=lambda v: v or "—"):
 async def _import_plan(items: List[dict], user: dict, extra_people: Optional[List[dict]] = None) -> List[dict]:
     """Decide what each row would do. Returns rows for the preview, each with a private '_op' for apply.
     extra_people: accounts the file's 人員 sheet would create (preview only)."""
+    from .. import xlsx_export
     db = await get_db()
     try:
         cur = await db.execute("SELECT id, username, display_name FROM users WHERE COALESCE(active, 1) = 1")
@@ -1254,7 +1255,7 @@ async def _import_plan(items: List[dict], user: dict, extra_people: Optional[Lis
                         pnum = (it.get("num") or "").rsplit(".", 1)[0]
                         pi = by_num.get(pnum)
                         if pi is None or plan[pi]["kind"] != "sub" or pi < ctx["index"]:
-                            out["errors"].append(f"找不到上一層子任務（編號 {pnum}）：上一層要寫在這一列之前")
+                            out["errors"].append(f"找不到上一層子任務（編號 {xlsx_export.show_key(pnum)}）：上一層要寫在這一列之前")
                             continue
                         parent = pi
                     if ctx["id"] and not ctx["edit"]:
@@ -1306,7 +1307,7 @@ async def _import_plan(items: List[dict], user: dict, extra_people: Optional[Lis
                 else:
                     refs.append((j, lag))
             if bad:
-                o["warnings"].append("前置任務的編號找不到，已略過：" + "、".join(bad))
+                o["warnings"].append("前置任務的編號找不到，已略過：" + "、".join(xlsx_export.show_key(b) for b in bad))
             if it.get("id"):                              # unchanged predecessors are not a change
                 want = []
                 for j, lag in refs:
@@ -1330,7 +1331,7 @@ async def _import_plan(items: List[dict], user: dict, extra_people: Optional[Lis
                 if want is not None and sorted(map(json.dumps, want)) == sorted(map(json.dumps, have)):
                     continue
             o["_deps"] = refs
-            o["changes"].append("前置：" + ("、".join(items[j].get("num") + (f"（{'+' if lag > 0 else ''}{lag} 天）" if lag else "") for j, lag in refs) or "（清除）"))
+            o["changes"].append("前置：" + ("、".join(xlsx_export.show_key(items[j].get("num")) + (f"（{'+' if lag > 0 else ''}{lag} 天）" if lag else "") for j, lag in refs) or "（清除）"))
             if o["action"] == "unchanged":
                 o["action"] = "update"
         for o in plan:

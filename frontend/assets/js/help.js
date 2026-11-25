@@ -13,7 +13,7 @@
     const head = el('div', { class: 'page-head' }, el('div', { class: 'page-title' },
       el('span', { class: 'page-icon', html: svg('help') }),
       el('div', {}, el('h1', { text: _t('使用說明') }),
-        el('p', { class: 'page-desc', text: _t('依功能分類說明每一個頁面，卡片的每個欄位與按鈕都在「卡片」與「子任務」兩節。') }))));
+        el('p', { class: 'page-desc', text: _t('依功能分類說明每一個頁面；卡片的每個標示、欄位、按鈕與選項在「看板上的卡片」「卡片編輯視窗」「子任務」「任務視窗」「留言」各節，編號規則在「卡片編號規則」。') }))));
     const toc = el('nav', { class: 'help-toc', 'aria-label': _t('目錄') });
     const empty = el('p', { class: 'hint', hidden: true, text: _t('找不到符合的說明。') });
     const body = el('div', { class: 'help-body' });

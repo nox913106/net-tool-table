@@ -564,8 +564,15 @@ const TT = (() => {
     return input;
   }
 
+  /** Outline numbers (app/numbering.py): the card A, its subtasks A1, theirs A1-1, then A1-1.1, A1-1.1.1. */
+  const wbs = {
+    card(n) { let s = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s; return s; },
+    /** the k-th child of `parent`; depth = the child's subtask depth (1 = directly under the card) */
+    child(parent, depth, k) { return depth === 1 ? `${parent}${k}` : depth === 2 ? `${parent}-${k}` : `${parent}.${k}`; },
+  };
+
   return {
-    me, userMenu, avatar, nameOf, mentionInput, ROLE,
+    wbs, me, userMenu, avatar, nameOf, mentionInput, ROLE,
     onInstallable, installApp, installed, syncThemeColor,
     langButton, store, api, esc, el, svg, tile, tagHue, isIconFile, iconUrl, initials, hostOf, toast, applyAppearance, cycleTheme, themePref,
     togglePerf, setFavicon, isLinkDrag, readDroppedLink, guessIcon, nameFromUrl,

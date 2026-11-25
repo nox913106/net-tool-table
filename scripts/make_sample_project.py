@@ -21,11 +21,15 @@ OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().paren
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app import demo  # noqa: E402  (the same plan as 備份與匯入 → 示範資料)
+from app.numbering import from_path  # noqa: E402
+
+# the plan's numbers are dotted (1.2.3); the file shows them the way the report does (A2-3)
+code = lambda dotted: from_path([int(x) for x in dotted.split(".")])
 
 ZH = {"new": "新建", "ongoing": "進行中", "pending": "待確認", "onhold": "暫緩", "complete": "完成", "canceled": "取消", "overdue": "過期未結案"}
 SHIFT = demo.shift_days()                 # the plan is laid out around today
 mv = lambda d: (d + timedelta(days=SHIFT)) if d else None
-ref = lambda text: "、".join(f"1.{n}" + (f"（{'+' if lag > 0 else ''}{lag} 天）" if lag else "") for n, lag in demo.parse_deps(text)) or None
+ref = lambda text: "、".join(code(f"1.{n}") + (f"（{'+' if lag > 0 else ''}{lag} 天）" if lag else "") for n, lag in demo.parse_deps(text)) or None
 
 P = "專案"
 title, desc, lead = demo.PROJECT
@@ -75,7 +79,7 @@ def main():
         depth = num.count(".")
         kind = P if depth == 0 else "子任務"
         indent = ("　" * (depth - 1) + "└ ") if depth else ""
-        vals = [num, kind, indent + title, "#示範 #機房改建" if depth == 0 else None, who, st, pr, start, due, ms, deps, est, note]
+        vals = [code(num), kind, indent + title, "#示範 #機房改建" if depth == 0 else None, who, st, pr, start, due, ms, deps, est, note]
         for j, v in enumerate(vals, start=1):
             c = ws.cell(row=i, column=j, value=v)
             c.border = Border(bottom=thin)
@@ -89,7 +93,7 @@ def main():
         if depth:
             ws.row_dimensions[i].outlineLevel = min(depth, 7)
     for i, (num, title, who, st, pr, start, due, ms, deps, est, note) in enumerate(OPS, start=hr + 1 + len(ROWS)):
-        vals = [num, "主任務", title, "#示範", who, st, pr, start, due, ms, deps, est, note]
+        vals = [code(num), "主任務", title, "#示範", who, st, pr, start, due, ms, deps, est, note]
         for j, v in enumerate(vals, start=1):
             c = ws.cell(row=i, column=j, value=v)
             c.border = Border(bottom=thin)

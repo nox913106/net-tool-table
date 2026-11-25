@@ -657,7 +657,7 @@
  "年": "years",
  "幾天內到期算「即將到期」": "Days before due that count as “due soon”",
  "底下還有子任務沒完成，仍要改成 Complete？": "There are open subtasks. Mark it Complete anyway?",
- "底色標出指派給你的項目；WBS 編號與 Excel 報告相同。": "Items assigned to you are highlighted; WBS numbers match the Excel report.",
+ "底色標出指派給你的項目；編號規則同 Excel 報告：專案本身是 A，底下 A1、A1-1、A1-1.1…": "Items assigned to you are highlighted; numbered as in the Excel report: the project itself is A, below it A1, A1-1, A1-1.1 …",
  "建 {0} · 負責 {1}": "Created {0} · owner {1}",
  "建立": "Create",
  "建立於 ": "Created ",
@@ -1613,7 +1613,7 @@
  "搜尋說明…": "Search help…",
  "搜尋說明": "Search help",
  "使用說明": "Help",
- "依功能分類說明每一個頁面，卡片的每個欄位與按鈕都在「卡片」與「子任務」兩節。": "Every page explained by feature; every card field and button is covered under “Card” and “Subtasks”.",
+ "依功能分類說明每一個頁面；卡片的每個標示、欄位、按鈕與選項在「看板上的卡片」「卡片編輯視窗」「子任務」「任務視窗」「留言」各節，編號規則在「卡片編號規則」。": "Every page explained by feature; every mark, field, button and option of a card is under “Cards on the board”, “Card editor”, “Subtasks”, “Task window” and “Comments”, the numbering under “Card numbering”.",
  "目錄": "Contents",
  "找不到符合的說明。": "No matching help."
 }

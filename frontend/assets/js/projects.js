@@ -439,8 +439,8 @@
         const kids = new Map();
         rows.filter(r => r.card === id).forEach(r => { const k = r.parent || 0; if (!kids.has(k)) kids.set(k, []); kids.get(k).push(r); });
         const out = [];
-        const walk = (pid, prefix, depth) => (kids.get(pid) || []).forEach((r, i) => { const n = prefix ? `${prefix}.${i + 1}` : `${i + 1}`; out.push({ r, n, depth }); walk(r.id, n, depth + 1); });
-        walk(0, '', 1);
+        const walk = (pid, prefix, depth) => (kids.get(pid) || []).forEach((r, i) => { const n = TT.wbs.child(prefix, depth, i + 1); out.push({ r, n, depth }); walk(r.id, n, depth + 1); });
+        walk(0, 'A', 1);   // the project card is A (as when it is exported on its own)
         attached().forEach(t => out.push({ r: { id: 't' + t.id, title: t.title, status: t.status, start_at: t.start_at, due_at: t.due_at, assignee: (t.assignees || [])[0] ? { id: t.assignees[0].id, name: TT.nameOf(t.assignees[0]) } : null, estimate: null, ops: t }, n: '↳', depth: 1 }));
         const myId = me();
         pane.replaceChildren(el('div', { class: 'pj-tw' }, el('table', { class: 'pj-table' },
@@ -454,7 +454,7 @@
               el('td', { class: 'n', text: r.estimate ? `${+(r.estimate / 60).toFixed(1)}h` : '—' }), el('td', {}, stChip(r.status, late)));
             tr.addEventListener('click', () => r.ops ? TTBoard.openEditor(r.ops) : TTBoard.openNavigator(card(), pathOf(r)));
             return tr;
-          })))), el('p', { class: 'hint', text: _t('底色標出指派給你的項目；WBS 編號與 Excel 報告相同。') }));
+          })))), el('p', { class: 'hint', text: _t('底色標出指派給你的項目；編號規則同 Excel 報告：專案本身是 A，底下 A1、A1-1、A1-1.1…') }));
       }
     }
     paintHead(); paintTabs(); paintPane();

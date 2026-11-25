@@ -92,111 +92,271 @@ window.TT_HELP_EN = [
     ],
   },
   {
-    id: 'card', icon: 'edit', title: 'Card (editor)',
-    intro: 'Click a card to open its editor. The top half holds the card\'s fields, the bottom half comments and subtasks. Only people who may edit see “Save”; when read-only, a banner at the top says why.',
+    id: 'numbering', icon: 'list', title: 'Card numbering',
+    intro: 'A card and every level of work under it are numbered. The outline in the card, the project page list, the Excel report, the Gantt sheet and the MS Project file all use the same rule.',
     items: [
-      { h: 'Title and description', b: 'The title is required. Use the description for details, steps and links; typing <code>@</code> in it pops up a list of colleagues, and anyone @mentioned can see the card and is notified.' },
+      { h: 'Four levels', b: `<table>
+        <tr><td><b>Outline</b> (the card itself, L1)</td><td><code>A</code>, <code>B</code> … <code>Z</code>, <code>AA</code>, <code>AB</code> …</td></tr>
+        <tr><td><b>Main task</b> (first level under the card, L2)</td><td><code>A1</code>, <code>A2</code>, <code>A3</code> …</td></tr>
+        <tr><td><b>Subtask</b> (L3)</td><td><code>A1-1</code>, <code>A1-2</code> …</td></tr>
+        <tr><td><b>Subtask's task</b> (L4)</td><td><code>A1-1.1</code>, <code>A1-1.2</code> …; each deeper level adds <code>.n</code>: <code>A1-1.1.1</code></td></tr>
+      </table>` },
+      { h: 'Which card is A', b: `<ul>
+        <li><b>Excel report, Gantt sheet, MS Project</b>: by the card's order in the file — the first card is A, the second B …, from the 27th on AA, AB.</li>
+        <li><b>The outline in the card editor</b> and the project page's <b>List</b>: they show one card, so that card is always A (as when it is exported on its own).</li>
+        <li>Collaborator rows (co-assignees or @mentioned people without a subtask of their own) are numbered after the main tasks in the report, e.g. A1, A2 are main tasks and A3 a collaborator.</li>
+      </ul>` },
+      { h: 'Numbers follow the order', b: 'Numbers are worked out from the current order, they are not fixed codes: reorder in the outline, or add or delete items, and the numbers after them change. To point at an item outside the system for good, use the report\'s “System ID” column (T12 card, S45 subtask, C7 collaborator).' },
+      { h: 'Predecessors and importing', b: `<ul>
+        <li>The report's “Predecessors” column uses numbers, e.g. “A1-2, B1 (+2 days)”; items outside the report are written by name in 「…」.</li>
+        <li>When you insert a row in Excel, its number says which level it is and where it belongs: the parent of <code>A2-3</code> is <code>A2</code>, the parent of <code>A2-3.1</code> is <code>A2-3</code>. The parent row must come before it.</li>
+        <li>Files exported by older versions (numbers like 1, 1.2, 1.2.3) still import.</li>
+      </ul>` },
+    ],
+  },
+  {
+    id: 'cardface', icon: 'kanban', title: 'Cards on the board (the card face)',
+    intro: 'Every mark on a card, top to bottom, means something; hover over it for the full text.',
+    items: [
+      { h: 'Cover and title row', b: `<ul>
+        <li><b>Cover</b>: the card's first image attachment.</li>
+        <li><b>🚩 Flag</b>: high priority.</li>
+        <li><b>“Report”</b>: a card of someone who reports to you (only shown to managers); hover to see whether you can view and comment or also edit.</li>
+        <li><b>Tags</b>: coloured tags; click one to show only cards with it.</li>
+      </ul>` },
+      { h: 'Project card block', b: `<ul>
+        <li><b>◇ Project</b>: a project card — clicking it opens the project page, not the editor.</li>
+        <li><b>#N</b>: the project's priority set by management.</li>
+        <li><b>N days behind / N days ahead / On time</b>: progress against the baseline.</li>
+        <li><b>Problems N</b>: items that are overdue, blocked, in schedule conflict, waiting on another project, in a window conflict or overloaded; hover for the breakdown.</li>
+        <li><b>◆ name m/d</b>: the next milestone. The bar and percentage are the whole project's completion.</li>
+        <li><b>My work in this project: N ›</b>: items in the project assigned to you.</li>
+      </ul>` },
+      { h: 'Project link, blocked and description', b: `<ul>
+        <li><b>↳ project name</b>: this everyday card belongs to a project; click to open the project page.</li>
+        <li><b>⛔ Blocked N days: reason</b>: a red bar, and the card gets a red frame; hover to see who flagged it.</li>
+        <li>The first lines of the description show on the card.</li>
+      </ul>` },
+      { h: 'Date and state marks', b: `<table>
+        <tr><td>▶ Starts tomorrow / in N days / on a date</td><td>Before the start date</td></tr>
+        <tr><td>▶ Should start</td><td>The start date has come but the status is still New</td></tr>
+        <tr><td>🕒 Due on a date</td><td>Due date still far off (closed cards show their due date too)</td></tr>
+        <tr><td>🕒 Due in N days / tomorrow / today</td><td>Due soon (how many days counts as soon is set by an admin, default 2)</td></tr>
+        <tr><td>🕒 N days overdue / Overdue (time)</td><td>Past due and not closed, in red</td></tr>
+        <tr><td>🔁 Every Monday …</td><td>A recurring card's rule</td></tr>
+        <tr><td>🔔</td><td>A reminder is set (hover for when)</td></tr>
+      </table>` },
+      { h: 'Counts and the progress bar', b: `<ul>
+        <li><b>✓ x/y</b>: subtasks done / subtasks (canceled ones not counted), green when all are done; hover for %, hours and the period.</li>
+        <li><b>🕒 Timing</b>: you are timing a subtask of this card.</li>
+        <li><b>🖼 N</b>: images; <b>📎 N</b>: documents (hover for names).</li>
+        <li><b>Progress bar %</b>: (done subtasks + collaborators marked done) ÷ (subtasks not canceled + collaborators).</li>
+      </ul>` },
+      { h: 'People row', b: `<ul>
+        <li>Left: <b>💬 N</b> comments, <b>@N</b> collaborators mentioned.</li>
+        <li>Right: assignees' avatars (up to 4); with nobody assigned, the creator (faded).</li>
+      </ul>` },
+      { h: 'Task tree button “Subtasks x/y · Collaborators x/y ⧉”', b: 'Opens the task window (see “Task window”). In the expanded tree each subtask shows status, assignee, due date and hours; each collaborator has a “Done” box (the collaborator or anyone who can edit the card can tick it), which counts toward completion. Double-click the tree to open the card editor.' },
+      { h: 'In focus mode', b: 'When you focus on someone, cards they take part in but do not lead have a dashed frame, a “Collaborator · Lead: …” header, and a line saying what they do there, e.g. subtask “…”.' },
+      { h: 'Working with a card', b: `<ul>
+        <li><b>Click</b>, or select it and press <kbd>Enter</kbd>: open the editor (a project card opens its project page).</li>
+        <li><b>Drag</b>: to another column = change status, up or down in a column = reorder. Read-only cards cannot be dragged.</li>
+        <li><kbd>Ctrl</kbd>/<kbd>⌘</kbd>+click: start selecting with this card; while selecting, click a card or press Space to toggle it.</li>
+        <li>“+ New card” at the bottom of a column: type a title and press <kbd>Enter</kbd> to add it to that column (you can keep adding), <kbd>Esc</kbd> to cancel; “More settings…” opens the full form with the title filled in.</li>
+        <li>Hovering a read-only card says “Read-only: you can view and comment”.</li>
+      </ul>` },
+    ],
+  },
+  {
+    id: 'card', icon: 'edit', title: 'Card editor: every field',
+    intro: 'Click a card to open its editor. Below, every field, button and option from top to bottom. The fields at the top take effect when you press Save; attachments, blocked, the baseline, comments and subtasks are saved the moment you use them.',
+    items: [
+      { h: 'Title', b: 'Required, up to 200 characters. Pressing <kbd>Enter</kbd> in the title saves (or adds, for a new card).' },
+      { h: 'Description', b: 'Details, links, notes; optional. Type <code>@</code> to pick a colleague: they become a collaborator, can see the card and are notified.' },
       { h: 'Tags', b: `<ul>
-        <li>Type a name in “Tags” and press <kbd>Enter</kbd>, or click a recent one under “Frequent”. Up to 8 tags per card, 24 characters each.</li>
-        <li>A name always has the same color (administrators can set colors). Click a tag on a card to filter the board; search <code>#tag</code> finds it too.</li>
+        <li>Type a name and press <kbd>Enter</kbd> or a comma; a leading <code>#</code> is optional.</li>
+        <li><kbd>Backspace</kbd> in the empty box removes the last tag; × on a tag removes it.</li>
+        <li>“Frequent:” below lists tags in use; click one to add it. Suggestions also pop up while typing.</li>
+        <li>Up to 8 per card, 24 characters each; case does not matter. A name always has the same colour (admins can set it).</li>
       </ul>` },
-      { h: 'Type: Ops or Project', b: `<ul>
-        <li><b>Ops</b>: day-to-day work. You can choose “Belongs to project” so it also appears in that project\'s Gantt and board (e.g. a purchase order during the project).</li>
-        <li><b>Project</b>: gets its own project page (Gantt, project board, list) and shows on the board as a project card with completion, vs. baseline, next milestone and problem count.</li>
-      </ul>` },
-      { h: 'Status and priority', b: 'Status matches the board columns; priority is High, Normal or Low (it decides the radar quadrant). Cards with subtasks have their status calculated, but you can still change it by hand.' },
-      { h: 'Start and due', b: `<ul>
-        <li>Dates may include a time; no time = all day. Shortcuts: <b>Today</b>, <b>Tomorrow</b>, <b>Next Monday</b>, <b>In a week</b>, <b>Clear</b>.</li>
-        <li>Still in New after the start date: a “Time to start” reminder; past the due date: overdue (red).</li>
-        <li>With subtasks, start and due are derived from the subtasks and cannot be edited here (change the lower levels).</li>
-      </ul>` },
-      { h: 'Reminder', b: 'At the due time, 15 minutes, 1 hour, 1 day, 2 days or 1 week before, or none. When it is time it appears in 🔔 and, if allowed, as a desktop notification. Cards without a due date are not reminded.' },
-      { h: 'Repeat (recurring work)', b: `<ul>
-        <li>Daily, every weekday (Mon–Fri), weekly (choose weekdays), monthly, yearly, with “every N days / weeks / months / years”. Repeating needs a due date.</li>
-        <li>At the deadline (18:00 for all-day cards) a dialog asks: <b>Close and schedule next</b> (this card goes to Complete and a copy is made for the next deadline, with subtasks and attachments copied and statuses reset) or <b>Ask again in 1 hour</b>.</li>
-        <li>Dragging the card to Complete also schedules the next one. If several periods were missed, the next one is placed after today.</li>
-      </ul>` },
-      { h: 'Assignees and collaborators', b: `<ul>
-        <li><b>Assign</b>: board admins, department admins and managers can assign owners (several = shared responsibility). A user\'s cards belong to themselves by default.</li>
-        <li><b>Collaborators</b>: people @mentioned or co-owning without their own subtask. They can tick “Done” in the task tree (themselves, or anyone who can edit the card), which counts towards completion.</li>
-      </ul>` },
-      { h: 'Schedule (Gantt)', b: `<ul>
-        <li><b>Milestone</b>: only the due date counts; drawn as ◆ on the Gantt.</li>
-        <li><b>Predecessors</b>: search any card or subtask you can see and set a “gap (days)” (0 = start the day after it ends; may be negative). Starting before a predecessor ends is a <b>schedule conflict</b>. You cannot pick the item itself or create a loop.</li>
-        <li><b>Shared window</b>: which outage, maintenance window or change freeze this work uses (set by administrators); exceeding its project capacity or landing in a freeze is a <b>window conflict</b>.</li>
-        <li><b>Actual start</b>: recorded automatically the first time it goes to On going or gets time logged; can be corrected.</li>
-        <li><b>Baseline</b>: “Set baseline” saves the current dates of the card and every subtask as the plan; the Gantt then draws grey lines and shows days late or early. It can be reset or cleared.</li>
+      { h: 'Type: Everyday (ops) / Project', b: `<ul>
+        <li><b>Everyday (ops)</b>: daily work. A <b>Project</b> drop-down appears: pick a project and the card also shows in that project's Gantt and project board; “No project” removes it.</li>
+        <li><b>Project</b>: has its own project page (Gantt, project board, list) and appears as a project card on the board. A project cannot belong to another project.</li>
       </ul>` },
       { h: 'Attachments', b: `<ul>
-        <li>Click “Add files”, paste (<kbd>Ctrl</kbd>+<kbd>V</kbd>) or drop files on the dialog; they are saved immediately. Drop on the comment box to attach to a comment.</li>
-        <li>Images (PNG, JPG, GIF, WebP, up to 10 MB each) show thumbnails; the first is the cover. Click to enlarge, <kbd>←</kbd><kbd>→</kbd> to browse.</li>
-        <li>Documents: PDF, Word, Excel, PowerPoint, md, json, yaml, toml, txt, py, rs, mermaid (up to 25 MB each). PDFs and text files open in the browser; Office files download.</li>
-        <li>Only people who can see the card can open its attachments; file contents are checked on upload.</li>
+        <li>“Add files”, or paste (<kbd>Ctrl</kbd>+<kbd>V</kbd>) or drop files on the window (dropped on the comments they go to a comment). An existing card saves them at once; a new card uploads them after “Add”.</li>
+        <li>Images: PNG, JPG, GIF, WebP, up to 10 MB each, shown as thumbnails; the first is the card cover; click for full screen, <kbd>←</kbd><kbd>→</kbd> to browse, <kbd>Esc</kbd> to close.</li>
+        <li>Documents: PDF, Word, Excel, PowerPoint, md, json, yaml, toml, txt, py, rs, mermaid, up to 25 MB each. PDF and text open in the browser, Office files download.</li>
+        <li>× on a thumbnail removes it (after asking). Only people who can see the card can open its files; the server checks each file's content.</li>
       </ul>` },
-      { h: '⛔ Mark blocked', b: 'When work is stuck waiting for someone, click “⛔ Mark blocked…” and write what it is stuck on and who you are waiting for. The card gets a red border with “Blocked N days”, a comment is added, and the card\'s people and the owner\'s manager are notified. Owners, collaborators and managers can mark it or click “✅ Unblock”; closing or canceling unblocks it automatically.' },
-      { h: 'Summary cards: calculated status', b: `A card with subtasks is a summary task, recalculated when subtasks or collaborators change:<ul>
-        <li>All subtasks done and every collaborator ticked → Complete; subtasks done but a collaborator not ticked → Pending.</li>
-        <li>Nothing started → New; otherwise On going &gt; Pending &gt; On hold (canceled ones do not count).</li>
-        <li>You can still change the status or drag it, which holds until the next subtask change; setting Complete while subtasks are open asks first.</li>
+      { h: 'Assignees', b: `<ul>
+        <li>Type a name or account and pick from the list; several people can share a card. × next to an avatar removes them.</li>
+        <li>Only people allowed to assign (board admins, department admins, managers) see the box; otherwise it says “Unassigned (only admins can assign)”.</li>
+        <li>A new card with nobody assigned is assigned to you.</li>
       </ul>` },
-      { h: 'Badges on a card', b: `<ul>
-        <li>Red “N days overdue”, “Due today”, “Time to start”; ⛔ red border = blocked.</li>
-        <li>“Subtasks x/y · collaborators n ⧉”: click to open the task window. Completion = (done subtasks + ticked collaborators) ÷ (non-canceled subtasks + collaborators).</li>
-        <li>“Timing”: you are timing one of this card\'s subtasks.</li>
-        <li>“Report”: a card of one of your reports; dashed border: in focus mode, this person takes part in someone else\'s card.</li>
+      { h: 'Status', b: `Eight choices: <table>
+        <tr><td>Recurring</td><td>A card with a repeat rule, waiting for this round to close</td></tr>
+        <tr><td>Overdue</td><td>Past due and not closed; one-off cards are moved here automatically, and once you move one elsewhere it is not moved back</td></tr>
+        <tr><td>New</td><td>Not started</td></tr>
+        <tr><td>On going</td><td>The first time a card goes On going its actual start is recorded</td></tr>
+        <tr><td>Pending</td><td>Waiting for a reply or sign-off</td></tr>
+        <tr><td>On hold</td><td>Paused</td></tr>
+        <tr><td>Complete</td><td>Closed; a recurring card schedules the next one; asks first if subtasks are still open</td></tr>
+        <tr><td>Canceled</td><td>Dropped; not counted toward completion</td></tr>
+      </table>A card with subtasks shows “the status updates by itself; you can also change it” (rules under “Summary cards”).` },
+      { h: 'Priority', b: 'Low / Normal / High buttons. High shows 🚩 on cards and subtasks and ranks higher on the radar.' },
+      { h: '⛔ Flag as blocked…', b: `<ul>
+        <li>Write where it is stuck and who you are waiting for, then “Flag as blocked” (or <kbd>Enter</kbd>); <kbd>Esc</kbd> or “Cancel” to back out. A reason is required.</li>
+        <li>Then a red bar shows “⛔ Blocked N days: reason (flagged by …)” with “Change reason” and “✅ Unblock”.</li>
+        <li>Takes effect at once (no Save needed), adds a comment and notifies the card's people and the lead's manager.</li>
+        <li>Anyone who can edit the card can flag or clear it; not shown on closed cards, and cleared automatically when the card closes.</li>
       </ul>` },
+      { h: 'Start date', b: `<ul>
+        <li>A date plus an optional time. Shortcuts: <b>Today</b>, <b>Tomorrow</b>, <b>Clear</b>.</li>
+        <li>When the start date comes and the card is still New, it shows “Should start” and appears under 🔔.</li>
+        <li>Cannot be after the due date; not used for milestones.</li>
+      </ul>` },
+      { h: 'Due date', b: `<ul>
+        <li>A date plus an optional time; no time = <b>by the end of that day</b>. Shortcuts: <b>Today</b>, <b>Tomorrow</b>, <b>Next Monday</b>, <b>In a week</b>, <b>Clear</b> (clears the time too).</li>
+        <li>Past due and not closed, the card turns red “N days overdue” and a one-off card moves to the Overdue column; overdue cards are summed up once a day at 09:30.</li>
+        <li>Milestones and repeats need a due date.</li>
+      </ul>` },
+      { h: 'Schedule (Gantt): Milestone', b: 'Ticked, the item only has a due date and is drawn as ◆ on the Gantt; the start date is not used. Needs a due date.' },
+      { h: 'Schedule: Predecessors', b: `<ul>
+        <li>Type in “+ Predecessor” and pick any card or subtask you can see (the list says “card” or “subtask of …”). You can add several.</li>
+        <li>Each one shows as a chip: “card” or “sub” + name + “+ N days”. N is how many days after the predecessor finishes this one starts; 0 = the next day, negative allowed (-365 to 365).</li>
+        <li>× on a chip removes it. You cannot pick the item itself or make a loop.</li>
+        <li>Starting before a predecessor finishes is a <b>schedule conflict</b>, counted in the project's problems and on the radar.</li>
+      </ul>` },
+      { h: 'Schedule: Shared window', b: 'Shown when admins have set up outages, maintenance windows or change freezes. The list shows each window (name, dates, how many projects it holds, or “freeze”); “No shared window” clears it. Going over the capacity or landing in a freeze is a <b>window conflict</b>. A deleted window shows as “(deleted window)”.' },
+      { h: 'Schedule: Actual start', b: 'Filled in the first time the item goes On going or gets time logged; you can correct it. The Gantt draws actual progress from it.' },
+      { h: 'Schedule: Baseline', b: `<ul>
+        <li>Shows “Planned 12/1–12/31, 3 days late / 2 days early / on time”, or “No baseline yet”.</li>
+        <li><b>Set baseline</b>: stores the current start and due dates of the card and all its subtasks as the planned dates, at once. With a baseline the button reads <b>Reset baseline</b> (asks first).</li>
+        <li><b>Clear</b>: removes the baseline.</li>
+      </ul>` },
+      { h: 'Reminder', b: 'None, at due time, 15 minutes, 1 hour, 1 day (default), 2 days or 1 week before. Disabled without a due date. All-day cards count back from 09:00 that day. It appears under 🔔 and, if you allow it, as a desktop notification (asked the first time you save a reminder).' },
+      { h: 'Repeat', b: `<ul>
+        <li>Choices: No repeat, Daily, Every weekday (Mon–Fri), Weekly, Monthly, Yearly.</li>
+        <li><b>Every N days / weeks / months / years</b>: shown for daily, weekly, monthly and yearly, 1–365.</li>
+        <li><b>Weekday buttons</b> (Sun–Sat): shown for weekly, several allowed; none picked = the due date's weekday.</li>
+        <li>Monthly follows the due date's day of the month (e.g. the 15th).</li>
+        <li>The hint below spells out the rule and the next date; without a due date it warns “⚠ Repeating needs a due date” and you cannot save.</li>
+        <li>At the due time (18:00 for all-day cards) a dialog asks “Close and schedule the next” or “Ask again in an hour”; dragging to Complete also schedules the next. Subtasks and attachments are copied to the next card, statuses reset and dates moved on.</li>
+      </ul>` },
+      { h: 'Summary line and created info', b: 'Below the dates a live line reads “Start: … · Due: … (end of day) · Reminder: …”; the last line is “… created on … · completed on … · collaborators: …”.' },
+      { h: 'Comments and subtasks', b: 'An existing card has “Comments and subtasks (N)” in its lower half: the subtask summary and outline on top, then the threads and subtasks, and the comment box at the bottom. See “Subtasks (in the editor)” and “Comments, replies and @”.' },
       { h: 'Buttons at the bottom', b: `<ul>
-        <li><b>Excel</b>: exports this card (with subtasks, comments, time) as a progress report.</li>
-        <li><b>Task window</b>: subtask levels open left to right, see “Subtasks and task window”.</li>
-        <li><b>Delete</b>: only for the creator or admins who may edit all cards.</li>
-        <li><b>Save</b>: <kbd>Enter</kbd> does not submit, to avoid accidents; click “Save” or “Add”.</li>
+        <li><b>Delete</b> (red): only the creator or an admin who can edit all cards; asks first; subtasks, comments, time and files go too.</li>
+        <li><b>Excel</b>: exports this card (with subtasks, comments, time) as a progress report, in a format you pick.</li>
+        <li><b>Task window</b>: closes the editor and opens the task window.</li>
+        <li><b>Cancel</b>: close without saving (called “Close” when read-only). <b>Save</b> / <b>Add</b>: submit.</li>
       </ul>` },
-      { h: 'Read-only and history cases', b: 'A “Read-only” banner means you can view and comment but not change fields (e.g. read-only admins, or someone assigned a subtask looking at the main card). A “History case” banner means the card was closed longer than the configured time (72 hours by default); nobody can change it or comment.' },
+      { h: 'Keyboard and closing', b: '<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd> saves from any field. <kbd>Enter</kbd> in the title saves. <kbd>Esc</kbd>, × at the top right, or a click outside closes without saving.' },
+      { h: 'Checks on save', b: 'An empty title, a start after the due date, a milestone or a repeat without a due date cannot be saved: a message says why and the cursor goes to that field. Setting Complete while subtasks are open asks once.' },
+      { h: 'Summary cards: automatic status', b: `Once a card has subtasks it is a summary task, recalculated whenever subtasks or collaborators change: <ul>
+        <li>All subtasks done and all collaborators ticked → Complete; subtasks done but a collaborator not ticked → Pending.</li>
+        <li>Nothing started → New; otherwise On going > Pending > On hold (canceled ones ignored).</li>
+        <li>You can still set the status or drag the card; it holds until the next subtask change.</li>
+        <li>With subtasks, the card's start and due dates come from them.</li>
+      </ul>` },
+      { h: 'Read-only and history', b: `<ul>
+        <li>Title “View card” and “🔒 Read-only: you can view and comment on this card, not change it”: every field is locked and there is no Save, but you can comment, reply and open files (e.g. read-only admins, or someone assigned a subtask looking at the main card).</li>
+        <li>Title “Closed case”: the card was closed longer ago than the set time (default 72 hours), with the closing date shown; nobody can change it or comment, but threads and files still open.</li>
+      </ul>` },
     ],
   },
   {
-    id: 'subtasks', icon: 'layout', title: 'Subtasks and task window',
-    intro: 'A card can be broken down into any number of subtask levels. Each level has its own assignee, dates, time, comments and attachments, and its status rolls up.',
+    id: 'subtasks', icon: 'layout', title: 'Subtasks (in the editor)',
+    intro: 'Each subtask in the lower half of the card editor is a box whose common fields you can change in place, saved at once. Levels count from the card: the card is L1, its subtasks L2, then L3, L4 … with no limit.',
     items: [
       { h: 'Creating subtasks', b: `<ul>
-        <li>Click “<b>Make subtask</b>” on a comment to turn it into a subtask (the comment becomes its description); “Back to comment” undoes it.</li>
-        <li>Or click “＋ New L2 subtask” in the task window or the full editor, type a name and press <kbd>Enter</kbd>.</li>
-        <li>Each subtask can have its own children, with <b>no limit on depth</b> (the card is L1, then L2, L3…).</li>
+        <li>On a top-level comment press “<b>✓ Make subtask</b>”: the comment becomes a subtask (its text the description); “<b>× Undo subtask</b>” turns it back into a comment (asks first; time logs are kept). Deeper subtasks cannot become comments again, only be deleted.</li>
+        <li>Under a subtask press “<b>+ New L3 subtask</b>”, type a name and press <kbd>Enter</kbd> (the box stays for the next one), <kbd>Esc</kbd> to cancel.</li>
+        <li>Or “+ New L2 subtask (Enter)” in the task window.</li>
       </ul>` },
-      { h: 'Subtask fields', b: 'Name, status, assignee, priority, start / due (with time), estimate, reminder, description, attachments and the schedule fields (milestone, predecessors, shared window, actual start). The common fields are edited inline; “Edit subtask / More settings” opens the full dialog.' },
-      { h: 'Who can change what', b: `<ul>
-        <li>Anyone who can edit the card: add and change any level.</li>
-        <li>A subtask\'s assignee: can change their subtask (everything except the assignee) and add, change, assign, log time on and delete the levels below — an upper-level assignee controls the whole branch.</li>
-        <li>Someone assigned a subtask can see the main card (read-only + comments), and 🔔 reminds them of their own subtask\'s due and overdue dates.</li>
+      { h: 'Subtask summary (top of the section)', b: `<ul>
+        <li>“✓ Subtasks x / y done” with % and a bar (canceled ones not counted).</li>
+        <li>“Time logged / estimated”, “Period earliest start → latest due”, “N overdue”, “N canceled”.</li>
       </ul>` },
-      { h: 'Timer and time log', b: `<ul>
-        <li><b>▶ Start timer</b> / <b>■ Stop</b>: stopping asks “What did you do?”, and lets you correct hours and date.</li>
-        <li><b>Log time</b>: enter hours, date and a note by hand.</li>
-        <li>Open “Time log” for the entries; click ✎ on one to change its note, hours and date (your own entries, or anyone who can edit the card).</li>
-        <li>The card summary shows logged / estimated hours. Reassigning or closing stops a running timer.</li>
+      { h: 'Outline (the numbered list under the summary)', b: `<ul>
+        <li>Each line: number (A1, A1-1, A1-1.1 …, see “Card numbering”), status dot, name, assignee avatar, due date (red when overdue).</li>
+        <li>Click a line (or select it and press <kbd>Enter</kbd>) to scroll to that subtask and flash it; if it is hidden it switches back to all comments.</li>
+        <li>If you can edit: first-level lines (A1, A2 …) have a grip — drag to reorder, or select and press <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd>. The order also sets the order and numbers in the Excel report and the Gantt.</li>
       </ul>` },
-      { h: 'Outline and ordering', b: 'Under the card summary is the subtask outline (numbers 1, 1.1, 1.1.1…, status, assignee, due); click a line to jump to it. People who can edit the card can drag or use <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> to reorder.' },
-      { h: 'Task window', b: `<ul>
-        <li>Open it from “Subtasks x/y ⧉” on a card, “Task window” at the bottom of the editor, “Task tree (N)” on a subtask, or “Task window” on a project page.</li>
-        <li>Columns run left to right: the first is the card (status, time, progress, subtasks and card comments); click a subtask to open it on the right. One item per level is open at a time.</li>
-        <li>Each column edits name, status, assignee, priority, dates, estimate and description directly, with the time log, comments and next-level subtasks below.</li>
-        <li>The path at the top jumps back to any level; “Full edit” opens the usual card editor; “More settings” opens the full subtask dialog.</li>
+      { h: 'Row 1: level, status, name', b: `<ul>
+        <li><b>L2 / L3 …</b>: the subtask's level.</li>
+        <li><b>Status</b>: New, On going, Pending, On hold, Complete, Canceled (subtasks have no Recurring or Overdue). The subtask's assignee and editors can change it.</li>
+        <li>🚩 high priority; the <b>name</b> can be edited in place — <kbd>Enter</kbd> or leaving the box saves, an empty name is put back.</li>
+        <li>🔔 reminder set; the <b>due mark</b> (due today, N days overdue …).</li>
+        <li><b>✎ Edit</b> (“View” without rights): opens the full subtask window.</li>
       </ul>` },
-      { h: 'Deleting a subtask', b: 'The bin icon at the top right of a subtask deletes it together with its children, time entries and comments. This cannot be undone.' },
+      { h: 'Row 2: assignee, start, due, estimate', b: `<ul>
+        <li><b>Assignee</b>: avatar and name; “Assign / Reassign” opens a box to type a name or account (<kbd>Esc</kbd> to cancel), × unassigns. The new assignee is notified.</li>
+        <li><b>Start / Due</b>: pick a date; an existing time is kept (change the time under “Edit”). With deeper subtasks they come from below.</li>
+        <li><b>Estimate (hours)</b>: 0–1000, halves allowed; empty = no estimate.</li>
+      </ul>` },
+      { h: 'Row 3: time', b: `<ul>
+        <li>“Logged X / estimate Y” and a bar, red when over the estimate; “… timing” when someone else is timing it.</li>
+        <li><b>▶ Start timer</b>: shows the running time (h:mm:ss); <b>■ Stop</b> asks right away “What did you do in this time?” — correct hours, minutes and date and Save, or Skip. Closed subtasks cannot be timed; reassigning or closing stops a running timer.</li>
+        <li><b>+ Log time</b>: hours, minutes, date and what you did (optional), then “Log” or <kbd>Enter</kbd>.</li>
+        <li><b>Details (N)</b>: every entry — date, who, hours, note; ✎ edits the note, hours and date, 🗑 deletes (your own entries, or anyone who can edit the card; not while running).</li>
+        <li>A completed subtask shows “Completed on …”.</li>
+      </ul>` },
+      { h: 'Link buttons on a subtask', b: `<ul>
+        <li><b>Reply</b>: reply in this subtask's thread.</li>
+        <li><b>Task tree (N)</b>: opens this subtask in the task window (N = items one level down).</li>
+        <li><b>Make subtask / Undo subtask</b>: see “Creating subtasks”.</li>
+        <li><b>🗑</b>: deletes the subtask with everything below it, its time and replies; asks first, cannot be undone.</li>
+      </ul>` },
+      { h: 'Deeper subtasks', b: 'Under a subtask is “Subtasks below (L3) · N”; each one has the same three rows and buttons, and so on down. Status rolls up automatically (same rules as summary cards).' },
+      { h: 'The full subtask window (✎ Edit)', b: `<ul>
+        <li>Fields: title, description (with @), attachments (add, paste, drop — saved at once), assignee, status, priority (low / normal / high), start and due (with optional times), reminder (same choices as cards), estimate (hours), schedule (milestone, predecessors, shared window, actual start).</li>
+        <li>Below: “Time logged X / estimate Y” (timer and details live in the card's subtask section).</li>
+        <li>Save, or <kbd>Ctrl</kbd>+<kbd>Enter</kbd>; <kbd>Esc</kbd> or a click outside closes. Without rights the title is “View subtask” with “Read-only: only card editors or the subtask's assignee can change it”.</li>
+      </ul>` },
+      { h: 'Who can change subtasks', b: `<ul>
+        <li>People who can edit the card: add, change, assign, reorder and delete at any level.</li>
+        <li>A subtask's assignee: everything on their subtask except assigning it, status and time, plus adding, changing, assigning, logging and deleting below it — a higher assignee manages the whole branch.</li>
+        <li>People assigned a subtask can see the main card (read-only + comments); 🔔 reminds them of their subtasks' due and overdue dates.</li>
+      </ul>` },
     ],
   },
   {
-    id: 'comments', icon: 'message', title: 'Comments, @mentions and attachments',
-    intro: 'Every card and subtask can have comments and replies.',
+    id: 'navigator', icon: 'layout', title: 'Task window',
+    intro: 'A floating window where subtasks open level by level from left to right — handy for deep work breakdowns.',
     items: [
-      { h: 'Comments and replies', b: `<ul>
-        <li>Type in “Comment on the card…” and click “Send” or press <kbd>Ctrl</kbd>+<kbd>Enter</kbd>.</li>
-        <li>“Reply” to a comment to start a thread; replying to a reply @mentions its author, and everyone in the thread is notified.</li>
-        <li>You can edit your own comments (shown as “edited”) or delete them (with their replies).</li>
+      { h: 'Opening it', b: '“Subtasks x/y ⧉” on a card, “Task window” at the bottom of the editor, “Task tree (N)” on a subtask, or a row in the project page list.' },
+      { h: 'Top: path and buttons', b: 'The path (card › subtask › …) jumps back to any level; “Full edit” opens the card editor; × closes (<kbd>Esc</kbd> too).' },
+      { h: 'First column: the card (L1 // main card)', b: `<ul>
+        <li>The card's status, start, due, hours and progress.</li>
+        <li>“Subtasks (L2)”: each subtask's status and name — click to open it on the right; “+ New L2 subtask (Enter)” below.</li>
+        <li>“Card comments (N)”: the card's own comments — comment, reply, edit, delete (<kbd>Ctrl</kbd>+<kbd>Enter</kbd> sends).</li>
       </ul>` },
-      { h: '@mentioning colleagues', b: 'Typing <code>@</code> pops up a list (managers / reports / peers first); the person you pick can see the card and is notified. When AD is reachable you can also @mention people who have never signed in.' },
-      { h: 'Comment attachments', b: 'Click the paper clip in the comment box, paste or drop a file; it is attached to that comment. Read-only admins cannot change card attachments but can attach files to comments.' },
-      { h: 'Sorting and filtering', b: 'Top right of the comments: “Oldest first / Newest first” changes the order; “All comments / Subtasks only” lists only subtasks. Your choice is saved to your account.' },
+      { h: 'Subtask columns (L2 // subtask …)', b: `<ul>
+        <li>Top: “More settings” opens the full subtask window (files, times, reminder); 🗑 deletes it with everything below (asks first and says how many go with it).</li>
+        <li><b>Name</b> (<kbd>Enter</kbd> saves), <b>status</b> (asks first if you set Complete while items below are open), <b>assignee</b> (assign / reassign / unassign), <b>priority</b>, <b>start</b> / <b>due</b> (worked out from below when it has subtasks), <b>estimate (h)</b>, <b>schedule</b> (milestone, predecessors …).</li>
+        <li><b>Description</b>: “Add description / Edit description” edits it in place.</li>
+        <li><b>Time log</b>: ▶ timer / ■ stop, log (hours, minutes, date, note), edit or delete each entry.</li>
+        <li><b>Comments (N)</b>: this subtask's thread.</li>
+        <li><b>Subtasks below (L3)</b>: the list and “+ New L3 subtask (Enter)”; click one to open it further right.</li>
+      </ul>` },
+      { h: 'Focused expanding', b: 'One item per level is open at a time: clicking another subtask folds the previous one; clicking the same one again folds it. Every change is saved at once.' },
+    ],
+  },
+  {
+    id: 'comments', icon: 'message', title: 'Comments, replies and @',
+    intro: 'Every card and every subtask can have comments and replies.',
+    items: [
+      { h: 'The comment box', b: `<ul>
+        <li>Type and press “Send” or <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd>. Files alone, without text, can be sent too.</li>
+        <li>📎, paste, or drop files on the comments: they show above the box (× to drop one) and can be sent once uploaded.</li>
+      </ul>` },
+      { h: 'Replies', b: '“Reply” on a comment opens a reply box (<kbd>Ctrl</kbd>+<kbd>Enter</kbd> sends, <kbd>Esc</kbd> cancels). Replying to someone\'s reply @mentions them and notifies the whole thread.' },
+      { h: 'Editing and deleting', b: 'Your own comments have “Edit” (shows “(edited)” afterwards; <kbd>Ctrl</kbd>+<kbd>Enter</kbd> saves, <kbd>Esc</kbd> cancels) and 🗑 delete; with replies, or on a subtask, it asks first and deletes the replies too.' },
+      { h: '@ mentions', b: 'Type <code>@</code> for a list (managers / reports / peers first); the person picked can see the card and is notified. With AD reachable you can also @ people who have never signed in.' },
+      { h: 'Sort and filter buttons', b: 'Top right of the comments: “🕒 Oldest first / Newest first” and “✓ All comments / Subtasks only” (in outline order). Your choice is kept on your account.' },
+      { h: 'When read-only', b: 'Read-only people can still comment, reply and attach files; read-only admins cannot change the card\'s files but can attach files to comments. Closed cases take no comments.' },
     ],
   },
   {
@@ -219,7 +379,7 @@ window.TT_HELP_EN = [
       { h: 'Projects: windows and cross-project', b: 'Which work uses each shared window (outage, maintenance window, change freeze), and whether it exceeds the project capacity or falls in a freeze; plus “cross-project predecessors” that live in another project and are late.' },
       { h: 'Project page', b: `<ul>
         <li>At the top: completion, vs. baseline, next milestone and items with problems; plus how many items you have due today or overdue elsewhere.</li>
-        <li><b>Gantt</b> (this project and the cards that belong to it), <b>project board</b> (work at every level by status; drag to change status), <b>list</b> (WBS numbers, same as the Excel report).</li>
+        <li><b>Gantt</b> (this project and the cards that belong to it), <b>project board</b> (work at every level by status; drag to change status), <b>list</b> (numbered as in “Card numbering”: the project itself A, below it A1, A1-1, A1-1.1 …).</li>
         <li>Buttons: task window, edit project card, Excel report, and this project\'s <b>notification settings</b>.</li>
       </ul>` },
       { h: 'What counts as a problem', b: 'The radar, alert list, Projects, Excel and notifications all use the same set: <b>overdue</b>, <b>blocked</b>, <b>schedule conflict</b> (starts before a predecessor ends), <b>late cross-project predecessor</b>, <b>window conflict</b>, <b>overloaded person</b>.' },
@@ -255,13 +415,13 @@ window.TT_HELP_EN = [
     items: [
       { h: 'Where to export', b: 'Board “Select / export” then “Export report”; “Excel” in the card editor; “Excel report” on a project page; “Export” on the Gantt toolbar; “Export Excel” in History; “Export by person…” on the board.' },
       { h: 'Three formats', b: `<ul>
-        <li><b>Progress report (Excel)</b>: a tree (task 1, subtask 1.1…, folded with Excel\'s ＋ / − on the left) with status, dates, % complete, milestone, predecessors, estimated / actual hours, latest progress and time details; plus “Projects”, “People load” and “Problems” sheets. Printing is set up (A4 landscape, repeated headers).</li>
+        <li><b>Progress report (Excel)</b>: a tree (cards A, B …, below them A1, A1-1, A1-1.1 … — see “Card numbering”; folded with Excel\'s ＋ / − on the left) with status, dates, % complete, milestone, predecessors, estimated / actual hours, latest progress and time details; plus “Projects”, “People load” and “Problems” sheets. Printing is set up (A4 landscape, repeated headers).</li>
         <li><b>Report + Gantt (Excel)</b>: adds a “Gantt” sheet with status-colored bars, milestones, today and baseline, printed on A3 landscape; scale auto, day, week or month.</li>
         <li><b>MS Project (XML)</b>: opens directly in Microsoft Project or ProjectLibre, keeping levels, predecessors and gaps, milestones, baseline and assignees.</li>
       </ul>` },
       { h: 'Export by person', b: 'Tick people or a whole department, optionally limit by status and ops / projects, and export every card they take part in; by default only their own subtasks are listed (cards they own or co-own are listed in full).' },
       { h: 'Import report', b: `<ul>
-        <li>“Import report…” takes an exported Excel file: change status, dates, assignees, estimates, milestones (◆ / yes to set, no to clear) and predecessors in Excel, or insert rows (empty system ID = new, its parent found from numbers like 1.2.3).</li>
+        <li>“Import report…” takes an exported Excel file: change status, dates, assignees, estimates, milestones (◆ / yes to set, no to clear) and predecessors in Excel, or insert rows (empty system ID = new, its parent found from its number — the parent of A2-3 is A2; files with old 1.2.3 numbers import too).</li>
         <li>A preview shows each row as new, updated, unchanged or error, with the changes; click “Apply” to confirm.</li>
         <li>Empty cells never clear existing values; rows with errors are not imported. History cases cannot be changed by import.</li>
       </ul>` },

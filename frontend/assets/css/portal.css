@@ -1082,7 +1082,7 @@ body.link-dragging .drop-overlay { display: grid; }
 .kb-outline-row.drop-after { box-shadow: 0 3px 0 var(--accent); }
 .kb-outline-grip { color: var(--text-3); display: grid; }
 .kb-outline-grip svg { width: 13px; height: 13px; }
-.kb-outline-no { color: var(--text-3); font-variant-numeric: tabular-nums; min-width: 14px; text-align: right; }
+.kb-outline-no { color: var(--text-3); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right; white-space: nowrap; }
 .kb-outline-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .kb-outline-row.st-complete .kb-outline-title, .kb-outline-row.st-canceled .kb-outline-title { text-decoration: line-through; color: var(--text-3); }
 .kb-outline-due { color: var(--text-3); font-variant-numeric: tabular-nums; }

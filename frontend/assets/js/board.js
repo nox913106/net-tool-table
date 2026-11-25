@@ -2390,7 +2390,7 @@ const TTBoard = window.TTBoard = (() => {
           const row = el('li', { class: `kb-outline-row st-${s.status}`, style: { '--st': st.color }, tabindex: '0', draggable: editable ? 'true' : 'false',
             dataset: { id: c.id }, title: editable ? _t('點一下跳到子任務；拖曳或 Alt+↑/↓ 調整順序') : _t('點一下跳到子任務') },
             editable ? el('span', { class: 'kb-outline-grip', html: svg('grip') }) : null,
-            el('span', { class: 'kb-outline-no', text: String(i + 1) }),
+            el('span', { class: 'kb-outline-no', text: TT.wbs.child('A', 1, i + 1) }),
             el('span', { class: 'kb-sub-dot' }),
             el('span', { class: 'kb-outline-title', text: s.title }),
             meInfo.people && s.assignee ? TT.avatar(s.assignee, 18) : null,
@@ -2432,12 +2432,12 @@ const TTBoard = window.TTBoard = (() => {
             });
           }
           list.append(row);
-          nested(c.id, String(i + 1), 1);
+          nested(c.id, TT.wbs.child('A', 1, i + 1), 1);
         });
         function nested(pid, prefix, depth) {
           allThreads.filter(x => x.task_parent_id === pid).sort(byOrder).forEach((k, j) => {
             const ks = k.task;
-            const no = `${prefix}.${j + 1}`;
+            const no = TT.wbs.child(prefix, depth + 1, j + 1);
             const r = el('li', { class: `kb-outline-row is-nested st-${ks.status}`, style: { '--st': (STATUS[ks.status] || STATUS.new).color, '--depth': depth },
               tabindex: '0', dataset: { id: k.id }, title: _t("L{0}：點一下跳到子任務", depth + 2) },
               el('span', { class: 'kb-outline-no', text: no }), el('span', { class: 'kb-sub-dot' }),

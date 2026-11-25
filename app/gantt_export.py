@@ -9,7 +9,7 @@ Gantt exports of the same cards the progress report takes (selection, by person,
   summary tasks, manually scheduled (the dates stay exactly as in IPMS), finish-to-start predecessors with
   their lag, milestones, baselines, % complete and the people as resources.
 
-Both start from nodes(): the report's numbering (1, 1.2, 1.2.3 …) over cards and their subtasks.
+Both start from nodes(): the report's numbering (A, A1, A1-1, A1-1.1 … — numbering.py) over cards and their subtasks.
 """
 import io
 from datetime import date, datetime, timedelta
@@ -43,13 +43,14 @@ def _get(row, key, default=None):
 def nodes(cards: List[dict], subtasks: Dict[int, list], names: Dict[int, str], sub_deps: Optional[Dict[int, list]] = None) -> List[dict]:
     """Flatten cards › subtasks (in report order) into rows: key, num, level, title, who, status, start, due,
     milestone, base_start, base_due, deps [{key, lag}], summary."""
+    from .numbering import child, letters
     from .xlsx_export import lead_and_collaborators
     sub_deps = sub_deps or {}
     out = []
     for n, t in enumerate(cards, start=1):
         subs = subtasks.get(t["id"], [])
         lead, _ = lead_and_collaborators(t, subs)
-        out.append({"key": f"t:{t['id']}", "num": str(n), "level": 1, "title": t["title"], "who": lead["name"] if lead else None,
+        out.append({"key": f"t:{t['id']}", "num": letters(n), "outline": str(n), "level": 1, "title": t["title"], "who": lead["name"] if lead else None,
                     "status": t["status"], "start": _d(t.get("start_at")), "due": _d(t.get("due_at")), "milestone": bool(t.get("milestone")),
                     "base_start": _d(t.get("base_start")), "base_due": _d(t.get("base_due")),
                     "deps": [{"key": d["key"], "lag": int(d.get("lag") or 0), "title": d.get("title")} for d in t.get("deps") or []],
@@ -58,18 +59,18 @@ def nodes(cards: List[dict], subtasks: Dict[int, list], names: Dict[int, str], s
         for s in subs:
             kids.setdefault(_get(s, "task_parent_id"), []).append(s)
 
-        def emit(s, num, level):
+        def emit(s, num, outline, level):
             children = kids.get(s["id"], [])
-            out.append({"key": f"s:{s['id']}", "num": num, "level": level, "title": s["title"] or "",
+            out.append({"key": f"s:{s['id']}", "num": num, "outline": outline, "level": level, "title": s["title"] or "",
                         "who": names.get(s["assignee_id"]) if s["assignee_id"] else None, "status": s["status"] or "new",
                         "start": _d(s["start_at"]), "due": _d(s["due_at"]), "milestone": bool(_get(s, "milestone", 0)),
                         "base_start": _d(_get(s, "base_start")), "base_due": _d(_get(s, "base_due")),
                         "deps": [{"key": d["key"], "lag": int(d.get("lag") or 0), "title": d.get("title")} for d in sub_deps.get(s["id"], [])],
                         "summary": bool(children)})
             for k, c in enumerate(children, start=1):
-                emit(c, f"{num}.{k}", level + 1)
+                emit(c, child(num, level, k), f"{outline}.{k}", level + 1)
         for k, s in enumerate(kids.get(None, []), start=1):
-            emit(s, f"{n}.{k}", 2)
+            emit(s, child(letters(n), 1, k), f"{n}.{k}", 2)
     return out
 
 
@@ -303,7 +304,7 @@ def mspdi(rows: List[dict], title: str, author: str = "", now: Optional[datetime
         pct = 100 if x["status"] == "complete" else 0
         w("<Task>")
         w(f"<UID>{i}</UID><ID>{i}</ID><Name>{E(x['title'])}</Name><Active>{0 if x['status'] == 'canceled' else 1}</Active>"
-          f"<Manual>1</Manual><Type>1</Type><IsNull>0</IsNull><WBS>{x['num']}</WBS><OutlineNumber>{x['num']}</OutlineNumber>"
+          f"<Manual>1</Manual><Type>1</Type><IsNull>0</IsNull><WBS>{x['num']}</WBS><OutlineNumber>{x['outline']}</OutlineNumber>"
           f"<OutlineLevel>{x['level']}</OutlineLevel><Priority>500</Priority>")
         if s:
             st = T(s) if not x["milestone"] else T(e, True)       # a milestone is the end of its day

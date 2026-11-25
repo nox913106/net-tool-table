@@ -5,9 +5,9 @@ Layout (sheet 「工作報告」)
   rows 1-3   title, who / when / scope, status summary and overall completion
   row 5      column headers (repeated on every printed page)
   rows 6…    the tree:
-               1     主任務   card            (completion % = its subtasks + collaborators)
-               1.1   子任務   └ subtask
-               1.2   協作     └ collaborator  (co-assignee / @mentioned without a subtask of their own)
+               A       主任務   card            (completion % = its subtasks + collaborators)
+               A1      子任務   └ subtask       (A1-1 its subtask, A1-1.1 the next level — app/numbering.py)
+               A2      協作     └ collaborator  (co-assignee / @mentioned without a subtask of their own)
              Excel outline grouping folds a card's children (+/- on the left).
 Columns  編號 類型 項目 標籤 負責人 狀態 優先 開始 到期 里程碑 前置任務 完成% 預估(h) 實際(h) 最新進度／說明 備註 系統ID
   里程碑 (◆) can be set / cleared on import (◆／是 → set, 否 → clear, empty → unchanged); 前置任務 lists the
@@ -30,6 +30,8 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
+
+from .numbering import TOKEN, child, from_path, letters, to_path
 
 STATUS_ZH = {"recurring": "週期工作", "overdue": "過期未結案", "new": "新建", "ongoing": "進行中", "pending": "待確認",
              "onhold": "暫緩", "complete": "完成", "canceled": "取消"}
@@ -252,7 +254,7 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
                  for w in analysis.get("windows") or []}
     wide = {}                                            # id(values) → (歸屬專案, 時段)
     sub_deps = sub_deps or {}
-    number = {}                                          # "t:12" / "s:45" → its number in this report (1, 1.2, …)
+    number = {}                                          # "t:12" / "s:45" → its number in this report (A, A1, A1-1, …)
     pending_deps = []                                    # (row values, [{key, title, card, lag}]) filled in at the end
     MS = "◆"
     tally, done_all, total_all, late_n, blocked_n, hours_all = {}, 0, 0, 0, 0, 0
@@ -279,12 +281,12 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
         blocked_n += bool(_blocked_text(t))
         cmts = comments.get(t["id"], [])
         rows.append((0, [
-            str(n), KIND_PROJECT if t.get("kind") == "project" else KIND["card"], _txt(t["title"]), _txt(" ".join("#" + x for x in t.get("tags") or [])) or None,
+            letters(n), KIND_PROJECT if t.get("kind") == "project" else KIND["card"], _txt(t["title"]), _txt(" ".join("#" + x for x in t.get("tags") or [])) or None,
             _txt(lead["name"]) if lead else None, STATUS_ZH.get(t["status"], t["status"]),
             PRIORITY.get(t["priority"], t["priority"]), None if t.get("milestone") else _dt(t["start_at"]), due,
             MS if t.get("milestone") else None, None, pct, _hours(est), _hours(spent),
             _txt(_blocked_text(t) or _latest(cmts, names, None) or (_one_line(t["description"]) or None)), None, f"T{t['id']}"], t["status"], late))
-        number[f"t:{t['id']}"] = str(n)
+        number[f"t:{t['id']}"] = letters(n)
         wide[id(rows[-1][1])] = (_txt(project_titles.get(t.get("project_id"))) if t.get("project_id") else None, win_title.get(t.get("win")))
         if t.get("deps"):
             pending_deps.append((rows[-1][1], t["deps"]))
@@ -327,17 +329,17 @@ def build_report(cards: List[dict], subtasks: Dict[int, list], comments: Dict[in
                     None, KIND["time"], _txt("　" * level + "· " + label), None, _txt(names.get(e["user_id"])) if e["user_id"] else None,
                     None, None, day, None, None, None, None, None, _hours(e["minutes"]), _txt(e["note"]) or None, None, None], None, False))
                 hours_all += (e["minutes"] or 0)
-            for k, child in enumerate(children, start=1):
-                emit(child, f"{num}.{k}", level + 1)
+            for k, kid in enumerate(children, start=1):
+                emit(kid, child(num, level + 1, k), level + 1)
 
         m = 0
         for s in kids.get(None, []):
             m += 1
-            emit(s, f"{n}.{m}", 1)
+            emit(s, child(letters(n), 1, m), 1)
         for c in collab:
             m += 1
             rows.append((1, [
-                f"{n}.{m}", KIND["collab"], _txt(f"└ 協作（{c['why']}）"), None, _txt(c["name"]), COLLAB_DONE if c.get("done") else COLLAB_OPEN,
+                child(letters(n), 1, m), KIND["collab"], _txt(f"└ 協作（{c['why']}）"), None, _txt(c["name"]), COLLAB_DONE if c.get("done") else COLLAB_OPEN,
                 None, None, None, None, None, 1.0 if c.get("done") else 0.0, None, None, None, None, f"C{c['id']}"],
                 "complete" if c.get("done") else None, False))
 
@@ -542,8 +544,19 @@ def _cell_date(v):
     return f"{int(y):04d}-{int(mo):02d}-{int(d):02d}" + (f"T{int(hh):02d}:{mm}" if hh else "")
 
 
-# 前置任務: "1.2、1.3（+2 天）" — numbers of rows in the same file, optional lag in days
-DEPS_RE = re.compile(r"(?<![\d.])(\d+(?:\.\d+)*)(?:\s*[（(]\s*([+-]?\d+)\s*天?\s*[)）])?")
+# 前置任務: "A1、A1-2（+2 天）" — numbers of rows in the same file, optional lag in days (old "1.2" numbers too)
+DEPS_RE = re.compile(TOKEN + r"(?:\s*[（(]\s*([+-]?\d+)\s*天?\s*[)）])?")
+
+
+def _key(code):
+    """A report number → its path as "1.1.2" (the key rows and predecessors are matched by); None when not a number."""
+    path = to_path(code)
+    return ".".join(map(str, path)) if path else None
+
+
+def show_key(key):
+    """"1.1.2" → "A1-2" for messages."""
+    return from_path([int(x) for x in key.split(".")]) if key and re.fullmatch(r"\d+(\.\d+)*", key) else key
 
 
 def _clean_title(v) -> str:
@@ -631,16 +644,17 @@ def parse(data: bytes) -> List[dict]:
         if kind_txt in (KIND_PROJECT, "主任務", "卡片"):
             item["card_kind"] = "project" if kind_txt == KIND_PROJECT else "ops"
         kind = {"主任務": "card", "卡片": "card", KIND_PROJECT: "card", "子任務": "sub", "協作": "collab"}.get(kind_txt) \
-            or {"T": "card", "S": "sub", "C": "collab"}.get(prefix) or ("sub" if "." in num else "card")
+            or {"T": "card", "S": "sub", "C": "collab"}.get(prefix) or ("sub" if "." in (_key(num) or "") else "card")
         if prefix and {"T": "card", "S": "sub", "C": "collab"}[prefix] != kind:
             item["errors"].append(f"類型「{kind_txt}」和系統ID「{sid}」不一致")
         item["kind"] = kind
-        item["depth"] = num.count(".") if re.fullmatch(r"\d+(\.\d+)*", num) else 1   # 1.2 → 1, 1.2.1 → 2 (a subtask's subtask)
-        item["num"] = num if re.fullmatch(r"\d+(\.\d+)*", num) else None
+        key = _key(num)
+        item["depth"] = key.count(".") if key else 1          # A1 → 1, A1-1 → 2 (a subtask's subtask), A1-1.1 → 3
+        item["num"] = key
         deps_raw = str(get(r, "前置任務") or "").strip()
         if deps_raw and kind != "collab":
             inside = re.sub(r"「[^」]*」(?:\s*[（(][^)）]*[)）])?", " ", deps_raw)
-            item["deps"] = [(m.group(1), int(m.group(2) or 0)) for m in DEPS_RE.finditer(inside)]
+            item["deps"] = [(_key(m.group(1)), int(m.group(2) or 0)) for m in DEPS_RE.finditer(inside) if _key(m.group(1))]
             item["deps_other"] = "「" in deps_raw              # refers to items outside this file: kept as they are
         person = str(get(r, "負責人") or "").strip()
         item["person"] = person or None
