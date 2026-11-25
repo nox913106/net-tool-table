@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>IPMS</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="部門入口網站、待辦看板與多專案管理，一套系統。伺服器版 AD 登入共用，Windows 單機版離線可用、連線自動同步。">
+<meta name="description" content="部門入口網站、待辦看板與多專案管理，一套系統。伺服器版 AD 登入共用，Windows 連線版（開發中）離線可用、連線自動同步。">
 <meta property="og:title" content="IPMS">
 <meta property="og:description" content="部門入口網站、待辦看板與多專案管理，一套系統。">
 <meta property="og:image" content="img/hero.jpg">
@@ -70,6 +70,10 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .hero::before { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 0%, transparent 0%, var(--bg) 72%); pointer-events: none; }
 .hero .w { position: relative; }
 .hero .label { display: flex; gap: 10px; align-items: center; }
+.dev { display: inline-block; margin-left: 8px; padding: 2px 8px; font: 700 11px var(--mono); letter-spacing: .08em; vertical-align: middle;
+  color: var(--warn); border: 1px solid var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.nav .dev { margin-left: 5px; padding: 0 5px; font-size: 10px; }
+.devnote { padding: 12px 14px; border: 1px solid var(--warn); border-left-width: 4px; background: color-mix(in srgb, var(--warn) 8%, transparent); color: var(--ink); }
 .hero .label::before { content: ""; width: 8px; height: 8px; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
 .hero h1 { margin-top: 18px; font: 900 clamp(36px, 6.2vw, 74px)/1.12 var(--body); letter-spacing: -.01em; }
 .hero h1 em { font-style: normal; color: var(--accent-2); }
@@ -177,7 +181,7 @@ footer a { color: var(--ink-2); }
       <a href="#split">專案與維運</a>
       <a href="#radar">任務雷達</a>
       <a href="#projects">多專案</a>
-      <a href="#offline">單機版</a>
+      <a href="#offline">單機版<span class="dev">開發中</span></a>
       <a href="#install">安裝</a>
     </nav>
     <a class="btn" href="https://github.com/nox913106/net-tool-table">
@@ -193,12 +197,12 @@ footer a { color: var(--ink-2); }
       <h1>維運工作和每個專案，<br><em>一個畫面</em>看完。</h1>
       <p class="lede">IPMS 把部門的連結入口、每天的維運待辦、跨好幾個月的專案放在同一套系統。專案和維運分開管理，但落後、卡住、互相搶時段的地方，一打開就看得到。</p>
       <div class="cta">
-        <a class="btn primary" href="https://github.com/nox913106/net-tool-table/releases/download/latest/IPMS-Setup.exe">
+        <a class="btn primary" href="#install">在伺服器安裝</a>
+        <a class="btn" href="#offline">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"/></svg>
-          下載 Windows 版</a>
-        <a class="btn" href="#install">在伺服器安裝</a>
+          Windows 連線版<span class="dev">開發中</span></a>
       </div>
-      <div class="facts"><span><b>AD</b> 登入與權限</span><span>子任務 <b>4</b> 層</span><span>單機版<b>離線</b>可用</span><span><b>125</b> 個 API</span><span>MIT 授權</span></div>
+      <div class="facts"><span><b>AD</b> 登入與權限</span><span>子任務<b>不限</b>層數</span><span>公用連結<b>依部門</b>可見</span><span><b>125</b> 個 API</span><span>MIT 授權</span></div>
       <div class="shot-wrap">
         <div class="frame"><img src="img/hero.jpg" width="1440" height="900" alt="IPMS 首頁：待辦看板與右下角的任務雷達"></div>
         <span class="tag t1">◆ 任務雷達：只畫有問題的項目</span>
@@ -309,12 +313,15 @@ footer a { color: var(--ink-2); }
   <section class="s alt" id="offline">
     <div class="w split">
       <div class="copy">
-        <div class="label">單機版與同步</div>
+        <div class="label">單機版與同步<span class="dev">開發中</span></div>
         <h2>不在公司網路裡，照樣能用</h2>
+        <p class="devnote"><b>Windows 連線版仍在開發中</b>，功能與安裝方式可能還會調整，正式使用建議以伺服器版為主。</p>
         <p>伺服器版給整個部門共用，用 AD 帳號登入。Windows 單機版在外面也能新增、修改、計時、附檔，連上伺服器後自動同步回去，兩邊功能完全相同。</p>
         <ul class="points">
           <li><span><b>逐欄位合併</b>：兩邊改了同一張卡的不同欄位，兩邊的修改都保留；改到同一欄位時以較新的為準，並列入衝突紀錄</span></li>
-          <li><span>以 python.org 官方簽章的 <b>python.exe</b> 執行，套件裡沒有自製的執行檔，不會被公司防毒誤判</span></li>
+          <li><span><b>版本跟著伺服器</b>：連線後自動確認版本，不一樣就從伺服器下載同一版、幾秒內自動重新啟動，資料不受影響</span></li>
+          <li><span>像一般程式一樣<b>只有一個視窗</b>，沒有黑色主控台；關掉視窗程式就結束</span></li>
+          <li><span>以 python.org 官方簽章的 <b>pythonw.exe</b> 執行，套件裡沒有自製的執行檔，不會被公司防毒誤判</span></li>
           <li><span>只<b>讀取</b> AD 的帳號與上級資料，從不寫回 AD</span></li>
         </ul>
       </div>
@@ -352,7 +359,7 @@ footer a { color: var(--ink-2); }
         <div class="card">
           <div class="frame"><img src="img/admin.jpg" width="1440" height="900" alt="管理後台：資料夾與連結的編輯" loading="lazy"></div>
           <h3>連結入口與管理後台</h3>
-          <p>資料夾、連結、首頁版面、配色都在後台調整，不用改程式。拖曳網址直接新增，自動抓網站圖示；每個人還有自己的個人區。</p>
+          <p>資料夾、連結、首頁版面、配色都在後台調整，不用改程式。拖曳網址直接新增，自動抓網站圖示；公用資料夾可以限定只給某些部門或人員看到；每個人還有自己的個人區，設定跟著 AD 帳號走。</p>
         </div>
         <div class="card">
           <div class="frame"><img src="img/api.jpg" width="1440" height="900" alt="API 文件：Swagger UI" loading="lazy"></div>
@@ -378,10 +385,11 @@ footer a { color: var(--ink-2); }
           <p>裝好後用瀏覽器開 <span class="mono">https://&lt;主機&gt;</span>，在後台設定 AD。詳細步驟見 <a href="https://github.com/nox913106/net-tool-table/blob/main/docs/INSTALL.md">INSTALL.md</a>。</p>
         </div>
         <div class="box">
-          <h3>Windows 單機版</h3>
-          <p>不需要系統管理員權限，也不需要安裝 Python。升級時直接執行新版，資料會保留。</p>
-          <a class="btn primary" href="https://github.com/nox913106/net-tool-table/releases/download/latest/IPMS-Setup.exe" style="justify-self:start">下載 IPMS-Setup.exe</a>
-          <p>免安裝版：下載 <a href="https://github.com/nox913106/net-tool-table/releases/download/latest/IPMS-windows-x64.zip">IPMS-windows-x64.zip</a>，解壓縮後點兩下 <span class="mono">IPMS.cmd</span>。要連伺服器時，按頁首的同步標記輸入網址與 AD 帳號。</p>
+          <h3>Windows 連線版<span class="dev">開發中</span></h3>
+          <p class="devnote">開發中的預覽版：可以試用，功能與安裝方式之後可能調整（規劃改由伺服器直接提供下載）。</p>
+          <p>不需要系統管理員權限，也不需要安裝 Python。裝好一次後，連線時會自動更新成伺服器的版本，資料會保留。</p>
+          <a class="btn" href="https://github.com/nox913106/net-tool-table/releases/download/latest/IPMS-Setup.exe" style="justify-self:start">下載預覽版 IPMS-Setup.exe</a>
+          <p>免安裝版：下載 <a href="https://github.com/nox913106/net-tool-table/releases/download/latest/IPMS-windows-x64.zip">IPMS-windows-x64.zip</a>，解壓縮後點兩下 <span class="mono">IPMS.cmd</span>。要連伺服器時，按頁首的同步標記輸入網址與 AD 帳號（帳號只要打名稱，網域後綴會自動帶入）。</p>
         </div>
       </div>
     </div>
