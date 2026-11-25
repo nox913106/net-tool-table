@@ -149,11 +149,14 @@ async def entra_callback(request: Request, code: str = "", state: str = "", erro
     from .. import entra
     from .. import i18n
     fail = lambda msg: RedirectResponse("/login?error=" + quote(i18n.translate(msg)[:300]), status_code=303)
+    from .. import audit
     if error:
+        await audit.log("login_fail", None, "Microsoft", f"Microsoft：{error_description or error}"[:300], client_ip(request), ok=False, actor="—")
         return fail(f"Microsoft：{error_description or error}")
     try:
         info = await asyncio.get_running_loop().run_in_executor(None, entra.finish, code, state)
     except entra.EntraError as e:
+        await audit.log("login_fail", None, "Microsoft", str(e), client_ip(request), ok=False, actor="—")
         return fail(str(e))
     db = await get_db()
     try:
@@ -162,11 +165,14 @@ async def entra_callback(request: Request, code: str = "", state: str = "", erro
         except HTTPException as e:
             return fail(e.detail)
         if not user["active"]:
+            await db.rollback()                  # free the write lock: the audit row has its own connection
+            await audit.log("login_fail", None, user.get("username"), "這個帳號已被停用，請洽管理員", client_ip(request), ok=False, actor=user.get("username"))
             return fail("這個帳號已被停用，請洽管理員")
         token = await create_session(db, user["id"], request)
         await db.commit()
     finally:
         await db.close()
+    await audit.log("login", user, user.get("username"), "Microsoft Entra ID", client_ip(request))
     resp = RedirectResponse(_safe_next(info.get("next") or "/"), status_code=303)
     set_cookie(resp, request, token)
     return resp
@@ -267,13 +273,20 @@ async def login(body: LoginIn, request: Request):
     if not C.AUTH:
         return {"user": ANON}
     username = ldapauth.normalize(body.username)
+    from .. import audit
     db = await get_db()
     try:
-        user = await authenticate(db, username, body.password, client_ip(request))
+        try:
+            user = await authenticate(db, username, body.password, client_ip(request))
+        except HTTPException as e:
+            await db.rollback()                  # free the write lock: the audit row has its own connection
+            await audit.log("login_fail", None, username, str(e.detail), client_ip(request), ok=False, actor=username or "—")
+            raise
         token = await create_session(db, user["id"], request)
         await db.commit()
         resp = JSONResponse({"user": public_user(user)})
         set_cookie(resp, request, token)
+        await audit.log("login", user, user.get("username"), "帳號密碼", client_ip(request))
         return resp
     finally:
         await db.close()
@@ -281,6 +294,9 @@ async def login(body: LoginIn, request: Request):
 
 @router.post("/api/auth/logout")
 async def logout(request: Request):
+    from .. import audit
+    if C.AUTH and getattr(request.state, "user", None) and request.state.user.get("id"):
+        await audit.log("logout", request.state.user, request.state.user.get("username"), "", client_ip(request))
     await end_session(request.cookies.get(COOKIE))
     resp = JSONResponse({"success": True})
     resp.delete_cookie(COOKIE, path="/")
@@ -404,7 +420,7 @@ async def list_users(_: dict = Depends(require_admin)):
 
 
 @router.post("/api/users")
-async def add_user(body: UserAdd, _: dict = Depends(require_admin)):
+async def add_user(body: UserAdd, request: Request, _: dict = Depends(require_admin)):
     info = await asyncio.get_running_loop().run_in_executor(None, ldapauth.lookup, body.username)
     if not info:
         raise HTTPException(status_code=404, detail="在 AD 找不到這個帳號（或未設定 AD 服務帳號）")
@@ -412,13 +428,14 @@ async def add_user(body: UserAdd, _: dict = Depends(require_admin)):
     try:
         user = await upsert_ldap_user(db, info)
         await db.commit()
+        request.state.audit_target = user.get("username")
         return public_user(user)
     finally:
         await db.close()
 
 
 @router.put("/api/users/{user_id}")
-async def update_user(user_id: int, body: UserUpdate, me_: dict = Depends(require_admin)):
+async def update_user(user_id: int, body: UserUpdate, request: Request, me_: dict = Depends(require_admin)):
     db = await get_db()
     try:
         cur = await db.execute("SELECT * FROM users WHERE id = ?", (user_id,))
@@ -441,6 +458,17 @@ async def update_user(user_id: int, body: UserUpdate, me_: dict = Depends(requir
             clean = sorted({d.strip()[:100] for d in body.scope_departments if isinstance(d, str) and d.strip()})
             scope = json.dumps(clean, ensure_ascii=False) if clean else None
         await db.execute("UPDATE users SET role = ?, active = ?, scope_departments = ? WHERE id = ?", (role, active, scope, user_id))
+        request.state.audit_target = row["username"]
+        what = []
+        if role != row["role"]:
+            what.append(f"權限 {LABELS.get(row['role'], row['role'])} → {LABELS.get(role, role)}")
+        if active != row["active"]:
+            what.append("啟用" if active else "停用")
+        if scope != row["scope_departments"]:
+            what.append(f"管理部門 {', '.join(json.loads(scope)) if scope else '（無）'}")
+        if body.manager is not None:
+            what.append(f"上級 {body.manager or '（無）'}")
+        request.state.audit_detail = "；".join(what)
         if body.manager is not None:
             from ..team import would_cycle
             if body.manager == "@ad":                       # follow AD again (applied at the next sign-in)

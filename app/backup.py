@@ -372,6 +372,28 @@ def consolidate(path: Path) -> Path:
         return out
 
 
+def _keep_audit(staged: Path):
+    """Copy the audit rows the backup does not have into the database about to be restored."""
+    import sqlite3
+    try:
+        cur = sqlite3.connect(DB_PATH)
+        rows = cur.execute("SELECT at, actor_id, actor, action, target, detail, ip, ok FROM audit_log ORDER BY id").fetchall()
+        cur.close()
+    except sqlite3.Error:
+        return
+    con = sqlite3.connect(staged)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                       at TIMESTAMP NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S', 'now', 'localtime')),
+                       actor_id INTEGER, actor TEXT, action TEXT NOT NULL, target TEXT, detail TEXT, ip TEXT, ok INTEGER NOT NULL DEFAULT 1)""")
+        last = con.execute("SELECT COALESCE(MAX(at), '') FROM audit_log").fetchone()[0]
+        con.executemany("INSERT INTO audit_log (at, actor_id, actor, action, target, detail, ip, ok) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        [r for r in rows if r[0] > last])
+        con.commit()
+    finally:
+        con.close()
+
+
 def restore(path: Path) -> dict:
     """Replace the database, icons, attachments and key with the backup's (gathered from its chain and
     verified first). A full safety backup is taken before anything changes."""
@@ -381,6 +403,7 @@ def restore(path: Path) -> dict:
         safety = make_backup("before")
         staged = DB_PATH.with_suffix(".restoring")
         shutil.copy2(stage / "tool-table.db", staged)
+        _keep_audit(staged)                              # 稽核紀錄 newer than the backup survive the restore
         os.replace(staged, DB_PATH)                      # connections are opened per request
         for extra in ("-wal", "-shm"):
             Path(str(DB_PATH) + extra).unlink(missing_ok=True)

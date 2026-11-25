@@ -13,6 +13,7 @@
 #   tool-table.sh renew-cert
 #   tool-table.sh apply-request          (run by tool-table-apply.path) apply a certificate /
 #                                        port change requested from the admin UI
+#   tool-table.sh web-upgrade            (run by tool-table-upgrade.path) the upgrade asked for in the admin UI
 #   tool-table.sh reset-admin            new password for the local break-glass admin
 #   tool-table.sh users                  list accounts and roles
 #   tool-table.sh ldap-check             test the AD connection / service account
@@ -41,6 +42,7 @@ TLS_DIR="$ETC_DIR/tls"
 DATA_DIR_DEFAULT="/var/lib/tool-table"
 BACKUP_DIR_DEFAULT="/var/backups/tool-table"
 VENV="$APP_DIR/.venv"
+UPGRADE_STATE="/var/lib/tool-table-upgrade"       # status.json / upgrade.log of an upgrade started from the admin UI
 
 NGINX_SITE="/etc/nginx/sites-available/tool-table"
 NGINX_LINK="/etc/nginx/sites-enabled/tool-table"
@@ -172,11 +174,17 @@ install_units() {
     install -m 0644 "$APP_DIR/deploy/systemd/tool-table-backup.timer"   "$UNIT_DIR/tool-table-backup.timer"
     install -m 0644 "$APP_DIR/deploy/systemd/tool-table-apply.path"     "$UNIT_DIR/tool-table-apply.path"
     install -m 0644 "$APP_DIR/deploy/systemd/tool-table-apply.service"  "$UNIT_DIR/tool-table-apply.service"
+    install -m 0644 "$APP_DIR/deploy/systemd/tool-table-upgrade.path"   "$UNIT_DIR/tool-table-upgrade.path"
+    install -m 0644 "$APP_DIR/deploy/systemd/tool-table-upgrade.service" "$UNIT_DIR/tool-table-upgrade.service"
     # Request drop box for the admin UI (certificate / ports); the marker tells the app it is served
     install -d -m 0750 -o "$APP_USER" -g "$APP_USER" "$DATA_DIR_DEFAULT/requests"
     install -m 0644 -o root -g root /dev/null "$DATA_DIR_DEFAULT/requests/.helper"
+    # Upgrade from the admin UI: request box (service writes) and status / log (root writes, service reads)
+    install -d -m 0750 -o "$APP_USER" -g "$APP_USER" "$DATA_DIR_DEFAULT/upgrade_request"
+    install -d -m 0750 -o root -g "$APP_USER" "$UPGRADE_STATE"
     systemctl daemon-reload
     systemctl enable --now tool-table-apply.path >/dev/null 2>&1 || true
+    systemctl enable --now tool-table-upgrade.path >/dev/null 2>&1 || true
 }
 
 setup_python() {
@@ -229,8 +237,8 @@ print_summary() {
     echo
     echo "  接下來都在網頁後台完成，不需要再登入這台伺服器："
     echo "    1. 用本機管理員登入，設定自己的密碼"
-    echo "    2. 後台「系統設定」：AD 登入（可先測試再儲存）、HTTPS 憑證、連線埠"
-    echo "    3. 後台「帳號與權限」：至少指定一位 AD 帳號為管理員"
+    echo "    2. 後台「系統設定」：「AD 驗證」（可先測試再儲存）、「HTTPS 憑證」（憑證與連線埠）"
+    echo "    3. 後台「帳號管理」：至少指定一位 AD 帳號為管理員"
     fi
     echo
     echo "  憑證為自簽，瀏覽器第一次會警告，確認後即可使用。"
@@ -391,7 +399,7 @@ cmd_upgrade() {
             open_firewall 443 "$(env_get TOOL_TABLE_HTTP_PORT)" || true
             log "HTTPS 埠改為預設的 443：網址變成 https://<主機>/（原本的 :$OLD_DEFAULT_HTTPS_PORT 不再使用）"
         else
-            warn "443 埠已被 $owner443 使用，HTTPS 維持 :$OLD_DEFAULT_HTTPS_PORT（可在後台「系統設定 → 連線」改）"
+            warn "443 埠已被 $owner443 使用，HTTPS 維持 :$OLD_DEFAULT_HTTPS_PORT（可在後台「系統設定 → HTTPS 憑證」改）"
         fi
     fi
     render_nginx "$(env_get TOOL_TABLE_HTTPS_PORT)" "$(env_get TOOL_TABLE_HTTP_PORT)" \
@@ -405,8 +413,32 @@ cmd_upgrade() {
     if [[ -n "$ADMIN_NOTE" ]]; then
         echo; echo "  ---- 本機管理員（最高權限，平常不用）----"; sed 's/^/  /' <<<"$ADMIN_NOTE"
         echo "  （也存在 $ETC_DIR/initial-admin.txt，僅 root 可讀）"
-        echo "  登入後在後台「系統設定」設定 AD，並在「帳號與權限」至少指定一位 AD 管理員"
+        echo "  登入後在後台「系統設定 → AD 驗證」設定 AD，並在「帳號管理」至少指定一位 AD 管理員"
     fi
+}
+
+# ------------------------------------------------------- web-upgrade -------
+# Started by tool-table-upgrade.path when the admin UI asks for an upgrade (後台「版本紀錄」).
+# The request file only says “now”: its content is never used. Status and log go where the service cannot write.
+cmd_web_upgrade() {
+    require_root
+    local req="$DATA_DIR_DEFAULT/upgrade_request/request.json" st="$UPGRADE_STATE" vb ok=0
+    [[ -e "$req" || -L "$req" ]] || exit 0
+    rm -f "$req"                                     # first: the restart during the upgrade must not trigger it again
+    install -d -m 0750 -o root -g "$APP_USER" "$st"
+    vb="$(cat "$APP_DIR/VERSION" 2>/dev/null || echo "?")"
+    web_status() {   # running|done|error message
+        STATE="$1" MSG="$2" FROM="$vb" TO="$(cat "$APP_DIR/VERSION" 2>/dev/null || echo "?")" AT="$(date '+%Y-%m-%d %H:%M:%S')" python3 -c \
+            'import json, os; print(json.dumps({k.lower(): os.environ[k] for k in ("STATE", "MSG", "FROM", "TO", "AT")}, ensure_ascii=False))' \
+            > "$st/status.json.tmp"
+        chgrp "$APP_USER" "$st/status.json.tmp"; chmod 0640 "$st/status.json.tmp"
+        mv -f "$st/status.json.tmp" "$st/status.json"
+    }
+    install -m 0640 -o root -g "$APP_USER" /dev/null "$st/upgrade.log"
+    web_status running "升級中"
+    bash "$APP_DIR/scripts/tool-table.sh" upgrade >> "$st/upgrade.log" 2>&1 && ok=1
+    if (( ok )); then web_status done "升級完成"; else web_status error "升級失敗，詳見記錄"; fi
+    systemctl restart tool-table-upgrade.path 2>/dev/null || true
 }
 
 # ------------------------------------------------------------- uninstall ---
@@ -422,9 +454,11 @@ cmd_uninstall() {
     require_root
 
     log "停用並移除服務"
-    systemctl disable --now tool-table.service tool-table-backup.timer tool-table-apply.path >/dev/null 2>&1 || true
+    systemctl disable --now tool-table.service tool-table-backup.timer tool-table-apply.path tool-table-upgrade.path >/dev/null 2>&1 || true
     rm -f "$UNIT_DIR/tool-table.service" "$UNIT_DIR/tool-table-backup.service" "$UNIT_DIR/tool-table-backup.timer" \
-          "$UNIT_DIR/tool-table-apply.path" "$UNIT_DIR/tool-table-apply.service"
+          "$UNIT_DIR/tool-table-apply.path" "$UNIT_DIR/tool-table-apply.service" \
+          "$UNIT_DIR/tool-table-upgrade.path" "$UNIT_DIR/tool-table-upgrade.service"
+    rm -rf "$UPGRADE_STATE"
     systemctl daemon-reload
 
     log "移除 nginx 站台"
@@ -652,12 +686,12 @@ cmd_doctor() {
                 [[ -f "$ETC_DIR/initial-admin.txt" ]] && info "初始密碼檔 $ETC_DIR/initial-admin.txt 還在：改完密碼後可刪除"
             else bad "沒有本機管理員帳號" "sudo bash $APP_DIR/scripts/tool-table.sh reset-admin"; fi
             if grep -qE "^[^ ]+ +ldap +admin +啟用" <<<"$users"; then ok "已有 AD 管理員"
-            else info "還沒有 AD 管理員：用本機管理員登入後台「帳號與權限」指定"; fi
+            else info "還沒有 AD 管理員：用本機管理員登入後台「帳號管理」指定"; fi
             local ldap_out ldap_rc=0
             ldap_out="$(app_cli ldap-check 2>&1)" || ldap_rc=$?
             if [[ $ldap_rc -eq 0 ]] && grep -q "✔ 服務帳號登入成功\|沒有服務帳號" <<<"$ldap_out"; then ok "AD 連線正常"
-            elif grep -q "尚未啟用\|未設定" <<<"$ldap_out"; then info "尚未啟用 AD：在後台「系統設定 → AD 登入」設定"
-            else bad "AD 連線失敗：$(tail -1 <<<"$ldap_out")" "後台「系統設定 → AD 登入」按「測試」查看細節"; fi
+            elif grep -q "尚未啟用\|未設定" <<<"$ldap_out"; then info "尚未啟用 AD：在後台「系統設定 → AD 驗證」設定"
+            else bad "AD 連線失敗：$(tail -1 <<<"$ldap_out")" "後台「系統設定 → AD 驗證」按「測試」查看細節"; fi
         fi
     else
         info "帳號登入未開啟（TOOL_TABLE_AUTH）：任何人都能修改內容"
@@ -665,6 +699,8 @@ cmd_doctor() {
 
     if systemctl is-enabled --quiet tool-table-apply.path 2>/dev/null; then ok "後台設定套用服務（tool-table-apply.path）已啟用"
     else bad "後台無法套用憑證 / 連線埠變更" "sudo bash $APP_DIR/scripts/tool-table.sh upgrade --no-pull"; fi
+    if systemctl is-enabled --quiet tool-table-upgrade.path 2>/dev/null; then ok "網頁升級服務（tool-table-upgrade.path）已啟用"
+    else bad "後台「版本紀錄」不能按鈕升級" "sudo bash $APP_DIR/scripts/tool-table.sh upgrade --no-pull"; fi
 
     if (( fails == 0 )); then log "全部通過"; else warn "$fails 項需要處理（見上方 → 修法）"; return 1; fi
 }
@@ -834,6 +870,7 @@ main() {
         renew-cert) shift; cmd_renew_cert "$@" ;;
         reset-admin) shift; cmd_reset_admin "$@" ;;
         apply-request) shift; cmd_apply_request "$@" ;;
+        web-upgrade) shift; cmd_web_upgrade "$@" ;;
         users)      shift; cmd_users "$@" ;;
         ldap-check) shift; cmd_ldap_check "$@" ;;
         ldap-test)  shift; cmd_ldap_test "$@" ;;

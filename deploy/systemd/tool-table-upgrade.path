@@ -1,0 +1,10 @@
+# 後台「版本紀錄 → 升級到最新版」: the app (unprivileged) drops a request file; this starts tool-table-upgrade.service.
+[Unit]
+Description=IPMS: upgrade requested from the admin UI
+
+[Path]
+PathExists=/var/lib/tool-table/upgrade_request/request.json
+Unit=tool-table-upgrade.service
+
+[Install]
+WantedBy=paths.target

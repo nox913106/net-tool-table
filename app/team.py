@@ -2,7 +2,7 @@
 Reporting lines (上級 / 下級).
 
 users.manager_id points at a person's 上級 — read from AD's "manager" attribute when they sign in
-(sysconfig.Ldap.sync_manager), or set by an admin in 帳號與權限 (manager_source = 'manual', which AD
+(sysconfig.Ldap.sync_manager), or set by an admin in 帳號管理 (manager_source = 'manual', which AD
 then leaves alone). A supervisor's team is everyone below them, any number of levels down.
 Depending on the board_supervisor setting the team's cards are theirs to edit (rw), to view and
 comment on (ro), or not shared (off) — see roles.board_access and routes/tasks._scope_sql.

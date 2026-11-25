@@ -71,7 +71,7 @@ def list_users() -> int:
 def ldap_check() -> int:
     from . import ldapauth, sysconfig
     c = sysconfig.ldap()
-    print(f"AD 伺服器   {c.url or '（未設定：請在後台「系統設定 → AD 登入」填寫）'}")
+    print(f"AD 伺服器   {c.url or '（未設定：請在後台「系統設定 → AD 驗證」填寫）'}")
     print(f"Base DN     {c.base_dn or '（未設定）'}")
     print(f"登入方式    {'服務帳號搜尋 + 驗證' if c.bind_dn else ('UPN（帳號@' + c.domain + '）' if c.domain else '（未設定）')}")
     if not ldapauth.enabled(c):

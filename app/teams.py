@@ -2,7 +2,7 @@
 Microsoft Teams notifications (server edition).
 
 How it reaches Teams: in a Teams channel, add the Workflow “Post to a channel when a webhook request is
-received”, and paste the URL it gives into 系統設定 → Teams 通知. Messages are Adaptive Cards. No Entra ID
+received”, and paste the URL it gives into 系統設定 → 發送與通知. Messages are Adaptive Cards. No Entra ID
 application is needed, so notifications keep working even when sign-in or e-mail settings have problems.
 Each channel picks what it receives:
   changes   what changed on cards and subtasks (title, status, dates, owners, new subtasks, comments …):

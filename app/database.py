@@ -398,6 +398,10 @@ async def init_db():
                                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, attempts INTEGER NOT NULL DEFAULT 0,
                                 sent_at TIMESTAMP, result TEXT)""")
 
+        # 稽核紀錄 (app/audit.py): never synced, kept across restores
+        from . import audit
+        await audit.ensure(db)
+
         # Sync between standalone copies and the server (app/sync.py): uids, clocks, capture triggers
         from . import sync
         await sync.install(db)

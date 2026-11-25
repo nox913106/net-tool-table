@@ -280,8 +280,8 @@ async def tick(now: Optional[float] = None) -> int:
     try:
         for lvl, title, lines in msgs:
             for ch in want_alerts:
-                await teams.enqueue(db, ch["id"], "system", teams.card(title, lines, f"{base}/admin#system", lvl,
-                                                                       "Open system settings" if en else "開啟系統設定"))
+                await teams.enqueue(db, ch["id"], "system", teams.card(title, lines, f"{base}/admin#status", lvl,
+                                                                       "Open system status" if en else "開啟系統狀態"))
                 sent += 1
         # the scheduled report
         if want_report and _report_due(c, st):
@@ -330,4 +330,4 @@ def report(items: List[dict], c, L: str) -> Optional[dict]:
     if disks:
         lines += ["", "Storage:" if en else "儲存空間："] + disks
     level = "fail" if n["fail"] else "warn" if n["warn"] else "ok"
-    return teams.card(title, lines, f"{teams.site_url(c)}/admin#system", level, "Open system settings" if en else "開啟系統設定")
+    return teams.card(title, lines, f"{teams.site_url(c)}/admin#status", level, "Open system status" if en else "開啟系統狀態")

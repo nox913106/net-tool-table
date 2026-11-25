@@ -1,0 +1,207 @@
+"""
+Audit log (後台「稽核紀錄」): who did what to the system and when.
+
+Written by the audit middleware in app/main.py for every administrative change (the routes in ROUTES:
+system settings, accounts, backups, certificates, content import, deleting cards …), and directly for
+sign-ins (success / failure / sign-out). An endpoint can add a sentence of detail with
+`request.state.audit_detail = "…"` (for example a role change "使用者 → 看板管理員").
+
+Rows are never edited or deleted from the UI. A daily purge keeps `keep_days` (180–3650, default 366),
+and the purge itself is logged. Restoring a backup keeps the audit rows newer than the backup.
+Kept out of sync (app/sync.py TABLES): each copy has its own.
+"""
+import re
+from datetime import date, datetime, timedelta
+from typing import Optional
+
+from . import sysconfig
+
+KEEP_MIN, KEEP_MAX, KEEP_DEFAULT = 180, 3650, 366
+CONF_KEY = "_audit"
+
+# action code → (zh, en)
+LABELS = {
+    "login": ("登入", "Sign-in"),
+    "login_fail": ("登入失敗", "Failed sign-in"),
+    "logout": ("登出", "Sign-out"),
+    "password": ("變更密碼", "Password change"),
+    "user_create": ("新增帳號", "Account created"),
+    "user_update": ("帳號權限變更", "Account changed"),
+    "ldap": ("AD 驗證設定", "AD settings"),
+    "entra": ("Microsoft 登入設定", "Microsoft sign-in settings"),
+    "security": ("登入安全設定", "Sign-in security settings"),
+    "teams": ("通知設定", "Notification settings"),
+    "teams_report": ("送出狀態報告", "Status report sent"),
+    "backup_schedule": ("備份排程", "Backup schedule"),
+    "backup_now": ("立即備份", "Backup now"),
+    "backup_delete": ("刪除備份", "Backup deleted"),
+    "backup_restore": ("還原備份", "Backup restored"),
+    "backup_upload": ("上傳備份", "Backup uploaded"),
+    "backup_download": ("下載備份", "Backup downloaded"),
+    "tls": ("HTTPS 憑證", "HTTPS certificate"),
+    "network": ("連線埠與名稱", "Ports and name"),
+    "site_settings": ("外觀與設定", "Appearance and settings"),
+    "site_reset": ("還原預設設定", "Settings reset"),
+    "content_export": ("匯出內容", "Content exported"),
+    "content_import": ("匯入內容", "Content imported"),
+    "node_create": ("新增連結／資料夾", "Link / folder added"),
+    "node_update": ("修改連結／資料夾", "Link / folder changed"),
+    "node_delete": ("刪除連結／資料夾", "Link / folder deleted"),
+    "node_move": ("移動連結／資料夾", "Link / folder moved"),
+    "card_delete": ("刪除卡片", "Card deleted"),
+    "card_import": ("匯入 Excel 報告", "Excel report imported"),
+    "demo_create": ("建立示範資料", "Demo data created"),
+    "demo_delete": ("移除示範資料", "Demo data removed"),
+    "device_approve": ("核准單機版連線", "Standalone copy approved"),
+    "device_delete": ("移除單機版連線", "Standalone copy removed"),
+    "upgrade": ("升級", "Upgrade"),
+    "sysinfo_export": ("下載系統資訊", "System info downloaded"),
+    "audit_export": ("匯出稽核紀錄", "Audit log exported"),
+    "audit_retention": ("稽核紀錄保存天數", "Audit retention"),
+    "audit_purge": ("清除過期稽核紀錄", "Old audit rows purged"),
+    "health_check": ("執行健康檢查", "Health check run"),
+}
+
+# (method, route template) → action code; the middleware logs these when they are called
+ROUTES = {
+    ("POST", "/api/auth/password"): "password",
+    ("POST", "/api/users"): "user_create",
+    ("PUT", "/api/users/{user_id}"): "user_update",
+    ("PUT", "/api/system/ldap"): "ldap",
+    ("PUT", "/api/system/entra"): "entra",
+    ("PUT", "/api/system/security"): "security",
+    ("PUT", "/api/system/teams"): "teams",
+    ("POST", "/api/system/teams/report"): "teams_report",
+    ("PUT", "/api/system/backup"): "backup_schedule",
+    ("POST", "/api/system/backups"): "backup_now",
+    ("DELETE", "/api/system/backups/{name}"): "backup_delete",
+    ("POST", "/api/system/backups/{name}/restore"): "backup_restore",
+    ("POST", "/api/system/backups/upload"): "backup_upload",
+    ("GET", "/api/system/backups/{name}"): "backup_download",
+    ("POST", "/api/system/tls"): "tls",
+    ("PUT", "/api/system/network"): "network",
+    ("POST", "/api/system/demo"): "demo_create",
+    ("DELETE", "/api/system/demo"): "demo_delete",
+    ("POST", "/api/system/upgrade"): "upgrade",
+    ("GET", "/api/system/sysinfo.json"): "sysinfo_export",
+    ("GET", "/api/system/audit.csv"): "audit_export",
+    ("PUT", "/api/system/audit/retention"): "audit_retention",
+    ("POST", "/api/system/status/check"): "health_check",
+    ("PUT", "/api/settings"): "site_settings",
+    ("POST", "/api/settings/reset"): "site_reset",
+    ("GET", "/api/export"): "content_export",
+    ("POST", "/api/import"): "content_import",
+    ("POST", "/api/nodes"): "node_create",
+    ("PUT", "/api/nodes/{node_id}"): "node_update",
+    ("DELETE", "/api/nodes/{node_id}"): "node_delete",
+    ("PUT", "/api/nodes/{node_id}/move"): "node_move",
+    ("DELETE", "/api/tasks/{task_id}"): "card_delete",
+    ("POST", "/api/tasks/import.xlsx"): "card_import",
+    ("POST", "/api/sync/link/approve"): "device_approve",
+    ("DELETE", "/api/sync/devices/{device_id}"): "device_delete",
+}
+
+
+def label(code: str, lang: str = "zh-TW") -> str:
+    zh, en = LABELS.get(code, (code, code))
+    return en if lang == "en" else zh
+
+
+async def ensure(db):
+    await db.execute("""CREATE TABLE IF NOT EXISTS audit_log (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            at TIMESTAMP NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S', 'now', 'localtime')),
+                            actor_id INTEGER, actor TEXT, action TEXT NOT NULL, target TEXT, detail TEXT,
+                            ip TEXT, ok INTEGER NOT NULL DEFAULT 1)""")
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at)")
+
+
+def _who(user: Optional[dict]) -> tuple:
+    if not user:
+        return None, None
+    name = user.get("display_name") or user.get("name") or user.get("username")
+    return user.get("id"), f"{name}（{user.get('username')}）" if user.get("username") and name != user.get("username") else name
+
+
+async def log(action: str, user: Optional[dict] = None, target: str = "", detail: str = "", ip: str = "",
+              ok: bool = True, actor: Optional[str] = None):
+    """Add one row. Never raises: the audit log must not break the action it records."""
+    from .database import get_db
+    try:
+        uid, name = _who(user)
+        db = await get_db()
+        try:
+            await db.execute("INSERT INTO audit_log (actor_id, actor, action, target, detail, ip, ok) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                             (uid, actor or name, action, (target or "")[:256], (detail or "")[:1000], (ip or "")[:64], 1 if ok else 0))
+            await db.commit()
+        finally:
+            await db.close()
+    except Exception:
+        pass
+
+
+def keep_days() -> int:
+    v = sysconfig._read(CONF_KEY).get("keep_days")
+    return int(v) if isinstance(v, int) and KEEP_MIN <= v <= KEEP_MAX else KEEP_DEFAULT
+
+
+def set_keep_days(n: int):
+    sysconfig._write(CONF_KEY, {**sysconfig._read(CONF_KEY), "keep_days": int(n), "purged": ""})
+
+
+async def purge_if_due():
+    """Once a day: delete rows older than keep_days (and log how many)."""
+    conf = sysconfig._read(CONF_KEY)
+    today = date.today().isoformat()
+    if conf.get("purged") == today:
+        return
+    from .database import get_db
+    days = keep_days()
+    cut = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d 00:00:00")
+    db = await get_db()
+    try:
+        cur = await db.execute("DELETE FROM audit_log WHERE at < ?", (cut,))
+        n = cur.rowcount
+        await db.commit()
+    finally:
+        await db.close()
+    sysconfig._write(CONF_KEY, {**sysconfig._read(CONF_KEY), "purged": today})
+    if n:
+        await log("audit_purge", None, f"{n}", f"保存 {days} 天，清除 {cut[:10]} 以前的 {n} 筆", actor="系統")
+
+
+# ------------------------------------------------------------------ query
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def where(f: dict):
+    sql, args = ["at >= ?", "at < ?"], [f["date_from"] + " 00:00:00", (date.fromisoformat(f["date_to"]) + timedelta(days=1)).isoformat() + " 00:00:00"]
+    if f.get("action"):
+        sql.append("action = ?"); args.append(f["action"])
+    if f.get("actor"):
+        if f["actor"] == "-":
+            sql.append("actor_id IS NULL")
+        else:
+            sql.append("actor_id = ?"); args.append(int(f["actor"]))
+    if f.get("target"):
+        sql.append("target LIKE ?"); args.append(f"%{f['target']}%")
+    if f.get("q"):
+        sql.append("(detail LIKE ? OR target LIKE ? OR actor LIKE ?)"); args += [f"%{f['q']}%"] * 3
+    if f.get("failed"):
+        sql.append("ok = 0")
+    return " AND ".join(sql), args
+
+
+def filters(date_from: str = "", date_to: str = "", action: str = "", actor: str = "", target: str = "", q: str = "",
+            failed: bool = False) -> dict:
+    today = date.today()
+    d1 = date.fromisoformat(date_to) if DATE_RE.match(date_to or "") else today
+    d0 = date.fromisoformat(date_from) if DATE_RE.match(date_from or "") else d1 - timedelta(days=6)
+    if d0 > d1:
+        d0, d1 = d1, d0
+    if (d1 - d0).days > 365:
+        d0 = d1 - timedelta(days=365)
+    actor = actor if actor == "-" or (actor or "").isdigit() else ""
+    return {"date_from": d0.isoformat(), "date_to": d1.isoformat(), "action": action if action in LABELS else "",
+            "actor": actor, "target": (target or "").strip()[:100], "q": (q or "").strip()[:100], "failed": bool(failed)}
+

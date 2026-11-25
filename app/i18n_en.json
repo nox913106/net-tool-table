@@ -553,5 +553,8 @@
  "檔案太大（上限 2 GB）": "File too large (2 GB at most)",
  "這是歷史案件（已結案並移到歷史區），只能檢視，不能修改": "This is a history case (closed and moved to History): view only, no changes",
  "歷史區時間必須是數字": "The History time must be a number",
- "歷史區時間要在 1～8760 小時（一年）之間": "The History time must be 1–8760 hours (a year)"
+ "歷史區時間要在 1～8760 小時（一年）之間": "The History time must be 1–8760 hours (a year)",
+ "保存天數必須在 {0}–{1} 天之間": "Retention must be between {0} and {1} days",
+ "主機尚未安裝升級服務：請先在主機用指令升級一次，之後就能用這個按鈕": "The host does not have the upgrade service yet: upgrade once with the command on the host, then this button works",
+ "已經在升級中，請稍候": "An upgrade is already running, please wait"
 }

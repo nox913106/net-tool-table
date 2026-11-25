@@ -1,6 +1,7 @@
 /* =============================================================================
    IPMS — admin
-   Panels (hash): #content  #home  #quick  #icons  #settings  #backup
+   Panels (hash): 入口網站 #content #home #quick #icons #settings
+                  系統設定 (same tabs as CFXD_DailyReportDocSys) #status #auth #users #audit #backup #tls #delivery #sysinfo #versions
    ============================================================================= */
 'use strict';
 
@@ -13,15 +14,23 @@
     '📚', '📘', '📝', '📋', '📌', '🗺️', '🧭', '🏢', '🏭', '🏠', '👥', '💬', '📧', '📞', '🎫', '🚀', '⭐', '❤️', '✅', '⚠️', '🧠', '🤖', '🎨', '🎬'];
 
   const PANELS = [
-    { id: 'content', icon: 'folder', label: _t('內容'), desc: _t('資料夾與連結。拖曳可排序或移到別的資料夾。') },
+    { id: 'content', group: 'portal', icon: 'folder', label: _t('內容'), desc: _t('資料夾與連結。拖曳可排序或移到別的資料夾。') },
     { id: 'home', icon: 'layout', label: _t('首頁版面'), desc: _t('首頁要顯示哪些區塊、順序如何。') },
     { id: 'quick', icon: 'zap', label: _t('快速連結'), desc: _t('首頁上方的快捷按鈕列，可依群組分組。') },
     { id: 'icons', icon: 'image', label: _t('圖示'), desc: _t('上傳、改名、刪除圖示。') },
     { id: 'settings', icon: 'palette', label: _t('外觀與設定'), desc: _t('品牌、配色、頁首元件、導覽與卡片。') },
-    { id: 'backup', icon: 'database', label: _t('備份與匯入'), desc: _t('把全部內容匯出成 JSON，或從 JSON 匯入。') },
-    { id: 'users', icon: 'users', label: _t('帳號與權限'), desc: _t('AD 帳號第一次登入後會出現在這裡，預設是「訪客」（只能看入口連結）；在這裡開通為「使用者」或指定管理員。'), auth: true },
-    { id: 'system', icon: 'settings', label: _t('系統設定'), desc: _t('AD 登入、登入安全、HTTPS 憑證、連線埠。所有設定都在這裡完成，不需要登入伺服器。') },
+    { id: 'status', group: 'system', icon: 'zap', label: _t('系統狀態'), desc: _t('健康檢查、最近的維護工作與安裝時決定的項目。所有設定都在後台完成，儲存後立即套用，不需要登入主機；每一項變更都記錄在「稽核紀錄」。') },
+    { id: 'auth', icon: 'lock', label: _t('AD 驗證'), desc: _t('AD（LDAP）登入、Microsoft Entra ID 登入與登入安全。'), auth: true },
+    { id: 'users', icon: 'users', label: _t('帳號管理'), desc: _t('AD 帳號第一次登入後會出現在這裡，預設是「訪客」（只能看入口連結）；在這裡開通為「使用者」或指定管理員。'), auth: true },
+    { id: 'audit', icon: 'list', label: _t('稽核紀錄'), desc: _t('誰在什麼時候做了什麼：登入、帳號權限、系統設定、備份還原、憑證、匯入匯出、刪除卡片。不能在畫面上修改或刪除。') },
+    { id: 'backup', icon: 'database', label: _t('備份還原'), desc: _t('自動與手動備份、下載、還原；入口內容匯出成 JSON 或從 JSON 匯入；示範資料。') },
+    { id: 'tls', icon: 'globe', label: _t('HTTPS 憑證'), desc: _t('目前的憑證、更換憑證、連線埠與伺服器名稱。') },
+    { id: 'delivery', icon: 'megaphone', label: _t('發送與通知'), desc: _t('Microsoft Teams 頻道：卡片異動、專案事件、系統與硬體警示、定時狀態報告。'), auth: true },
+    { id: 'sysinfo', icon: 'monitor', label: _t('系統資訊'), desc: _t('硬體、作業系統、執行環境、服務、系統套件與 Python 套件（每次開頁即時讀取）。') },
+    { id: 'versions', icon: 'history', label: _t('版本紀錄'), desc: _t('目前版本、GitHub 上的新版與升級、全部版本的變更內容。') },
   ];
+  const GROUPS = { portal: _t('入口網站'), system: _t('系統設定') };
+  const ALIAS = { system: 'status' };            // older links (#system) → 系統狀態
 
   const state = {
     settings: {},
@@ -57,10 +66,11 @@
       $('rail').querySelector('.rail-foot').before(host);
       TT.userMenu(host);
       if (state.me.needs_ad_admin) {
-        const bar = el('a', { class: 'notice-bar admin-notice', href: '#users', html: svg('lock') + _t('<span>還沒有任何 AD 帳號是管理員。請到「帳號與權限」至少指定一位 AD 管理員；本機管理員帳號只留作緊急使用。</span>') });
+        const bar = el('a', { class: 'notice-bar admin-notice', href: '#users', html: svg('lock') + _t('<span>還沒有任何 AD 帳號是管理員。請到「帳號管理」至少指定一位 AD 管理員；本機管理員帳號只留作緊急使用。</span>') });
         document.body.append(bar);
       }
     }
+    healthBanner();
 
     const themeBtn = $('theme-btn');
     themeBtn.before(TT.langButton());
@@ -188,9 +198,10 @@
   }
 
   function buildRail() {
-    $('rail-nav').replaceChildren(...PANELS.filter(p => !p.auth || state.me?.auth).map(p =>
+    $('rail-nav').replaceChildren(...PANELS.filter(p => !p.auth || state.me?.auth).flatMap(p => [
+      p.group ? el('div', { class: 'rail-group', text: GROUPS[p.group] }) : null,
       el('a', { class: 'rail-item', href: '#' + p.id, dataset: { panel: p.id } },
-        el('span', { class: 'rail-icon', html: svg(p.icon) }), el('span', { text: p.label }))));
+        el('span', { class: 'rail-icon', html: svg(p.icon) }), el('span', { text: p.label }))].filter(Boolean)));
   }
 
   async function loadTree() {
@@ -230,8 +241,9 @@
   let currentPanel = null;
 
   async function route() {
-    const id = (location.hash || '#content').slice(1).split('/')[0];
-    const panel = PANELS.find(p => p.id === id) || PANELS[0];
+    let id = (location.hash || '#content').slice(1).split('/')[0];
+    if (ALIAS[id]) { id = ALIAS[id]; history.replaceState(null, '', '#' + id); }
+    const panel = PANELS.find(p => p.id === id && (!p.auth || state.me?.auth)) || PANELS[0];
     if (currentPanel && currentPanel !== panel.id && state.dirty) {
       if (!(await confirmDialog(_t('放棄未儲存的變更？'), _t('這一頁有尚未儲存的修改。'), _t('放棄變更')))) {
         history.replaceState(null, '', '#' + currentPanel);
@@ -250,9 +262,12 @@
       el('div', { class: 'stage-actions', id: 'stage-actions' }));
     const body = el('div', { class: 'stage-body', id: 'stage-body' });
     stage.replaceChildren(head, body);
+    paintHealthBar();
     stage.classList.remove('enter'); void stage.offsetWidth; stage.classList.add('enter');
 
-    ({ content: renderContent, home: renderHome, quick: renderQuick, icons: renderIcons, settings: renderSettings, backup: renderBackup, users: renderUsers, system: renderSystem })[panel.id]();
+    ({ content: renderContent, home: renderHome, quick: renderQuick, icons: renderIcons, settings: renderSettings, backup: renderBackup, users: renderUsers,
+       status: renderStatus, auth: () => renderSystem('auth'), tls: () => renderSystem('tls'), delivery: () => renderSystem('delivery'),
+       audit: renderAudit, sysinfo: renderSysinfo, versions: renderVersions })[panel.id]();
   }
 
   // ======================================================================
@@ -1327,7 +1342,7 @@
       { key: 'board_notify', label: _t('桌面通知'), type: 'switch', hint: _t('到期、提醒時間或開始日到了會跳出系統通知；每位使用者第一次要在瀏覽器按「允許」') },
       { key: 'board_due_soon_days', label: _t('幾天內到期算「即將到期」'), type: 'number' },
       { key: 'board_history_hours', label: _t('結案多久後移到歷史區（小時）'), type: 'number', hint: _t('主卡完成或取消超過這個時間，就從看板移到「歷史區」，只能檢視不能修改。預設 72 小時；1～8760（一年）') },
-      { key: 'board_supervisor', label: _t('上級對下級卡片的權限'), type: 'seg', options: [['rw', _t('可編輯')], ['ro', _t('檢視＋留言')], ['off', _t('不分享')]], hint: _t('上級＝帳號的上級（AD 的 manager 或在「帳號與權限」設定），可以多層。可編輯：瀏覽、留言、增刪修、指派給下級；檢視＋留言：只能看與留言') },
+      { key: 'board_supervisor', label: _t('上級對下級卡片的權限'), type: 'seg', options: [['rw', _t('可編輯')], ['ro', _t('檢視＋留言')], ['off', _t('不分享')]], hint: _t('上級＝帳號的上級（AD 的 manager 或在「帳號管理」設定），可以多層。可編輯：瀏覽、留言、增刪修、指派給下級；檢視＋留言：只能看與留言') },
       { key: 'board_wip_high', label: _t('工作量：每欄幾張起算「高負荷」'), type: 'number', hint: _t('預設 6：每欄 ≤5 張為正常、6～8 張顯示「高負荷」') },
       { key: 'board_wip_over', label: _t('工作量：每欄幾張起算「超量」'), type: 'number', hint: _t('預設 9：≥9 張顯示「超量」，顯示在看板欄位標題') },
       { key: 'board_load_hours', label: _t('人員負載：每週上限（小時）'), type: 'hours', hint: _t('每人每週到期的未完成工作，預估工時合計超過這個數字就算「超載」（跨所有專案與一般卡），會列入雷達的警示清單') },
@@ -1806,14 +1821,23 @@
       last, el('div', { class: 'sys-actions' }, save));
   }
 
-  async function renderSystem() {
+  /** part: 'auth' (AD 驗證: AD, Entra ID, 登入安全), 'tls' (HTTPS 憑證: certificate, ports), 'delivery' (發送與通知: Teams) */
+  async function renderSystem(part) {
     const body = $('stage-body');
     const grid = el('div', { class: 'sys-grid' });
     body.append(grid);
     const auth = state.me?.auth;
 
+    // ---------------- Microsoft Teams: channels, what they get, system / hardware alerts
+    if (part === 'delivery') {
+      let TM;
+      try { TM = await api('/api/system/teams'); } catch (e) { grid.append(el('p', { class: 'hint', text: e.message })); return; }
+      grid.append(teamsCard(TM));
+      return;
+    }
+
     // ---------------- AD / LDAP
-    if (auth) {
+    if (auth && part === 'auth') {
       let L;
       try { L = await api('/api/system/ldap'); } catch (e) { grid.append(el('p', { class: 'hint', text: e.message })); return; }
       const f = {
@@ -1826,7 +1850,7 @@
         user_filter: input(L.user_filter, { placeholder: '(memberOf=CN=ToolTable-Users,OU=Groups,DC=corp,DC=local)' }),
         login_attr: input(L.login_attr), name_attr: input(L.name_attr), dept_attr: input(L.dept_attr), mail_attr: input(L.mail_attr),
         manager_attr: input(L.manager_attr || 'manager'),
-        sync_manager: switchCtl(L.sync_manager !== false, _t('從 AD 同步上級（manager 屬性；登入時更新，在「帳號與權限」手動設定的不受影響）'), () => {}),
+        sync_manager: switchCtl(L.sync_manager !== false, _t('從 AD 同步上級（manager 屬性；登入時更新，在「帳號管理」手動設定的不受影響）'), () => {}),
         starttls: switchCtl(L.starttls, _t('ldap:// 時使用 StartTLS 加密'), () => {}),
         tls_verify: switchCtl(L.tls_verify, _t('驗證網域控制站憑證（建議）'), () => {}),
         ca_pem: el('textarea', { class: 'textarea mono', rows: '4', placeholder: _t('-----BEGIN CERTIFICATE-----\n（內部 CA 簽發時貼上，可多張）') }),
@@ -1872,7 +1896,7 @@
         el('div', { class: 'sys-form' },
           field(_t('伺服器'), f.url, _t('可填多台中的一台；IP 或主機名稱皆可')),
           field(_t('Base DN（搜尋起點）'), f.base_dn),
-          field(_t('服務帳號 DN（建議）'), f.bind_dn, _t('唯讀帳號即可。有它才能在看板 @ 還沒登入過的同事、在「帳號與權限」預先加入帳號')),
+          field(_t('服務帳號 DN（建議）'), f.bind_dn, _t('唯讀帳號即可。有它才能在看板 @ 還沒登入過的同事、在「帳號管理」預先加入帳號')),
           el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('服務帳號密碼') }), f.bind_password, clearBtn),
           field(_t('網域（UPN 後綴）'), f.domain, _t('登入頁會在帳號後面自動帶入「@網域」，例如 ad.corp.local；不用服務帳號時也用它登入 AD。本機帳號不會加上後綴')),
           field(_t('只允許這些帳號登入（選填）'), f.user_filter, _t('LDAP 篩選，例如某個群組的成員')),
@@ -1949,11 +1973,6 @@
           el('div', { class: 'sys-actions' }, esave)));
       }
 
-      // ---------------- Microsoft Teams: channels, what they get, system / hardware alerts
-      let TM;
-      try { TM = await api('/api/system/teams'); } catch (e) { TM = null; }
-      if (TM) grid.append(teamsCard(TM));
-
       // ---------------- sign-in security
       const S = await api('/api/system/security');
       const sf = {
@@ -1976,6 +1995,7 @@
         el('div', { class: 'sys-actions' }, secSave)));
     }
 
+    if (part !== 'tls') return;
     // ---------------- HTTPS certificate
     let T;
     try { T = await api('/api/system/tls'); } catch { T = { helper: false }; }
@@ -2032,7 +2052,7 @@
           const host = fqdn || location.hostname;
           waitApply(r.id, nres, x => {
             if (x.ok && (String(https) !== location.port || (fqdn && fqdn !== location.hostname))) {
-              nres.append(el('a', { class: 'btn btn-sm', href: `https://${host}:${https}/admin#system`, html: svg('external') + _t("前往新網址 https://{0}:{1}/", host, https) }));
+              nres.append(el('a', { class: 'btn btn-sm', href: `https://${host}:${https}/admin#tls`, html: svg('external') + _t("前往新網址 https://{0}:{1}/", host, https) }));
             }
           });
         } catch (e) { toast(e.message, true); }
@@ -2043,22 +2063,271 @@
         el('div', { class: 'sys-actions' }, nsave)));
     }
 
-    // ---------------- info
-    try {
-      const I = await api('/api/system/info');
-      grid.append(sysCard('database', _t('服務資訊'), '',
-        el('dl', { class: 'sys-info' },
-          el('dt', { text: _t('版本') }), el('dd', { text: I.version }),
-          el('dt', { text: _t('版本型態') }), el('dd', { text: I.auth ? _t('伺服器版（需要登入）') : _t('單機 / 開發模式（不需登入）') }),
-          el('dt', { text: _t('資料位置') }), el('dd', { text: I.data_dir }),
-          el('dt', { text: _t('圖示位置') }), el('dd', { text: I.icon_dir }))));
-    } catch { /* ignore */ }
   }
 
   function switchInput(checked, onChange) {
     const input = el('input', { type: 'checkbox', checked });
     input.addEventListener('change', () => onChange(input.checked));
     return el('label', { class: 'switch' }, input, el('span', { class: 'track' }));
+  }
+
+  // ======================================================================
+  // 系統狀態 · 稽核紀錄 · 系統資訊 · 版本紀錄 (same tabs as CFXD_DailyReportDocSys)
+  // ======================================================================
+  const LV = () => ({ ok: _t('正常'), warn: _t('注意'), fail: _t('失敗') });
+  const lvBadge = lv => el('span', { class: `tm-lv lv-${lv}`, text: LV()[lv] || lv });
+  const countBadges = c => ['ok', 'warn', 'fail'].filter(k => c[k] || k === 'ok').map(k => el('span', { class: `tm-lv lv-${k}`, text: `${LV()[k]} ${c[k] || 0}` }));
+  const cardHead = (title, ...right) => el('div', { class: 'adm-card-head' }, el('h3', { class: 'settings-card-title', text: title }), el('span', { class: 'spacer' }), ...right);
+  const kvTable = rows => el('table', { class: 'adm-table kv' }, el('tbody', {}, ...rows.map(r =>
+    el('tr', {}, el('th', { text: r[0] }), el('td', {}, el('span', { text: r[1] }), r[2] ? el('small', { class: 'hint adm-sub', text: r[2] }) : null)))));
+
+  /** Health banner on every admin page (like the report system): the last check's failures, link to 系統狀態 */
+  async function healthBanner() {
+    try {
+      const r = await api('/api/system/status');
+      state.health = { at: r.at, bad: r.items.filter(x => x.level === 'fail') };
+    } catch { state.health = null; }
+    paintHealthBar();
+  }
+  function paintHealthBar() {
+    document.querySelector('.health-bar')?.remove();
+    const h = state.health;
+    if (!h || !h.bad.length) return;
+    $('stage').prepend(el('a', { class: 'notice-bar health-bar', href: '#status',
+      html: svg('zap') + `<span>${esc(_t('健康檢查有 {0} 個失敗項目（{1}）：{2}。', h.bad.length, h.at, h.bad.map(x => x.name).join('、')))}</span><u>${esc(_t('查看與修正方式'))}</u>` }));
+  }
+
+  async function renderStatus() {
+    const body = $('stage-body');
+    const checkBtn = el('button', { class: 'btn btn-primary', type: 'button', html: svg('refresh') + _t('立即檢查') });
+    $('stage-actions').append(checkBtn);
+    const healthCard = el('section', { class: 'panel settings-card' }, el('p', { class: 'hint', text: _t('讀取中…') }));
+    const jobsCard = el('section', { class: 'panel settings-card' });
+    const installCard = el('section', { class: 'panel settings-card' });
+    body.append(healthCard, el('div', { class: 'sys-grid' }, jobsCard, installCard));
+    const paint = r => {
+      const groups = [];
+      r.items.forEach(it => { let g = groups.find(x => x.name === it.group); if (!g) groups.push(g = { name: it.group, items: [] }); g.items.push(it); });
+      healthCard.replaceChildren(
+        cardHead(_t('健康檢查'), el('span', { class: 'hint', text: `${r.at}（${r.manual ? _t('手動') : _t('自動')}）` }), ...countBadges(r.counts || {})),
+        el('table', { class: 'adm-table health' }, el('tbody', {}, ...groups.flatMap(g => [
+          el('tr', { class: 'grp' }, el('td', { colspan: '3', text: g.name })),
+          ...g.items.map(it => el('tr', { class: `lv-row-${it.level}` }, el('td', { class: 'lv' }, lvBadge(it.level)), el('td', { class: 'nm', text: it.name }),
+            el('td', {}, el('span', { text: it.detail }), it.hint ? el('small', { class: 'adm-hint', text: '→ ' + it.hint }) : null)))]))),
+        el('p', { class: 'hint', text: _t('每小時自動檢查一次；有失敗項目時後台每一頁上方都會提醒。硬體與服務告警另外依「發送與通知」的設定送到 Teams。') }));
+      jobsCard.replaceChildren(el('h3', { class: 'settings-card-title', html: svg('history') + _t('最近的維護工作') }),
+        (r.jobs || []).length ? el('table', { class: 'adm-table' }, el('tbody', {}, ...r.jobs.map(j => el('tr', {},
+          el('td', { class: 'nowrap', text: j.at }), el('td', {}, lvBadge(j.ok === false ? 'fail' : 'ok')), el('td', { class: 'nowrap', text: j.what }), el('td', { class: 'mono-sm', text: j.detail || '' })))))
+          : el('p', { class: 'hint', text: _t('還沒有維護紀錄') }),
+        el('p', { class: 'hint', text: _t('備份、憑證／連線埠套用與升級的結果；詳細內容在「備份還原」「HTTPS 憑證」「版本紀錄」。') }));
+      installCard.replaceChildren(el('h3', { class: 'settings-card-title', html: svg('lock') + _t('安裝時決定的項目（唯讀）') }),
+        kvTable(r.install || []),
+        el('p', { class: 'hint', text: _t('這些在安裝時決定，畫面上不能改；連線埠與名稱可在「HTTPS 憑證」變更。') }));
+    };
+    const load = async () => { try { paint(await api('/api/system/status')); } catch (e) { healthCard.replaceChildren(el('p', { class: 'hint', text: e.message })); } };
+    checkBtn.addEventListener('click', async () => {
+      checkBtn.disabled = true; checkBtn.innerHTML = svg('refresh') + _t('檢查中…');
+      try { await api('/api/system/status/check', { method: 'POST' }); await load(); const r = await api('/api/system/status'); toast(_t('健康檢查完成：正常 {0}、注意 {1}、失敗 {2}。', r.counts.ok, r.counts.warn, r.counts.fail), r.counts.fail > 0); healthBanner(); }
+      catch (e) { toast(e.message, true); }
+      checkBtn.disabled = false; checkBtn.innerHTML = svg('refresh') + _t('立即檢查');
+    });
+    await load();
+  }
+
+  async function renderAudit() {
+    const body = $('stage-body');
+    const today = new Date(), iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const ago = n => { const d = new Date(today); d.setDate(d.getDate() - n); return iso(d); };
+    const f = { date_from: ago(6), date_to: iso(today), action: '', actor: '', target: '', q: '', failed: false, page: 1 };
+    const keepIn = input('', { type: 'number', style: 'width:7em' });
+    const keepBtn = el('button', { class: 'btn', type: 'button', text: _t('儲存') });
+    const keepHint = el('span', { class: 'hint' });
+    const keepCard = el('section', { class: 'panel settings-card' }, el('h3', { class: 'settings-card-title', text: _t('保存期限') }),
+      el('div', { class: 'adm-inline' }, el('span', { text: _t('稽核紀錄保存') }), keepIn, el('span', { text: _t('天') }), keepBtn), keepHint);
+    const from = input(f.date_from, { type: 'date' }), to = input(f.date_to, { type: 'date' });
+    const actSel = el('select', { class: 'select' }), whoSel = el('select', { class: 'select' });
+    const tgt = input('', { placeholder: _t('帳號、備份名稱、卡片編號…') }), q = input('', { placeholder: _t('關鍵字') });
+    const failed = switchCtl(false, _t('只看失敗'), () => {});
+    const go = el('button', { class: 'btn btn-primary', type: 'button', html: svg('search') + _t('查詢') });
+    const csv = el('a', { class: 'btn', html: svg('download') + _t('匯出 CSV') });
+    const clear = el('button', { class: 'btn btn-ghost', type: 'button', text: _t('清除條件') });
+    const quick = el('span', { class: 'hint adm-quick' });
+    const QUICK = [[_t('今天'), 0, 0], [_t('昨天'), 1, 1], [_t('近 7 天'), 6, 0], [_t('近 30 天'), 29, 0], [_t('本月'), today.getDate() - 1, 0]];
+    quick.append(_t('快速區間：'), ...QUICK.flatMap(([l, a, b], i) => { const x = el('a', { href: '#audit', text: l }); x.addEventListener('click', e => { e.preventDefault(); from.value = ago(a); to.value = ago(b); f.page = 1; run(); }); return i ? [' · ', x] : [x]; }));
+    const queryCard = el('section', { class: 'panel settings-card' }, el('h3', { class: 'settings-card-title', text: _t('稽核紀錄查詢') }),
+      el('p', { class: 'hint', text: _t('以天為單位查詢（起訖日期都包含，最多 366 天），可再依動作、操作者、對象、內容篩選。稽核紀錄不會隨卡片或帳號刪除，也不能在畫面上修改或刪除；匯出 CSV 本身也會記錄一筆。') }),
+      el('div', { class: 'sys-form adm-filter' }, field(_t('起日'), from), field(_t('迄日'), to), field(_t('動作'), actSel), field(_t('操作者'), whoSel),
+        field(_t('對象（包含）'), tgt), field(_t('內容（包含）'), q)),
+      el('div', { class: 'sys-actions adm-actions-left' }, go, csv, clear, failed, quick));
+    const resCard = el('section', { class: 'panel settings-card' });
+    body.append(keepCard, queryCard, resCard);
+    const params = () => {
+      Object.assign(f, { date_from: from.value, date_to: to.value, action: actSel.value, actor: whoSel.value, target: tgt.value.trim(), q: q.value.trim(), failed: failed.querySelector('input').checked });
+      const p = new URLSearchParams(); Object.entries(f).forEach(([k, v]) => { if (v !== '' && v !== false) p.set(k, v); });
+      return p;
+    };
+    let filled = false;
+    async function run() {
+      const p = params();
+      csv.href = '/api/system/audit.csv?' + p.toString();
+      let r;
+      try { r = await api('/api/system/audit?' + p.toString()); } catch (e) { resCard.replaceChildren(el('p', { class: 'hint', text: e.message })); return; }
+      if (!filled) {
+        filled = true;
+        actSel.replaceChildren(el('option', { value: '', text: _t('（全部）') }), ...r.actions.map(a => el('option', { value: a.code, text: a.label })));
+        whoSel.replaceChildren(el('option', { value: '', text: _t('（全部）') }), ...r.actors.map(a => el('option', { value: a.id, text: a.name })), el('option', { value: '-', text: _t('未登入／系統') }));
+        keepIn.value = r.keep; keepIn.min = r.keep_min; keepIn.max = r.keep_max;
+      }
+      from.value = r.filters.date_from; to.value = r.filters.date_to;
+      keepHint.textContent = _t('至少 {0} 天、最多 {1} 天。每天清除超過期限的紀錄（清除本身也會記一筆），目前最早一筆是 {2}。需要更久請定期「匯出 CSV」或靠備份保存；還原備份不會刪掉比備份新的稽核紀錄。', r.keep_min, r.keep_max, r.earliest || '—');
+      let day = null;
+      const W = [_t('日'), _t('一'), _t('二'), _t('三'), _t('四'), _t('五'), _t('六')];
+      const rows = [];
+      r.rows.forEach(x => {
+        const d = x.at.slice(0, 10);
+        if (d !== day) { day = d; rows.push(el('tr', { class: 'grp' }, el('td', { colspan: '6', text: `${d}（${W[new Date(d + 'T00:00').getDay()]}）` }))); }
+        rows.push(el('tr', { class: x.ok ? '' : 'lv-row-fail' }, el('td', { class: 'nowrap', text: x.at.slice(11, 19) }), el('td', { class: 'nowrap', text: x.label }),
+          el('td', { text: x.actor || '—' }), el('td', { text: x.target || '' }), el('td', { text: x.detail || '' }), el('td', { class: 'mono-sm', text: x.ip || '' })));
+      });
+      const pager = r.pages > 1 ? el('div', { class: 'sys-actions adm-actions-left' },
+        r.page > 1 ? (() => { const b = el('button', { class: 'btn btn-sm', type: 'button', text: _t('← 較新') }); b.addEventListener('click', () => { f.page = r.page - 1; run(); }); return b; })() : null,
+        el('span', { class: 'hint', text: _t('第 {0} / {1} 頁', r.page, r.pages) }),
+        r.page < r.pages ? (() => { const b = el('button', { class: 'btn btn-sm', type: 'button', text: _t('較舊 →') }); b.addEventListener('click', () => { f.page = r.page + 1; run(); }); return b; })() : null) : null;
+      resCard.replaceChildren(...[
+        cardHead(r.filters.date_from === r.filters.date_to ? _t('{0}：共 {1} 筆', r.filters.date_from, r.total) : _t('{0} ～ {1}：共 {2} 筆', r.filters.date_from, r.filters.date_to, r.total)),
+        r.per_day.length > 1 ? el('p', { class: 'hint adm-quick' }, _t('每天筆數：'), ...r.per_day.flatMap(([d, n], i) => {
+          const a = el('a', { href: '#audit', text: `${d.slice(5)}（${n}）` }); a.addEventListener('click', e => { e.preventDefault(); from.value = to.value = d; f.page = 1; run(); });
+          return i ? ['、', a] : [a]; })) : null,
+        el('div', { class: 'adm-scroll' }, el('table', { class: 'adm-table audit' },
+          el('thead', {}, el('tr', {}, ...[_t('時間'), _t('動作'), _t('操作者'), _t('對象'), _t('內容'), _t('來源 IP')].map(h => el('th', { text: h })))),
+          el('tbody', {}, ...(rows.length ? rows : [el('tr', {}, el('td', { colspan: '6', class: 'hint', text: _t('這個條件沒有稽核紀錄。') }))])))),
+        pager].filter(Boolean));
+    }
+    go.addEventListener('click', () => { f.page = 1; run(); });
+    [tgt, q].forEach(x => x.addEventListener('keydown', e => { if (e.key === 'Enter') { f.page = 1; run(); } }));
+    clear.addEventListener('click', () => { from.value = ago(6); to.value = iso(today); actSel.value = whoSel.value = ''; tgt.value = q.value = ''; failed.querySelector('input').checked = false; f.page = 1; run(); });
+    keepBtn.addEventListener('click', async () => {
+      try { const r = await api('/api/system/audit/retention', { method: 'PUT', body: { days: Number(keepIn.value) } }); toast(_t('稽核紀錄保存天數已改為 {0} 天。', r.keep)); run(); }
+      catch (e) { toast(e.message, true); }
+    });
+    await run();
+  }
+
+  async function renderSysinfo() {
+    const body = $('stage-body');
+    const dl = el('a', { class: 'btn', href: '/api/system/sysinfo.json', html: svg('download') + _t('下載 JSON') });
+    const again = el('button', { class: 'btn btn-ghost', type: 'button', html: svg('refresh') + _t('重新讀取') });
+    again.addEventListener('click', () => route());
+    $('stage-actions').append(again, dl);
+    body.append(el('p', { class: 'hint', text: _t('讀取中…') }));
+    let I;
+    try { I = await api('/api/system/sysinfo'); } catch (e) { body.replaceChildren(el('p', { class: 'hint', text: e.message })); return; }
+    const sec = (icon, title, ...content) => el('section', { class: 'panel settings-card' }, el('h3', { class: 'settings-card-title', html: svg(icon) + esc(title) }), ...content);
+    const table = (heads, rows) => el('div', { class: 'adm-scroll' }, el('table', { class: 'adm-table' },
+      el('thead', {}, el('tr', {}, ...heads.map(h => el('th', { text: h })))), el('tbody', {}, ...rows)));
+    const fs = (I.filesystems || []).filter(x => x.label);
+    const pk = I.python_packages || [];
+    const [direct, other] = [pk.filter(p => p.direct), pk.filter(p => !p.direct)];
+    const pyRow = p => el('tr', { class: p.mismatch ? 'lv-row-warn' : '' }, el('td', { class: 'nowrap', text: p.name }), el('td', { class: 'nowrap', text: p.version }),
+      el('td', { class: 'nowrap', text: p.required ? (p.mismatch ? _t('需要 {0}', p.required) : p.required) : '' }), el('td', { class: 'hint', text: p.summary || '' }));
+    body.replaceChildren(...[
+      el('p', { class: 'hint', text: _t('讀取時間 {0}（{1} 秒）。讀不到的項目顯示「無法取得」；下載 JSON 可附在問題回報或資產盤點（會記錄在稽核紀錄）。', I.generated, I.elapsed) }),
+      el('div', { class: 'sys-grid' },
+        sec('monitor', _t('硬體'), kvTable(I.hardware || [])),
+        sec('settings', _t('作業系統'), kvTable(I.os || [])),
+        sec('app', _t('執行環境與工具'), kvTable(I.runtime || []))),
+      fs.length ? sec('database', _t('檔案系統'), table([_t('用途'), _t('路徑'), _t('掛載點'), _t('裝置'), _t('格式'), _t('容量'), _t('可用'), _t('已用')],
+        fs.map(x => el('tr', { class: x.used_pct >= 90 ? 'lv-row-fail' : x.used_pct >= 80 ? 'lv-row-warn' : '' }, el('td', { class: 'nowrap', text: x.label }), el('td', { class: 'mono-sm', text: x.path }),
+          el('td', { class: 'mono-sm', text: x.dup ? _t('（同上）') : x.mount }), el('td', { class: 'mono-sm', text: x.device }), el('td', { text: x.fstype }), el('td', { class: 'nowrap', text: x.total }),
+          el('td', { class: 'nowrap', text: x.free }), el('td', { class: 'nowrap', text: `${x.used_pct}%` }))))) : null,
+      sec('zap', _t('服務'), (I.services || []).length ? table([_t('服務'), _t('狀態'), _t('開機啟動'), 'PID', _t('啟動時間'), _t('記憶體'), _t('重新啟動次數')],
+        I.services.map(s => el('tr', { class: s.ok === false && !String(s.state).includes('未安裝') ? 'lv-row-fail' : '' }, el('td', { class: 'mono-sm', text: s.unit }), el('td', { text: s.state }), el('td', { text: s.enabled || '' }),
+          el('td', { text: s.pid || '' }), el('td', { class: 'nowrap', text: s.since || '' }), el('td', { class: 'nowrap', text: s.memory || '' }), el('td', { text: s.restarts || '' }))))
+        : el('p', { class: 'hint', text: _t('不是以 systemd 執行（Windows 單機版、容器或開發模式），沒有服務資訊。') })),
+      I.system_packages ? sec('grid', _t('系統套件（安裝腳本使用的；主機共 {0} 個套件，完整清單在下載的 JSON）', I.system_packages_total),
+        table([_t('套件'), _t('版本'), _t('說明')], I.system_packages.map(p => el('tr', { class: p.installed ? '' : 'lv-row-warn' },
+          el('td', { class: 'mono-sm', text: p.name }), el('td', { class: 'mono-sm', text: p.version }), el('td', { class: 'hint', text: p.summary }))))) : null,
+      sec('list', _t('Python 套件（{0}，其中直接相依 {1}）', pk.length, direct.length),
+        table([_t('套件'), _t('版本'), 'requirements.txt', _t('說明')], direct.map(pyRow)),
+        other.length ? el('details', { class: 'sys-advanced' }, el('summary', { text: _t('其他 {0} 個（間接相依）', other.length) }), table([_t('套件'), _t('版本'), '', _t('說明')], other.map(pyRow))) : null)].filter(Boolean));
+  }
+
+  async function renderVersions() {
+    const body = $('stage-body');
+    body.append(el('p', { class: 'hint', text: _t('讀取中…') }));
+    let V;
+    try { V = await api('/api/system/versions'); } catch (e) { body.replaceChildren(el('p', { class: 'hint', text: e.message })); return; }
+    const TY = { X: _t('核心架構'), Y: _t('功能'), Z: _t('修正'), '—': _t('初版') };
+    const vtype = t => el('span', { class: `vtype vtype-${['X', 'Y', 'Z'].includes(t) ? t : 'init'}`, text: `${t} ${TY[t] || ''}` });
+    const cur = `v${V.current.version}`;
+    const head = el('section', { class: 'panel settings-card' },
+      el('h3', { class: 'settings-card-title' }, _t('目前版本：{0}', cur), V.current.commit ? el('span', { class: 'hint' }, ' commit ', el('code', { text: V.current.commit })) : null),
+      el('p', { class: 'hint', text: _t('版號 vX.Y.Z，每個 commit 依類型進一版（merge commit、只改文件的 commit 不計）：') }),
+      el('ul', { class: 'hint adm-ul' },
+        el('li', {}, el('b', { text: _t('X 核心架構') }), _t('：跳躍式改版，動到核心架構（資料模型、權限、設定、同步），Y、Z 歸零。共 {0} 次。', V.counts.X)),
+        el('li', {}, el('b', { text: _t('Y 功能') }), _t('：現有功能的新增、刪除、變更，Z 歸零。共 {0} 次。', V.counts.Y)),
+        el('li', {}, el('b', { text: _t('Z 修正') }), _t('：修正 BUG、錯誤、安全補丁。共 {0} 次。', V.counts.Z))));
+    const up = el('section', { class: 'panel settings-card upgrade-card' });
+    const upBtn = el('button', { class: 'btn btn-primary', type: 'button', html: svg('download') + _t('升級到最新版') });
+    const msg = el('p', { class: 'up-msg' });
+    const logBox = el('pre', { class: 'upgrade-log' });
+    const logWrap = el('details', { class: 'sys-advanced' }, el('summary', { text: _t('升級記錄') }), logBox);
+    const progress = el('div', { class: 'upgrade-progress' }, msg, logWrap);
+    const paintStatus = st => {
+      const s = st || {};
+      progress.hidden = !(s.pending || s.state);
+      msg.textContent = s.pending ? _t('已送出升級要求，等待主機開始…') : s.state === 'running' ? _t('升級中（{0} 開始）…', s.at)
+        : s.state === 'done' ? _t('上次升級：{0} 完成，v{1} → v{2}', s.at, s.from, s.to) : s.state === 'error' ? _t('上次升級失敗（{0}），請看下方記錄', s.at) : '';
+      logBox.textContent = s.log || '';
+      logWrap.open = !!(s.pending || ['running', 'error'].includes(s.state));
+      upBtn.disabled = !!(s.pending || s.state === 'running');
+    };
+    let polling = false;
+    const poll = async () => {
+      if (polling) return; polling = true;
+      const was = V.current.version;
+      for (let i = 0; i < 400 && currentPanel === 'versions'; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        let s;
+        try { s = await api('/api/system/upgrade/status'); } catch { msg.textContent = _t('服務重新啟動中…'); continue; }
+        paintStatus(s);
+        if (!s.pending && s.state !== 'running') { if (s.running_version !== was || s.state === 'done') { toast(_t('升級完成，重新載入…')); setTimeout(() => location.reload(), 1500); } break; }
+      }
+      polling = false;
+    };
+    upBtn.addEventListener('click', async () => {
+      if (!(await confirmDialog(_t('升級到 GitHub 上的最新版？'), _t('會先自動備份，再更新程式並重新啟動服務，約需 1–5 分鐘，期間網頁會短暫無法使用。請確認目前沒有人正在編輯。'), _t('升級'), false))) return;
+      try { await api('/api/system/upgrade', { method: 'POST' }); toast(_t('已開始升級：會先備份，再更新程式並重新啟動服務；這一頁會自動更新。')); paintStatus({ pending: true, log: '' }); poll(); }
+      catch (e) { toast(e.message, true); }
+    });
+    const upTop = el('div', { class: 'adm-card-head' }, el('h3', { class: 'settings-card-title', text: _t('升級') }), el('span', { class: 'spacer' }));
+    up.append(upTop);
+    if (!V.server) up.append(el('p', { class: 'hint', text: _t('單機版不在這裡升級：連線到伺服器後，會自動從伺服器下載與伺服器相同的版本。') }));
+    else if (!V.remote) up.append(el('p', { class: 'hint', text: _t('無法連線到 GitHub 檢查新版（主機需要能連到 github.com）。') }));
+    else if (V.up_to_date) up.append(el('p', {}, el('span', { class: 'tm-lv lv-ok', text: _t('已是最新版') }), ' ', el('span', { class: 'hint' }, 'GitHub main ', el('code', { text: V.remote }))));
+    else {
+      if (V.available) upTop.append(upBtn);
+      up.append(el('p', {}, _t('GitHub 上有新版 '), el('code', { text: V.remote }), V.new && V.new.length ? _t('，共 {0} 個版本：', V.new.length) : '：'));
+      if (V.new && V.new.length) up.append(el('ul', { class: 'upgrade-new' }, ...V.new.map(r => el('li', {}, el('b', { text: r.version }), ' ', vtype(r.type), ' ', el('span', { class: 'hint', text: r.date }), el('br'), r.text))));
+      else if (V.new === null) up.append(el('p', { class: 'hint', text: _t('（無法讀取新版的版本紀錄）') }));
+      if (!V.available) up.append(el('p', { class: 'notice-inline' }, _t('主機尚未安裝升級服務，這次請在主機執行：'), el('code', { class: 'wrap', text: V.cmd }), el('br'), _t('升級到這一版以後，之後都可以直接按這裡的按鈕升級。')));
+    }
+    up.append(progress,
+      el('p', { class: 'hint', text: _t('按鈕與主機指令 tool-table.sh upgrade 做的事完全相同：升級前自動備份 → 更新程式（git pull）→ 安裝相依套件 → 重新啟動服務 → 健康檢查。只有系統管理員可以升級，每次升級都記錄在稽核紀錄。') }));
+    paintStatus(V.status);
+    if (V.status && (V.status.pending || V.status.state === 'running')) poll();
+    const all = el('section', { class: 'panel settings-card' }, el('h3', { class: 'settings-card-title', text: _t('全部版本（{0}）', V.rows.length) }),
+      el('div', { class: 'adm-scroll' }, el('table', { class: 'adm-table versions' },
+        el('thead', {}, el('tr', {}, ...[_t('版本'), _t('日期'), 'commit', _t('類型'), _t('內容')].map(h => el('th', { text: h })))),
+        el('tbody', {}, ...(V.rows.length ? V.rows.map(r => {
+          const c = r.commit.startsWith('（') && r.version === cur && V.current.commit ? V.current.commit : r.commit;
+          return el('tr', { class: (r.version === cur ? 'current ' : '') + (r.type === 'X' ? 'major' : '') },
+            el('td', { class: 'nowrap' }, el('b', { text: r.version }), r.version === cur ? el('span', { class: 'tm-lv lv-ok', text: _t('目前') }) : null),
+            el('td', { class: 'nowrap', text: r.date }),
+            el('td', {}, c && !c.startsWith('（') ? el('a', { href: `https://github.com/${V.repo}/commit/${c}`, target: '_blank', rel: 'noopener' }, el('code', { text: c })) : c),
+            el('td', { class: 'nowrap' }, vtype(r.type)), el('td', { text: r.text }));
+        }) : [el('tr', {}, el('td', { colspan: '5', class: 'hint', text: _t('找不到 CHANGELOG.md。') }))])))));
+    body.replaceChildren(head, up, all);
   }
 
   function renderBackup() {

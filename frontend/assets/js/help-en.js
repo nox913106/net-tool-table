@@ -452,7 +452,7 @@ window.TT_HELP_EN = [
     ],
   },
   {
-    id: 'accounts', icon: 'users', title: 'Accounts and permissions',
+    id: 'accounts', icon: 'users', title: 'Accounts',
     items: [
       { h: 'Roles', b: `<table>
         <tr><td>System admin</td><td>All admin settings; all cards</td></tr>
@@ -469,14 +469,35 @@ window.TT_HELP_EN = [
   },
   {
     id: 'admin', icon: 'settings', title: 'Admin console (administrators)',
-    intro: 'Open /admin, or click the logo or the clock 5 times quickly; on the server it is also in the account menu. Only system admins can enter.',
+    intro: 'Open /admin, or click the logo or the clock 5 times quickly; on the server it is also in the account menu. Only system admins can enter. Every setting applies on save, with no need to sign in to the host, and every change is recorded in the audit log.',
     items: [
+      { h: 'Two groups on the left', b: '<b>Portal</b>: content, home layout, quick links, icons, appearance and settings. <b>System settings</b> (the same tabs as the CFXD daily report system): status, AD sign-in, accounts, audit log, backup & restore, HTTPS certificate, notifications, system info, versions. When the health check has failed items, a red bar at the top of every page links to “System status”.' },
       { h: 'Content', b: 'Tree editor for public folders and links: drag to reorder or into folders; name, URL, description, icon, color, open in new tab, enabled, and <b>visibility</b> (everyone, or chosen departments / people; a folder\'s limit applies to everything inside).' },
       { h: 'Home layout, quick links, icons', b: 'Add, order and configure Home sections; grouped quick links; upload icons, rename them (references update automatically) and see how often they are used.' },
-      { h: 'Appearance and settings', b: 'Site name, default language, theme and accent color, background, clock style, feature switches, and board settings: due-soon days, <b>how long after closing a card moves to History</b>, manager rights, workload thresholds, people-load limit, shared windows, tag colors and what the war room shows.' },
-      { h: 'Backup and import', b: 'Automatic backups (weekly full, incremental every few hours, retention days), back up now, download, upload and restore; every backup checks that the database and attachments match. Also whole-site JSON export / import and demo data for testing.' },
-      { h: 'Accounts and permissions', b: 'AD accounts appear here after their first sign-in, as guests; promote them to user or admin, set managed departments and managers, or disable accounts. At least one AD system admin must remain.' },
-      { h: 'System settings', b: 'AD / LDAP connection (with tests), Entra ID, sign-in security (timeouts, lockout), HTTPS certificate, ports, Microsoft Teams notifications (channels, change digests, daily project events, system and hardware alerts, scheduled status reports).' },
+      { h: 'Appearance and settings', b: 'Site name, default language, theme and accent color, background, clock style, feature switches, and board settings: due-soon days, <b>how long after closing a card moves to History</b>, manager rights, workload thresholds, people load limits, shared windows, tag colors, what the war room shows.' },
+      { h: 'System status', b: `<ul>
+        <li><b>Health check</b>: grouped by storage / hardware / system / services / settings / background work / version; every item is OK, warning or failed with its value, and anything not OK has “→ how to fix” below it. Top right: when it ran and the counts.</li>
+        <li><b>Check now</b>: runs everything again (including AD, Entra and database integrity); it also runs every hour.</li>
+        <li><b>Recent maintenance</b>: recent backups (with their database / attachment check), certificate or port changes, upgrades.</li>
+        <li><b>Decided at install time (read only)</b>: version, program / data / icon / backup locations, ports and server name.</li>
+      </ul>` },
+      { h: 'AD sign-in', b: 'AD / LDAP connection (server, base DN, service account, domain, group filter, advanced attributes and TLS — test before saving), Microsoft Entra ID sign-in, and sign-in security (idle sign-out, longest session, lockout).' },
+      { h: 'Accounts', b: 'AD accounts appear here after their first sign-in, as guests; promote them to user or admin, set managed departments and managers, or disable accounts. At least one AD system admin must remain.' },
+      { h: 'Audit log', b: `<ul>
+        <li>Records sign-ins / failed sign-ins / sign-outs, account permission changes, every system setting, backups (now, download, upload, delete, restore), HTTPS certificate and ports, appearance settings, portal content import / export and link changes, deleted cards, Excel report imports, demo data, standalone copies, upgrades. Each row has time, action, who, target, details and source IP; failed actions are shaded red.</li>
+        <li><b>Search</b>: from / to (up to 366 days), action, who, target (contains), details (contain), failures only; quick ranges today / yesterday / last 7 / last 30 days / this month; rows grouped by day with clickable per-day counts; 100 per page with “← Newer / Older →”.</li>
+        <li><b>Export CSV</b>: everything matching (opens in Excel); the export itself is recorded.</li>
+        <li><b>Retention</b>: 180–3650 days (default 366), purged daily; rows cannot be changed or deleted on screen; restoring a backup keeps the audit rows newer than it.</li>
+      </ul>` },
+      { h: 'Backup & restore', b: 'Automatic backups (weekly full, incremental every few hours, retention days), full / incremental backup now, download, upload and restore; every backup checks that the database and attachments match. Also whole-site JSON export / import and demo data for testing.' },
+      { h: 'HTTPS certificate', b: 'The current certificate (subject, issuer, names, expiry and days left), replace it by pasting or choosing files (pair and expiry checked first; rolled back if nginx refuses it), regenerate a self-signed one, and the HTTPS / HTTP ports and server name.' },
+      { h: 'Notifications', b: 'Microsoft Teams channels: what each gets (card change digests, daily project events, system and hardware alerts, scheduled status reports), scope, thresholds and tests; “Send a status report now”.' },
+      { h: 'System info', b: 'Read fresh each time: hardware (CPU, memory, disks), operating system (version, boot time, time zone and time sync), runtime and tools (program version, Python, SQLite, nginx, git…), file systems (which disk holds the program, data, attachments, icons and backups and how full it is), services, system packages and Python packages (checked against requirements.txt). “Download JSON” for problem reports or asset inventories.' },
+      { h: 'Versions and upgrading', b: `<ul>
+        <li>The running version vX.Y.Z and commit; numbering as in the daily report system (X core, Y feature, Z fix).</li>
+        <li><b>Upgrade</b>: lists the newer versions on GitHub with what changed; “Upgrade to the latest” has the host's upgrade service do, as root, exactly what <code>tool-table.sh upgrade</code> does (backup → update → packages → restart → health check), with progress and the log on the page and a reload when done. The first time, upgrade once with the command on the host; after that the button works.</li>
+        <li><b>All versions</b>: date, commit (links to GitHub), type and changes of every version, with the running one marked.</li>
+      </ul>` },
       { h: 'API docs', b: '“API docs” at the bottom left of the console, or /docs: every API grouped by feature with descriptions, and you can try them out (running as yourself).' },
     ],
   },

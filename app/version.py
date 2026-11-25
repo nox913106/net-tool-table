@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 PARTS = ("app", "frontend", "resource/icon")
-SINGLE = ("portable/launcher.py", "requirements.txt")
+SINGLE = ("portable/launcher.py", "requirements.txt", "VERSION", "CHANGELOG.md")
 SKIP_DIRS = {"__pycache__", ".pytest_cache"}
 SKIP_EXT = {".pyc", ".pyo"}
 

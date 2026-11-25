@@ -20,7 +20,7 @@ from .routes import auth as auth_routes, auth_links, dashboard, local, nodes, se
 from .routes import sync as sync_routes
 
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
-VERSION = "3.0.0"
+VERSION = (PROJECT_ROOT / "VERSION").read_text().strip() if (PROJECT_ROOT / "VERSION").is_file() else "0.0.0"
 
 
 async def _teams_loop():
@@ -77,6 +77,18 @@ async def _scheduler():
                     await db.close()
             except Exception:
                 logging.getLogger("tool_table").exception("dashboard snapshot")
+        if tick % 60 == 11:                     # hourly: 系統狀態's health table (the admin banner reads its last run)
+            try:
+                from .health import run as health_run
+                await health_run(False)
+            except Exception:
+                logging.getLogger("tool_table").exception("health")
+        if tick % 60 == 9:                      # hourly (acts once a day): purge audit rows past their keep time
+            try:
+                from .audit import purge_if_due
+                await purge_if_due()
+            except Exception:
+                logging.getLogger("tool_table").exception("audit purge")
         if tick % 60 == 5:                      # hourly: unposted comment images, orphaned files
             try:
                 await loop.run_in_executor(None, cleanup_images, DB_PATH)
@@ -182,6 +194,26 @@ async def harden_icons(request: Request, call_next):
         response.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
         response.headers["X-Content-Type-Options"] = "nosniff"
     return response
+
+@app.middleware("http")
+async def audit_trail(request: Request, call_next):
+    """稽核紀錄: administrative changes (app/audit.py ROUTES), logged after they ran — with their outcome."""
+    response = await call_next(request)
+    route = request.scope.get("route")
+    from . import audit
+    code = audit.ROUTES.get((request.method.upper(), getattr(route, "path", None))) if route else None
+    if code:
+        user = getattr(request.state, "user", None)
+        params = request.scope.get("path_params") or {}
+        target = getattr(request.state, "audit_target", None) or " ".join(str(v) for v in params.values())
+        detail = getattr(request.state, "audit_detail", "") or ""
+        ok = response.status_code < 400
+        if not ok:
+            detail = (detail + "；" if detail else "") + f"失敗（HTTP {response.status_code}）"
+        await audit.log(code, user if user and user.get("id") is not None else None, target, detail,
+                        auth_mod.client_ip(request), ok, actor=None if user and user.get("id") is not None else (user or {}).get("username") or "本機")
+    return response
+
 
 # Registered last = runs first: login / roles / CSRF header (app/auth.py)
 app.middleware("http")(auth_mod.gate)

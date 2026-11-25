@@ -98,6 +98,8 @@ def main():
     (app / "portable").mkdir()
     shutil.copy2(HERE / "launcher.py", app / "portable" / "launcher.py")
     shutil.copy2(ROOT / "requirements.txt", app / "requirements.txt")   # part of the version id (app/version.py)
+    for f in ("VERSION", "CHANGELOG.md"):                                 # 後台「版本紀錄」
+        shutil.copy2(ROOT / f, app / f)
     shutil.copy2(HERE / "tooltable.ico", STAGE / "tooltable.ico")
     shutil.copy2(HERE / "README.txt", STAGE / "README.txt")
     (STAGE / "IPMS.cmd").write_text(

@@ -1,0 +1,10 @@
+[Unit]
+Description=IPMS: upgrade to the latest version (requested from the admin UI)
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Runs as root, exactly like `tool-table.sh upgrade` on the host: backup first → git pull → packages → restart → health check.
+# Only the existence of the request file matters; its content is never used.
+ExecStart=/bin/bash /opt/tool-table/scripts/tool-table.sh web-upgrade
+TimeoutStartSec=1800

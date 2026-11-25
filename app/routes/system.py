@@ -416,13 +416,15 @@ async def put_backup(body: BackupIn):
 
 
 @router.post("/backups")
-async def backup_now(body: Optional[BackupNow] = None):
+async def backup_now(request: Request, body: Optional[BackupNow] = None):
     loop = asyncio.get_running_loop()
     inc = bool(body and body.kind == "inc")
     try:
         b = await loop.run_in_executor(None, lambda: bk.make_backup("manual", incremental=inc))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"備份失敗：{e}")
+    request.state.audit_target = b.get("name", "")
+    request.state.audit_detail = ("增量備份" if inc else "完整備份") + (f"；{b['check']}" if b.get("check") else "")
     return b
 
 
@@ -693,3 +695,176 @@ async def demo_remove():
         return out
     finally:
         await db.close()
+
+
+# ---------------------------------------------------------------- 系統狀態 (app/health.py)
+@router.get("/status")
+async def status_page():
+    """The last health check, what the installation decided (read only) and the recent maintenance work."""
+    from .. import health, upgrade
+    from ..database import DB_PATH
+    res = await health.last()
+    env = {}
+    try:
+        state = _json.loads((REQ_DIR / "state.json").read_text())
+    except Exception:
+        state = {}
+    loop = asyncio.get_running_loop()
+    cur = await loop.run_in_executor(None, upgrade.current)
+    install = [
+        ["版本", f"v{cur['version']}" + (f"（{cur['commit']}）" if cur["commit"] else "")],
+        ["版本型態", "伺服器版（需要登入）" if C.AUTH else "單機版／開發模式（不需登入）"],
+        ["程式位置", str(upgrade.APP_DIR)],
+        ["資料位置", str(DB_PATH.parent)],
+        ["圖示位置", str(C.ICON_DIR)],
+        ["備份位置", str(bk.BACKUP_DIR)],
+    ]
+    if state:
+        install.append(["HTTPS 埠", str(state.get("https_port") or "—")])
+        install.append(["HTTP 埠", str(state.get("http_port") or "不開（只用 HTTPS）")])
+        install.append(["伺服器名稱", state.get("fqdn") or "（任何名稱）"])
+    install.append(["服務內部埠", f"127.0.0.1:{_os.environ.get('TOOL_TABLE_APP_PORT') or '—'}"])
+    jobs = []
+    for b in bk.list_backups()[:6]:
+        jobs.append({"at": (b.get("created") or "")[:16].replace("T", " "), "what": "增量備份" if b.get("type") == "inc" else "完整備份",
+                     "ok": b.get("check_ok", True) is not False, "detail": f"{b.get('name')}　{b.get('check') or ''}".strip()})
+    try:
+        r = _json.loads((REQ_DIR / "result.json").read_text())
+        jobs.append({"at": (r.get("at") or "")[:16].replace("T", " "), "what": "憑證／連線埠套用", "ok": r.get("ok"), "detail": r.get("message")})
+    except Exception:
+        pass
+    up = upgrade.status()
+    if up.get("state"):
+        jobs.append({"at": (up.get("at") or "")[:16], "what": "升級", "ok": up.get("state") != "error",
+                     "detail": f"{up.get('msg')}：v{up.get('from')} → v{up.get('to')}"})
+    jobs.sort(key=lambda j: j["at"], reverse=True)
+    return {**res, "install": install, "jobs": jobs[:10], "env": env}
+
+
+@router.post("/status/check")
+async def status_check():
+    from .. import health
+    return await health.run(manual=True)
+
+
+# ---------------------------------------------------------------- 稽核紀錄 (app/audit.py)
+class RetentionIn(BaseModel):
+    days: int
+
+
+@router.get("/audit")
+async def audit_list(date_from: str = "", date_to: str = "", action: str = "", actor: str = "", target: str = "", q: str = "",
+                     failed: bool = False, page: int = 1):
+    from .. import audit, i18n
+    from ..database import get_db
+    f = audit.filters(date_from, date_to, action, actor, target, q, failed)
+    sql, args = audit.where(f)
+    per = 100
+    db = await get_db()
+    try:
+        cur = await db.execute(f"SELECT COUNT(*) FROM audit_log WHERE {sql}", args)
+        total = (await cur.fetchone())[0]
+        pages = max(1, (total + per - 1) // per)
+        page = max(1, min(page, pages))
+        cur = await db.execute(f"SELECT * FROM audit_log WHERE {sql} ORDER BY at DESC, id DESC LIMIT ? OFFSET ?", (*args, per, (page - 1) * per))
+        rows = [dict(r) for r in await cur.fetchall()]
+        cur = await db.execute(f"SELECT substr(at, 1, 10) AS d, COUNT(*) AS n FROM audit_log WHERE {sql} GROUP BY d ORDER BY d DESC", args)
+        per_day = [[r["d"], r["n"]] for r in await cur.fetchall()]
+        cur = await db.execute("SELECT actor_id, MAX(actor) AS actor FROM audit_log WHERE actor_id IS NOT NULL GROUP BY actor_id ORDER BY actor")
+        actors = [{"id": r["actor_id"], "name": r["actor"]} for r in await cur.fetchall()]
+        cur = await db.execute("SELECT MIN(at) FROM audit_log")
+        earliest = (await cur.fetchone())[0]
+    finally:
+        await db.close()
+    L = i18n.lang()
+    for r in rows:
+        r["label"] = audit.label(r["action"], L)
+    return {"filters": f, "rows": rows, "total": total, "page": page, "pages": pages, "per_day": per_day, "actors": actors,
+            "actions": [{"code": k, "label": audit.label(k, L)} for k in audit.LABELS], "keep": audit.keep_days(),
+            "keep_min": audit.KEEP_MIN, "keep_max": audit.KEEP_MAX, "earliest": (earliest or "")[:10]}
+
+
+@router.get("/audit.csv")
+async def audit_csv(date_from: str = "", date_to: str = "", action: str = "", actor: str = "", target: str = "", q: str = "", failed: bool = False):
+    import csv
+    import io
+    from fastapi.responses import Response
+    from .. import audit
+    from ..database import get_db
+    f = audit.filters(date_from, date_to, action, actor, target, q, failed)
+    sql, args = audit.where(f)
+    db = await get_db()
+    try:
+        cur = await db.execute(f"SELECT * FROM audit_log WHERE {sql} ORDER BY at, id", args)
+        rows = await cur.fetchall()
+    finally:
+        await db.close()
+    buf = io.StringIO()
+    buf.write("﻿")
+    w = csv.writer(buf)
+    w.writerow(["時間", "動作", "動作代碼", "操作者", "對象", "內容", "來源 IP", "結果"])
+    for r in rows:
+        w.writerow([r["at"], audit.label(r["action"]), r["action"], r["actor"] or "", r["target"] or "", r["detail"] or "", r["ip"] or "",
+                    "成功" if r["ok"] else "失敗"])
+    name = f"audit_{f['date_from'].replace('-', '')}-{f['date_to'].replace('-', '')}.csv"
+    return Response(buf.getvalue(), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@router.put("/audit/retention")
+async def audit_retention(body: RetentionIn, request: Request):
+    from .. import audit
+    if not audit.KEEP_MIN <= body.days <= audit.KEEP_MAX:
+        raise HTTPException(status_code=400, detail=f"保存天數必須在 {audit.KEEP_MIN}–{audit.KEEP_MAX} 天之間")
+    old = audit.keep_days()
+    audit.set_keep_days(body.days)
+    request.state.audit_target = f"{body.days} 天"
+    request.state.audit_detail = f"保存天數 {old} → {body.days} 天"
+    return {"keep": body.days}
+
+
+# ---------------------------------------------------------------- 系統資訊 (app/sysinfo.py)
+@router.get("/sysinfo")
+async def sysinfo_page():
+    from .. import sysinfo
+    return await asyncio.get_running_loop().run_in_executor(None, sysinfo.collect)
+
+
+@router.get("/sysinfo.json")
+async def sysinfo_download():
+    from fastapi.responses import Response
+    from .. import sysinfo
+    loop = asyncio.get_running_loop()
+    info = await loop.run_in_executor(None, sysinfo.collect)
+    info["all_system_packages"] = [{"name": n, "version": v} for n, v in await loop.run_in_executor(None, sysinfo.all_system_packages)]
+    name = f"ipms-sysinfo-{datetime.now():%Y%m%d-%H%M}.json"
+    return Response(_json.dumps(info, ensure_ascii=False, indent=2, default=str), media_type="application/json",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+# ---------------------------------------------------------------- 版本紀錄與升級 (app/upgrade.py)
+@router.get("/versions")
+async def versions_page():
+    from .. import upgrade
+    return await asyncio.get_running_loop().run_in_executor(None, upgrade.overview)
+
+
+@router.get("/upgrade/status")
+async def upgrade_status():
+    from .. import upgrade
+    from ..main import VERSION
+    return {"running_version": VERSION, **upgrade.status()}
+
+
+@router.post("/upgrade")
+async def upgrade_now(request: Request):
+    from .. import upgrade
+    loop = asyncio.get_running_loop()
+    if not await loop.run_in_executor(None, upgrade.available):
+        raise HTTPException(status_code=400, detail="主機尚未安裝升級服務：請先在主機用指令升級一次，之後就能用這個按鈕")
+    if upgrade.busy():
+        raise HTTPException(status_code=409, detail="已經在升級中，請稍候")
+    upgrade.request(request.state.user)
+    cur = upgrade.current()
+    request.state.audit_target = "系統"
+    request.state.audit_detail = f"從 v{cur['version']}（{cur['commit'] or '—'}）升級到最新版"
+    return {"pending": True}
