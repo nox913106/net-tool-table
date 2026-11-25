@@ -1609,5 +1609,11 @@
  "歷史案件：{0} 結案，超過 {1}，只能檢視，不能修改。": "History case: closed on {0}, more than {1} ago — view only, no changes.",
  "{0} 小時": "{0} hours",
  "結案多久後移到歷史區（小時）": "Hours after closing before a card moves to History",
- "主卡完成或取消超過這個時間，就從看板移到「歷史區」，只能檢視不能修改。預設 72 小時；1～8760（一年）": "A main card completed or canceled longer ago than this leaves the board for History, where it is view only. Default 72 hours; 1–8760 (a year)"
+ "主卡完成或取消超過這個時間，就從看板移到「歷史區」，只能檢視不能修改。預設 72 小時；1～8760（一年）": "A main card completed or canceled longer ago than this leaves the board for History, where it is view only. Default 72 hours; 1–8760 (a year)",
+ "搜尋說明…": "Search help…",
+ "搜尋說明": "Search help",
+ "使用說明": "Help",
+ "依功能分類說明每一個頁面，卡片的每個欄位與按鈕都在「卡片」與「子任務」兩節。": "Every page explained by feature; every card field and button is covered under “Card” and “Subtasks”.",
+ "目錄": "Contents",
+ "找不到符合的說明。": "No matching help."
 }

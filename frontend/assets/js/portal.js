@@ -275,6 +275,7 @@
       boardOn() && { href: '#/board', icon: 'kanban', label: _t('待辦看板'), board: true },
       boardOn() && { href: '#/projects', icon: 'layout', label: _t('專案總覽'), projects: true },
       boardOn() && { href: '#/history', icon: 'archive', label: _t('歷史區') },
+      window.TTHelp && { href: '#/help', icon: 'help', label: _t('使用說明') },
     ].filter(Boolean);
     $('nav-main').replaceChildren(...items.map(it =>
       el('a', { class: 'nav-item', href: it.href, title: it.label, dataset: { route: it.href } },
@@ -372,7 +373,7 @@
 
   function highlightNav() {
     const hash = location.hash || '#/';
-    document.querySelectorAll('.nav-item').forEach(a => a.classList.toggle('active', a.dataset.route === hash || (hash === '#' && a.dataset.route === '#/') || (hash.startsWith('#/project/') && a.dataset.route === (window.TTBoard && TTBoard.find && TTBoard.find(Number(hash.split('/')[2]))?.history ? '#/history' : '#/projects'))));
+    document.querySelectorAll('.nav-item').forEach(a => a.classList.toggle('active', a.dataset.route === hash || (hash.startsWith('#/help') && a.dataset.route === '#/help') || (hash === '#' && a.dataset.route === '#/') || (hash.startsWith('#/project/') && a.dataset.route === (window.TTBoard && TTBoard.find && TTBoard.find(Number(hash.split('/')[2]))?.history ? '#/history' : '#/projects'))));
     document.querySelectorAll('#sidebar .tree-row.active').forEach(r => r.classList.remove('active'));
     const m = hash.match(/^#\/f\/(\d+)/);
     if (m) {
@@ -432,6 +433,7 @@
     else if (hash === '#/projects' && boardOn() && window.TTProjects) TTProjects.renderProjects(view);
     else if ((m = hash.match(/^#\/project\/(\d+)/)) && boardOn() && window.TTProjects) TTProjects.renderProject(view, Number(m[1]));
     else if (hash === '#/history' && boardOn() && window.TTProjects) TTProjects.renderHistory(view);
+    else if ((m = hash.match(/^#\/help(?:\/([\w-]+))?$/)) && window.TTHelp) TTHelp.render(view, m[1]);
     else if ((m = hash.match(/^#\/card\/(\d+)/)) && boardOn()) {          // a link from Teams: the board, with the card open
       const id = Number(m[1]);
       history.replaceState(null, '', '#/board');
