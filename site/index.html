@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>IPMS</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="部門入口網站、待辦看板與多專案管理，一套系統。伺服器版 AD 登入共用，Windows 連線版（開發中）離線可用、連線自動同步。">
+<meta name="description" content="部門入口網站、待辦看板、多專案管理與戰情室，一套系統。自架在內網，AD／Entra ID 登入，Excel 與 MS Project 匯出，Windows 連線版（開發中）離線可用。">
 <meta property="og:title" content="IPMS">
 <meta property="og:description" content="部門入口網站、待辦看板與多專案管理，一套系統。">
 <meta property="og:image" content="img/hero.jpg">
@@ -52,7 +52,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .nav .w { display: flex; align-items: center; gap: 22px; height: 60px; }
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font: 700 15px var(--display); letter-spacing: .1em; }
 .logo { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid var(--accent); color: var(--accent-2); font: 700 12px var(--mono); }
-.nav nav { display: flex; gap: 20px; margin-left: auto; font-size: 14px; }
+.nav nav { display: flex; gap: 16px; margin-left: auto; font-size: 14px; }
 .nav nav a { text-decoration: none; color: var(--ink-2); }
 .nav nav a:hover { color: var(--ink); }
 .btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 18px; font: 700 14px var(--body); text-decoration: none; border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); transition: border-color .15s, background .15s; }
@@ -187,6 +187,37 @@ footer a { color: var(--ink-2); }
 .lb.actual .lb-stage { place-items: start center; }
 .lb.actual .lb-stage img { max-width: none; max-height: none; cursor: zoom-out; }
 @media (max-width: 720px) { .lb-bar .lb-key { display: none; } }
+
+/* feature grid, tables, architecture */
+.feats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+.feat { padding: 22px 22px 24px; display: grid; gap: 8px; align-content: start; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.feat h3 { font-size: 16.5px; }
+.feat h3::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 10px; vertical-align: 3px; border: 1.5px solid var(--accent-2); transform: rotate(45deg); }
+.feat p { color: var(--ink-2); font-size: 14.5px; }
+.points.cols2 { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 32px; }
+.tblwrap { overflow-x: auto; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tbl th, .tbl td { padding: 9px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.tbl th { font: 700 11.5px var(--mono); letter-spacing: .08em; color: var(--ink-3); }
+.tbl td:first-child { color: var(--ink); font-weight: 700; white-space: nowrap; }
+.tbl td { color: var(--ink-2); }
+.arch-wrap { padding: 16px; }
+.arch { width: 100%; height: auto; display: block; }
+.arch text { font-family: var(--mono); fill: var(--ink-2); font-size: 13px; }
+.arch .t { fill: var(--ink); font-weight: 700; font-size: 15px; font-family: var(--body); }
+.arch .box { fill: var(--panel); stroke: var(--line-2); }
+.arch .srv { stroke: var(--accent); }
+.arch .opt { stroke-dasharray: 5 4; }
+.arch .ln { stroke: var(--accent); stroke-width: 1.5; fill: none; }
+.arch .dash { stroke-dasharray: 5 5; stroke: var(--ink-3); }
+@media (max-width: 900px) {
+  .arch-wrap { overflow-x: auto; }
+  .arch { min-width: 760px; }
+  .feats { grid-template-columns: minmax(0, 1fr); }
+  .points.cols2 { grid-template-columns: minmax(0, 1fr); }
+  .nav nav { display: none; }
+}
+@media (min-width: 901px) and (max-width: 1180px) { .feats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .nav nav { gap: 14px; font-size: 13px; } }
 </style>
 </head>
 <body>
@@ -195,11 +226,15 @@ footer a { color: var(--ink-2); }
   <div class="w">
     <a class="brand" href="#top"><span class="logo">IP</span>IPMS</a>
     <nav aria-label="頁面導覽">
-      <a href="#split">專案與維運</a>
-      <a href="#radar">任務雷達</a>
-      <a href="#projects">多專案</a>
+      <a href="#idea">理念</a>
+      <a href="#projects">專案</a>
+      <a href="#board">看板</a>
+      <a href="#warroom">戰情室</a>
       <a href="#export">匯出</a>
+      <a href="#portal">入口</a>
+      <a href="#accounts">帳號</a>
       <a href="#offline">單機版<span class="dev">開發中</span></a>
+      <a href="#arch">架構</a>
       <a href="#install">安裝</a>
     </nav>
     <a class="btn" href="https://github.com/nox913106/net-tool-table">
@@ -220,7 +255,7 @@ footer a { color: var(--ink-2); }
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"/></svg>
           Windows 連線版<span class="dev">開發中</span></a>
       </div>
-      <div class="facts"><span><b>AD</b> 登入與權限</span><span>子任務<b>不限</b>層數</span><span>公用連結<b>依部門</b>可見</span><span><b>125</b> 個 API</span><span>MIT 授權</span></div>
+      <div class="facts"><span><b>AD</b>／Entra ID 登入</span><span>子任務<b>不限</b>層數</span><span>公用連結<b>依部門</b>可見</span><span><b>154</b> 個 API</span><span>繁中／<b>EN</b></span><span>戰情室<b>免登入</b></span><span>MIT 授權</span></div>
       <div class="shot-wrap">
         <div class="frame"><img src="img/hero.jpg" width="1440" height="900" alt="IPMS 首頁：待辦看板與右下角的任務雷達"></div>
         <span class="tag t1">◆ 任務雷達：只畫有問題的項目</span>
@@ -229,7 +264,25 @@ footer a { color: var(--ink-2); }
     </div>
   </section>
 
-  <section class="s" id="split">
+  <section class="s" id="idea">
+    <div class="w">
+      <div class="head">
+        <div class="label">設計理念</div>
+        <h2>給同時扛維運和專案的部門用的</h2>
+        <p>維運的待辦每天都有，專案一跑好幾個月，兩種工作落在同一批人身上。IPMS 的每個設計，都在回答同一個問題：主管和成員打開畫面時，能不能馬上看到「現在該處理什麼」。</p>
+      </div>
+      <div class="feats">
+        <div class="feat"><h3>一個畫面看完</h3><p>連結入口、維運待辦、專案進度放在同一套系統，不用在三四個工具之間切換、對資料。</p></div>
+        <div class="feat"><h3>只畫要處理的</h3><p>雷達、警示清單、戰情室只突顯逾期、卡住、衝突、超載；正常的合成一個數字，畫面不會被淹沒。</p></div>
+        <div class="feat"><h3>分開管理，但不漏看</h3><p>專案和維運分開檢視，專案的警示卻永遠留在看板上方；同一套「問題」定義，雷達、報表、通知講的是同一件事。</p></div>
+        <div class="feat"><h3>資料留在公司裡</h3><p>自架在內網，字型、Swagger、圖示都隨程式附帶，不連外部網站也能運作；AD／Entra ID 只讀取，從不寫回。</p></div>
+        <div class="feat"><h3>簡單到自己維護得動</h3><p>Python＋SQLite，前端原生 JavaScript，沒有框架、沒有建置步驟；安裝、升級、健檢、備份都是同一支腳本。</p></div>
+        <div class="feat"><h3>權限以伺服器為準</h3><p>每一個 API、每一次同步都由伺服器檢查權限；看不到的卡片連搜尋都找不到，歷史案件誰都改不了。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="s alt" id="split">
     <div class="w split">
       <div class="copy">
         <div class="label">專案與維運</div>
@@ -246,7 +299,7 @@ footer a { color: var(--ink-2); }
     </div>
   </section>
 
-  <section class="s alt" id="radar">
+  <section class="s" id="radar">
     <div class="w">
       <div class="head">
         <div class="label">任務雷達</div>
@@ -271,7 +324,7 @@ footer a { color: var(--ink-2); }
     </div>
   </section>
 
-  <section class="s" id="projects">
+  <section class="s alt" id="projects">
     <div class="w">
       <div class="head">
         <div class="label">多專案並行</div>
@@ -291,7 +344,7 @@ footer a { color: var(--ink-2); }
     </div>
   </section>
 
-  <section class="s alt">
+  <section class="s" id="gantt">
     <div class="w split rev">
       <div class="copy">
         <div class="label">甘特圖</div>
@@ -307,7 +360,60 @@ footer a { color: var(--ink-2); }
     </div>
   </section>
 
-  <section class="s" id="export">
+  <section class="s alt" id="board">
+    <div class="w">
+      <div class="head">
+        <div class="label">待辦看板</div>
+        <h2>一張卡片就是一個摘要任務，往下不限層數</h2>
+        <p>看板分 週期工作／過期未結案／New／On going／Pending／On hold／Complete／Canceled，拖曳換狀態。卡片底下可以一路展開子任務，每一層都有負責人、日期、工時、留言與附件，狀態自動往上彙總。</p>
+      </div>
+      <div class="split rev">
+        <div class="copy">
+          <h3>任務視窗：由左至右一層一層展開</h3>
+          <ul class="points">
+            <li><span>主卡 L1，往下 L2、L3、L4…不限層數；點一個子任務就在右邊展開，名稱、狀態、負責人、日期、預估工時直接改</span></li>
+            <li><span>每一層都能<b>計時</b>（▶／■，停止時問「做了什麼」）或手動記工時，也都能留言與回覆</span></li>
+            <li><span>子任務負責人管得到自己整個分支：新增、指派、記工時、刪除下層</span></li>
+            <li><span>主卡顯示完成百分比：已完成的子任務＋已勾完成的協作人</span></li>
+          </ul>
+        </div>
+        <div class="frame"><img src="img/navigator.jpg" width="1440" height="900" alt="任務視窗：主卡、L2、L3 由左至右展開" loading="lazy"></div>
+      </div>
+      <div class="feats" style="margin-top:48px">
+        <div class="feat"><h3>週期工作</h3><p>每天、每個工作日、每週幾、每月、每年，或每 N 天／週。到期時問你是否結案並排下一次，整棵子任務樹與附件一起複製。</p></div>
+        <div class="feat"><h3>過期未結案</h3><p>過了到期日還沒結案，自動移到「過期未結案」欄，每天早上提醒，直到結案或延後。</p></div>
+        <div class="feat"><h3>專注模式與上下級</h3><p>看板上方列出每個人與他的工作量；點一個人只看他的卡片。上級看得到所有下級（可多層，從 AD 的 manager 帶入）。</p></div>
+        <div class="feat"><h3>卡住標記</h3><p>⛔ 寫下卡在哪裡、在等誰，自動通知卡片的人與主責人的上級；卡片紅框顯示卡了幾天。</p></div>
+        <div class="feat"><h3>@ 協作與留言串</h3><p>說明或留言裡 @ 同事（自動提示 AD 裡的人），被 @ 的人看得到卡片並收到通知；回覆會通知整串的人。</p></div>
+        <div class="feat"><h3>附件</h3><p>圖片、PDF、Word、Excel、PowerPoint、文字檔，貼上或拖曳就上傳；每個檔案都檢查內容，只有看得到卡片的人能開。</p></div>
+        <div class="feat"><h3>自訂標籤</h3><p>#客戶A、#資安、#2026Q4；同名同色，點一下就篩選，搜尋與 Excel 報告都看得懂。</p></div>
+        <div class="feat"><h3>工作量門檻</h3><p>每欄卡片超過門檻時標「高負荷」「超量」；人員負載以預估工時計，超過每週上限就算超載。</p></div>
+        <div class="feat"><h3>提醒與桌面通知</h3><p>到期前 15 分鐘到 1 週提醒；逾期、今天到期、該開始了會醒目標示，允許的話跳出桌面通知。</p></div>
+        <div class="feat"><h3>即時更新</h3><p>別人改了卡片，畫面馬上刷新（長輪詢），不用重新整理。</p></div>
+        <div class="feat"><h3>搜尋</h3><p>Ctrl＋K 同時搜尋連結與卡片：標題、說明、留言、人員、#標籤，只找得到有權限看的。</p></div>
+        <div class="feat"><h3>依人員版面</h3><p>一人一列、欄位是狀態，直接拖曳改狀態，按「新增」建立指派給他的卡片。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="s" id="history">
+    <div class="w split">
+      <div class="copy">
+        <div class="label">歷史區</div>
+        <h2>結案的留下來，但不能再改</h2>
+        <p>主卡完成或取消超過 72 小時（後台可調，1 小時～1 年），就從看板、專案總覽、雷達移到側欄的「歷史區」，看板只留還在進行的工作。</p>
+        <ul class="points">
+          <li><span>分「維運」「專案」兩頁，可搜尋、依狀態與結案年份篩選、匯出 Excel</span></li>
+          <li><span>卡片、子任務、留言、工時、附件都保留；結案的專案照樣有甘特圖、專案看板與清單</span></li>
+          <li><span><b>任何人都不能修改或留言</b>：伺服器、Excel 匯入、單機版同步上來的修改一律拒絕</span></li>
+          <li><span>一般搜尋也找得到歷史案件，排在進行中的工作後面</span></li>
+        </ul>
+      </div>
+      <div class="frame"><img src="img/history.jpg" width="1440" height="900" alt="歷史區：維運與專案兩頁、搜尋與篩選" loading="lazy"></div>
+    </div>
+  </section>
+
+  <section class="s alt" id="export">
     <div class="w">
       <div class="head">
         <div class="label">匯出成品</div>
@@ -340,11 +446,41 @@ footer a { color: var(--ink-2); }
       </div>
     </div>
   </section>
-  <section class="s alt">
+
+  <section class="s" id="warroom">
     <div class="w">
       <div class="head">
-        <div class="label">每天的工作</div>
+        <div class="label">戰情室</div>
+        <h2>不用登入，掛在牆上的進度看板</h2>
+        <p>網址 <span class="mono">/dashboard</span>，給主管會議、辦公室大螢幕用。只顯示數量與進度，不顯示卡片內容；每 15 秒自動更新。</p>
+      </div>
+      <div class="duo">
+        <div class="card">
+          <div class="frame"><img src="img/dashboard.jpg" width="1440" height="900" alt="戰情室總覽：各狀態趨勢、到期、專案進度、各部門人員" loading="lazy"></div>
+          <h3>總覽（老闆模式）</h3>
+          <p>各狀態的數量與近 8 週趨勢、到期分布、專案進度（落後天數、問題數、下個里程碑，名稱可匿名）、各部門每個人的狀態色條、人員負載熱圖與系統狀態燈號。<span class="mono">?rotate=1</span> 輪播總覽與各部門。</p>
+        </div>
+        <div class="card">
+          <div class="frame"><img src="img/dashboard-tv.jpg" width="1440" height="900" alt="戰情室壁掛模式：鎖定網路部" loading="lazy"></div>
+          <h3>鎖定部門＋壁掛模式（部門主管）</h3>
+          <p><span class="mono">?dept=網路部</span> 只看一個部門，<span class="mono">&amp;tv=1</span> 字體放大、隱藏按鈕與游標，適合電視牆。</p>
+        </div>
+      </div>
+      <ul class="points cols2" style="margin-top:32px">
+        <li><span>可切換<b>全部工作／一般維運／單一專案</b></span></li>
+        <li><span>狀態、部門、人員、專案都能點選篩選，↗ 直接在看板開啟同一批卡片（需登入）</span></li>
+        <li><span>專案名稱可設為顯示、匿名（專案 A、B…）或隱藏；人員負載、系統燈號可在後台開關</span></li>
+        <li><span>系統燈號只顯示正常／注意／異常，不洩漏主機資訊</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="s alt" id="notify">
+    <div class="w">
+      <div class="head">
+        <div class="label">通知</div>
         <h2>該做的事會自己找上門</h2>
+        <p>🔔 列出被指派、被 @、新留言與到期提醒；我的工作把所有來源的待辦排好；重要的事也能送到 Microsoft Teams。</p>
       </div>
       <div class="duo">
         <div class="card">
@@ -357,6 +493,88 @@ footer a { color: var(--ink-2); }
           <h3>專案通知</h3>
           <p>每個專案自己選：全部、只跟我有關、每日摘要或關閉。每天送出落後基準線、跨專案前置延誤、時段衝突、3 天內到期的里程碑；同一件事只通知一次。</p>
         </div>
+      </div>
+      <div class="split rev" style="margin-top:48px">
+        <div class="copy">
+          <h3>Microsoft Teams 通知</h3>
+          <p>在 Teams 頻道建立「收到 webhook 要求時張貼到頻道」工作流程，把網址貼到後台即可，不需要 Entra 應用程式。每個頻道選要收的：</p>
+          <ul class="points">
+            <li><span><b>卡片與專案的變更</b>：一分鐘內的修改合成一則「欄位：原本 → 現在」與修改的人（單機版同步上來的也算）</span></li>
+            <li><span><b>每日專案事件</b>：落後基準線、跨專案前置延誤、時段衝突、即將到期的里程碑</span></li>
+            <li><span><b>系統與硬體告警</b>：磁碟、記憶體、CPU、溫度、RAID、重開機、備份、HTTPS 憑證、nginx、AD／Entra 連線、資料庫；異常、持續異常與恢復各通知一次</span></li>
+            <li><span><b>定時狀態報告</b>：每天指定時間送出全部檢查結果</span></li>
+          </ul>
+        </div>
+        <div class="frame"><img src="img/teams.jpg" width="1112" height="883" alt="後台的 Microsoft Teams 通知設定與目前的系統狀態" loading="lazy"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="s" id="portal">
+    <div class="w">
+      <div class="head">
+        <div class="label">入口網站</div>
+        <h2>部門的連結，全部在後台整理</h2>
+        <p>系統、設備、文件、工單的網址放進資料夾，首頁版面、配色、圖示都在後台調整，不用改程式。</p>
+      </div>
+      <div class="duo">
+        <div class="card">
+          <div class="frame"><img src="img/palette.jpg" width="1440" height="900" alt="搜尋面板：同時找到連結與看板卡片" loading="lazy"></div>
+          <h3>搜尋面板（Ctrl＋K）</h3>
+          <p>比對名稱、說明、網址、路徑與圖示，也搜尋看板卡片的標題、說明、留言與人員；鍵盤上下選、Enter 開啟。</p>
+        </div>
+        <div class="card">
+          <div class="frame"><img src="img/admin.jpg" width="1440" height="900" alt="管理後台：資料夾與連結的編輯、可見範圍" loading="lazy"></div>
+          <h3>管理後台</h3>
+          <p>樹狀編輯，拖曳排序、拖進資料夾；名稱、網址、說明、圖示、顏色、開新分頁、啟用與否、<b>可見範圍</b>（所有人或指定部門／人員）。</p>
+        </div>
+      </div>
+      <div class="feats" style="margin-top:48px">
+        <div class="feat"><h3>拖曳網址就新增</h3><p>把網址列、網頁連結或書籤拖進頁面，自動帶入標題並抓網站圖示（內網自簽憑證的網站也行）。</p></div>
+        <div class="feat"><h3>公用區與個人區</h3><p>公用區由管理員維護；每個人另有只有自己看得到的個人區，跟著帳號走。</p></div>
+        <div class="feat"><h3>首頁由區塊組成</h3><p>公告、快速連結、我的最愛、最近使用、所有分類，或把任一資料夾攤在首頁；順序與大小都能調。</p></div>
+        <div class="feat"><h3>個人設定跟著帳號</h3><p>我的最愛、最近使用、主題、側欄、檢視選擇、語言存在伺服器，換電腦、換瀏覽器都一樣。</p></div>
+        <div class="feat"><h3>快速連結與快速篩選</h3><p>可分群組的捷徑按鈕（例如各區上網驗證）；依圖示列出同類設備的連結。</p></div>
+        <div class="feat"><h3>軍規戰術外觀</h3><p>深色黑曜軍灰／淺色北約粉筆白／跟隨系統；戰術時鐘、掃描線，省資源模式一鍵關閉動畫。</p></div>
+        <div class="feat"><h3>繁體中文／英文</h3><p>頁首「中／EN」切換並記在帳號；錯誤訊息、通知、Excel 報告、API 文件都跟著語言。</p></div>
+        <div class="feat"><h3>手機與安裝成 App</h3><p>手機、平板、桌機都能用；Chrome／Edge 可安裝成獨立視窗的應用程式，手機可加到主畫面。</p></div>
+        <div class="feat"><h3>本機程式（單機版）</h3><p>把捷徑或 exe 拖進來，點卡片就在這台電腦上啟動；只對本機開放，其他網站無法呼叫。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="s alt" id="accounts">
+    <div class="w">
+      <div class="head">
+        <div class="label">帳號、權限與安全</div>
+        <h2>AD 帳號登入，誰看得到什麼由伺服器決定</h2>
+        <p>伺服器版整站需要登入。AD（LDAP／LDAPS）與 Microsoft Entra ID 可以同時使用，混合式環境同一個人就是同一個帳號；姓名、部門、上級只讀取，從不寫回。</p>
+      </div>
+      <div class="split">
+        <div class="frame"><img src="img/users.jpg" width="1440" height="1000" alt="帳號與權限：部門、上級、權限等級" loading="lazy"></div>
+        <div class="copy">
+          <div class="tblwrap"><table class="tbl">
+            <thead><tr><th>權限</th><th>看得到</th><th>可以改</th></tr></thead>
+            <tbody>
+              <tr><td>系統管理者</td><td>全部＋後台</td><td>全部</td></tr>
+              <tr><td>看板總管理者 RW／RO</td><td>所有卡片</td><td>RW 全部；RO 只有自己的，其他可留言</td></tr>
+              <tr><td>部門看板管理者 RW／RO</td><td>管理部門＋自己的</td><td>RW 管理部門；RO 只有自己的</td></tr>
+              <tr><td>使用者</td><td>自己建立、被指派、被 @ 的</td><td>同左（不能指派）</td></tr>
+              <tr><td>訪客（新帳號預設）</td><td>只有公用連結</td><td>無，提示聯絡系統管理員開通</td></tr>
+            </tbody>
+          </table></div>
+          <ul class="points">
+            <li><span><b>上級</b>看得到所有下級的卡片（可多層）；權限可設可編輯或只看＋留言</span></li>
+            <li><span>登入頁自動帶入 AD 網域後綴；Entra ID 用 OIDC＋PKCE，支援多重要素驗證，可限定群組</span></li>
+            <li><span>本機管理員只在緊急時用；系統要求至少保留一位 AD 系統管理者</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="feats" style="margin-top:48px">
+        <div class="feat"><h3>只走 HTTPS</h3><p>對外只有 443，80 自動轉 HTTPS；應用程式只綁 127.0.0.1，由 nginx 反向代理。</p></div>
+        <div class="feat"><h3>敏感設定加密</h3><p>AD 服務帳號密碼、Entra 密鑰、Teams 網址以 AES-256-GCM 加密保存，金鑰只有服務帳號讀得到。</p></div>
+        <div class="feat"><h3>防偽造請求</h3><p>所有修改資料的呼叫都要帶專屬標頭，其他網站無法替你送出；登入有頻率限制與鎖定。</p></div>
+        <div class="feat"><h3>附件不只看副檔名</h3><p>上傳時檢查檔案內容，文件以 nosniff 與沙箱 CSP 提供；只有看得到卡片的人能開。</p></div>
       </div>
     </div>
   </section>
@@ -400,28 +618,82 @@ footer a { color: var(--ink-2); }
     </div>
   </section>
 
-  <section class="s alt">
+  <section class="s alt" id="ops">
     <div class="w">
       <div class="head">
-        <div class="label">也都有</div>
-        <h2>入口網站、Excel 報告、API</h2>
+        <div class="label">維運與管理</div>
+        <h2>裝好之後，不用再登入伺服器</h2>
+        <p>AD 登入（含測試）、登入安全、HTTPS 憑證、連線埠、備份與還原、Teams 通知，全部在網頁後台完成。</p>
       </div>
-      <div class="duo">
-        <div class="card">
-          <div class="frame"><img src="img/admin.jpg" width="1440" height="900" alt="管理後台：資料夾與連結的編輯" loading="lazy"></div>
-          <h3>連結入口與管理後台</h3>
-          <p>資料夾、連結、首頁版面、配色都在後台調整，不用改程式。拖曳網址直接新增，自動抓網站圖示；公用資料夾可以限定只給某些部門或人員看到；每個人還有自己的個人區，設定跟著 AD 帳號走。</p>
+      <div class="split">
+        <div class="frame"><img src="img/backup.jpg" width="1112" height="867" alt="自動備份：完整與增量排程、檢查結果" loading="lazy"></div>
+        <div class="copy">
+          <h3>完整＋增量備份，資料一個都不少</h3>
+          <ul class="points">
+            <li><span><b>完整備份</b>（預設每週）：資料庫、加密金鑰、所有圖示與附件；<b>增量備份</b>（預設每 6 小時）每次都有完整資料庫，檔案只存新增或變更的</span></li>
+            <li><span>每份備份記錄每個檔案的 SHA-256，並檢查資料庫記錄的附件都對得上檔案</span></li>
+            <li><span>還原時自動從較早的備份補齊並逐一核對，還原前先備份目前的狀態；下載增量備份會合成完整檔案</span></li>
+            <li><span>伺服器另有每日系統備份（含 HTTPS 憑證與 nginx 設定），存在資料目錄以外</span></li>
+          </ul>
         </div>
-        <div class="card">
-          <div class="frame"><img src="img/api.jpg" width="1440" height="900" alt="API 文件：Swagger UI" loading="lazy"></div>
-          <h3>Excel 報告與 API</h3>
-          <p>給長官看的工作進度報告一鍵匯出，含專案總覽、人員負載、問題清單；改完可以匯入。所有功能都有 API，文件用 Swagger UI，可以直接試。</p>
-        </div>
+      </div>
+      <div class="feats" style="margin-top:48px">
+        <div class="feat"><h3>系統與硬體監控</h3><p>磁碟、記憶體、CPU、溫度、RAID、開機、備份、憑證、nginx、AD 連線、資料庫，門檻可調，異常送 Teams。</p></div>
+        <div class="feat"><h3>一支腳本管到底</h3><p><span class="mono">tool-table.sh</span>：安裝、升級、健檢（doctor）、備份、還原、重設本機管理員、換憑證、解除安裝。</p></div>
+        <div class="feat"><h3>示範資料</h3><p>測試機一鍵建立 7 個部門、16 位示範人員、一年期的機房改建專案與日常卡片，一鍵移除。</p></div>
+        <div class="feat"><h3>整站匯出／匯入</h3><p>設定、連結、快速連結與卡片匯出成一個 JSON，搬家或當範本分享。</p></div>
       </div>
     </div>
   </section>
 
-  <section class="s" id="install">
+  <section class="s" id="arch">
+    <div class="w">
+      <div class="head">
+        <div class="label">架構</div>
+        <h2>一台 Linux 主機就夠，沒有外部相依</h2>
+        <p>瀏覽器只連 nginx；應用程式與資料都在同一台主機。AD、Entra ID、Teams 都是選用的外部連線。</p>
+      </div>
+      <div class="frame arch-wrap">
+        <svg class="arch" viewBox="0 0 1000 430" role="img" aria-label="IPMS 架構：瀏覽器與單機版經 nginx 連到應用程式，應用程式連 SQLite、檔案與 AD／Entra ID／Teams">
+          <rect class="box" x="20" y="40" width="200" height="96"/><text class="t" x="120" y="74" text-anchor="middle">瀏覽器</text>
+          <text x="120" y="98" text-anchor="middle">入口 · 看板 · 後台</text><text x="120" y="118" text-anchor="middle">戰情室 /dashboard</text>
+          <rect class="box" x="20" y="186" width="200" height="96"/><text class="t" x="120" y="220" text-anchor="middle">Windows 單機版</text>
+          <text x="120" y="244" text-anchor="middle">內嵌 Python · SQLite</text><text x="120" y="264" text-anchor="middle">離線可用 · 自動更新</text>
+          <rect class="box srv" x="300" y="100" width="170" height="120"/><text class="t" x="385" y="140" text-anchor="middle">nginx</text>
+          <text x="385" y="164" text-anchor="middle">HTTPS 443</text><text x="385" y="184" text-anchor="middle">80 → 443</text><text x="385" y="204" text-anchor="middle">登入頻率限制</text>
+          <rect class="box srv" x="540" y="80" width="200" height="160"/><text class="t" x="640" y="114" text-anchor="middle">IPMS 應用程式</text>
+          <text x="640" y="138" text-anchor="middle">FastAPI · uvicorn</text><text x="640" y="158" text-anchor="middle">127.0.0.1:8080</text>
+          <text x="640" y="178" text-anchor="middle">154 個 API · Swagger</text><text x="640" y="198" text-anchor="middle">排程：備份 · 通知</text><text x="640" y="218" text-anchor="middle">監控 · 專案分析</text>
+          <rect class="box" x="540" y="300" width="200" height="100"/><text class="t" x="640" y="334" text-anchor="middle">資料</text>
+          <text x="640" y="358" text-anchor="middle">SQLite 單一檔案</text><text x="640" y="378" text-anchor="middle">附件 · 圖示 · 備份</text>
+          <rect class="box opt" x="800" y="40" width="180" height="70"/><text class="t" x="890" y="70" text-anchor="middle">AD（LDAP/S）</text><text x="890" y="92" text-anchor="middle">只讀取</text>
+          <rect class="box opt" x="800" y="130" width="180" height="70"/><text class="t" x="890" y="160" text-anchor="middle">Entra ID</text><text x="890" y="182" text-anchor="middle">OIDC · Graph 只讀</text>
+          <rect class="box opt" x="800" y="220" width="180" height="70"/><text class="t" x="890" y="250" text-anchor="middle">Teams</text><text x="890" y="272" text-anchor="middle">webhook 送出</text>
+          <path class="ln" d="M220 88 L300 140"/><path class="ln dash" d="M220 234 L300 180"/>
+          <path class="ln" d="M470 160 L540 160"/><path class="ln" d="M640 240 L640 300"/>
+          <path class="ln" d="M740 120 L800 75"/><path class="ln" d="M740 160 L800 165"/><path class="ln" d="M740 200 L800 255"/>
+          <text x="232" y="300">↖ 同步（裝置權杖）</text>
+        </svg>
+      </div>
+      <div class="feats" style="margin-top:40px">
+        <div class="feat"><h3>後端</h3><p>Python 3.10+、FastAPI、aiosqlite；openpyxl 產生 Excel，MS Project XML 直接產生；ldap3、cryptography。</p></div>
+        <div class="feat"><h3>前端</h3><p>原生 JavaScript 與 CSS，沒有框架、沒有建置步驟；字型、Swagger UI 隨程式附帶，離線可用。</p></div>
+        <div class="feat"><h3>同步引擎</h3><p>每列全域 id、逐欄位修改時間（毫秒、校正時鐘差）、刪除記號；兩邊改同一欄位時兩個版本都保留。</p></div>
+        <div class="feat"><h3>部署</h3><p>systemd 服務、nginx 反向代理、自簽或正式憑證；Debian 12/13、Ubuntu 22.04/24.04。</p></div>
+        <div class="feat"><h3>Windows 用戶端</h3><p>python.org 官方簽章的內嵌 Python＋Inno Setup，沒有自製 exe；GitHub Actions 每次自動打包並實際啟動測試。</p></div>
+        <div class="feat"><h3>API</h3><p>所有功能都有 API，依功能分組、中文說明，Swagger UI 可以直接試；權限與網頁相同。</p></div>
+      </div>
+      <div class="split" style="margin-top:48px">
+        <div class="copy">
+          <h3>API 文件</h3>
+          <p>開 <span class="mono">https://&lt;主機&gt;/docs</span>（管理後台左下角也有按鈕）。「Try it out」以你目前登入的身分執行；原始 OpenAPI 在 <span class="mono">/openapi.json</span>，可匯入 Postman。</p>
+        </div>
+        <div class="frame"><img src="img/api.jpg" width="1440" height="900" alt="API 文件：Swagger UI" loading="lazy"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="s alt" id="install">
     <div class="w">
       <div class="head">
         <div class="label">安裝</div>
@@ -443,8 +715,24 @@ footer a { color: var(--ink-2); }
           <p>免安裝版：下載 <a href="https://github.com/nox913106/net-tool-table/releases/download/latest/IPMS-windows-x64.zip">IPMS-windows-x64.zip</a>，解壓縮後點兩下 <span class="mono">IPMS.cmd</span>。要連伺服器時，按頁首的同步標記輸入網址與 AD 帳號（帳號只要打名稱，網域後綴會自動帶入）。</p>
         </div>
       </div>
+      <div class="feats" style="margin-top:32px">
+        <div class="feat"><h3>系統需求</h3><p>伺服器：全新的 Debian 12/13 或 Ubuntu 22.04/24.04，能連 PyPI 安裝套件。用戶端：Windows 10/11 x64，不需系統管理員權限。</p></div>
+        <div class="feat"><h3>連接埠</h3><p>對外只開 443（HTTPS）與 80（轉 HTTPS）；應用程式只聽本機。</p></div>
+        <div class="feat"><h3>本機開發</h3><p>Python 3.10+，<span class="mono">./run.sh</span>（Windows 用 run.bat），開在 http://127.0.0.1:8080，後台在 /admin。</p></div>
+      </div>
+      <div class="install" style="margin-top:24px">
+        <div class="box"><h3>升級與健檢</h3>
+          <pre>sudo bash /opt/tool-table/scripts/tool-table.sh upgrade</pre>
+          <pre>sudo bash /opt/tool-table/scripts/tool-table.sh doctor</pre>
+          <p>升級會先備份、更新套件與設定、重啟後確認有回應。</p></div>
+        <div class="box"><h3>備份與還原</h3>
+          <pre>sudo bash /opt/tool-table/scripts/tool-table.sh backup</pre>
+          <pre>sudo bash /opt/tool-table/scripts/tool-table.sh restore &lt;備份檔&gt;</pre>
+          <p>平常在後台的「備份與匯入」就能完成；完整步驟見 <a href="https://github.com/nox913106/net-tool-table/blob/main/docs/INSTALL.md">INSTALL.md</a>。</p></div>
+      </div>
     </div>
   </section>
+
 </main>
 
 <footer>
