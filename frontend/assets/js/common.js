@@ -408,7 +408,7 @@ const TT = (() => {
     return m;
   }).catch(() => ({ user: { username: 'local', display_name: _t('本機'), role: 'superadmin' }, auth: false, is_admin: true, board: { view: 'all', edit: 'all', depts: [] } })));
   const ROLE = { superadmin: _t('本機最高管理員'), sysadmin: _t('系統管理者'), board_admin: _t('看板總管理者（RW）'), board_viewer: _t('看板總管理者（RO）'),
-    dept_admin: _t('部門看板管理者（RW）'), dept_viewer: _t('部門看板管理者（RO）'), user: _t('使用者') };
+    dept_admin: _t('部門看板管理者（RW）'), dept_viewer: _t('部門看板管理者（RO）'), user: _t('使用者'), guest: _t('訪客（未開通）') };
   const nameOf = p => (p && (p.name || p.display_name || p.username)) || '';
   function avatar(person, size = 24) {
     const name = nameOf(person) || '?';

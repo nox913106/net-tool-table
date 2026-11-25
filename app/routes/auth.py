@@ -109,7 +109,7 @@ async def upsert_entra_user(db, info: dict) -> dict:
         if await cur.fetchone():
             raise HTTPException(status_code=409, detail="這個帳號名稱已被本機帳號使用")
         cur = await db.execute("""INSERT INTO users (username, source, display_name, email, department, role, last_login)
-                                  VALUES (?, 'entra', ?, ?, ?, 'user', CURRENT_TIMESTAMP)""",
+                                  VALUES (?, 'entra', ?, ?, ?, 'guest', CURRENT_TIMESTAMP)""",
                                (info["username"], info["display_name"], info["email"], info["department"]))
         uid = cur.lastrowid
     else:
@@ -129,7 +129,7 @@ async def upsert_entra_user(db, info: dict) -> dict:
         mr = await cur.fetchone()
         if mr is None:
             cur = await db.execute("""INSERT INTO users (username, source, display_name, email, department, role)
-                                      VALUES (?, 'entra', ?, ?, ?, 'user')""", (m["username"], m["display_name"], m["email"], m["department"]))
+                                      VALUES (?, 'entra', ?, ?, ?, 'guest')""", (m["username"], m["display_name"], m["email"], m["department"]))
             mid = cur.lastrowid
         else:
             mid = mr["id"]
@@ -187,7 +187,7 @@ async def upsert_ldap_user(db, info: dict, login: bool = False) -> dict:
     else:
         cur = await db.execute(
             f"""INSERT INTO users (username, source, display_name, email, department, role{", last_login" if login else ""})
-                VALUES (?, 'ldap', ?, ?, ?, 'user'{", CURRENT_TIMESTAMP" if login else ""})""",
+                VALUES (?, 'ldap', ?, ?, ?, 'guest'{", CURRENT_TIMESTAMP" if login else ""})""",
             (info["username"], info["display_name"], info["email"], info["department"]))
         uid = cur.lastrowid
     cur = await db.execute("SELECT * FROM users WHERE id = ?", (uid,))
@@ -307,9 +307,26 @@ async def me(user: dict = Depends(current_user)):
         db = await get_db()
         try:
             out["needs_ad_admin"] = await ad_admin_count(db) == 0
+            cur = await db.execute("SELECT COUNT(*) FROM users WHERE role = 'guest' AND active = 1")
+            out["guests_waiting"] = (await cur.fetchone())[0]      # accounts waiting to be given a level
         finally:
             await db.close()
+    if user.get("role") == "guest":
+        out["guest"] = True
+        out["contacts"] = await admin_contacts()
     return out
+
+
+async def admin_contacts() -> list:
+    """Whom a guest asks: the active AD / Entra ID system administrators (name, department, e-mail)."""
+    db = await get_db()
+    try:
+        cur = await db.execute("""SELECT display_name, username, department, email FROM users
+                                  WHERE role = 'sysadmin' AND active = 1 AND source IN ('ldap', 'entra')
+                                  ORDER BY display_name LIMIT 10""")
+        return [{"name": r[0] or r[1], "department": r[2], "email": r[3]} for r in await cur.fetchall()]
+    finally:
+        await db.close()
 
 
 @router.post("/api/auth/password")

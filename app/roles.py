@@ -8,6 +8,8 @@ Roles (server edition).
   dept_admin    部門看板管理者 (RW) boards of the managed departments, full rights
   dept_viewer   部門看板管理者 (RO) boards of the managed departments in detail, read only; may comment
   user          使用者              own / assigned / @mentioned cards
+  guest         訪客（未開通）      a new AD / Entra ID account: may sign in and see the public links, nothing
+                                    else, until an administrator gives it a level (使用者 or above)
 
 Read-only roles still work on their *own* cards like any user. A card belongs to the
 departments of its creator and its assignees (AD "department"). Department managers manage
@@ -16,13 +18,18 @@ their own AD department unless the admin ticks other departments (scope_departme
 import json
 from typing import List
 
-ROLES = ("superadmin", "sysadmin", "board_admin", "board_viewer", "dept_admin", "dept_viewer", "user")
+ROLES = ("superadmin", "sysadmin", "board_admin", "board_viewer", "dept_admin", "dept_viewer", "user", "guest")
 ASSIGNABLE = ROLES[1:]
 LABELS = {
     "superadmin": "本機最高管理員", "sysadmin": "系統管理者", "board_admin": "看板總管理者（RW）",
     "board_viewer": "看板總管理者（RO）", "dept_admin": "部門看板管理者（RW）", "dept_viewer": "部門看板管理者（RO）",
-    "user": "使用者",
+    "user": "使用者", "guest": "訪客（未開通）",
 }
+NEW_ACCOUNT_ROLE = "guest"           # what an AD / Entra ID account gets the first time it is seen
+
+
+def is_guest(user: dict) -> bool:
+    return bool(user) and user.get("role") == "guest" and user.get("id") is not None
 DEPT_ROLES = ("dept_admin", "dept_viewer")
 
 

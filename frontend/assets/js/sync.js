@@ -270,7 +270,7 @@
   }
 
   document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(() => { mountPill(); watch(); }, 300);
+    setTimeout(async () => { mountPill(); const m = await TT.me().catch(() => null); if (!m?.guest) watch(); }, 300);
   });
   window.TTSync = { openPanel, refresh: refreshStatus };
 })();

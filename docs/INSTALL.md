@@ -1,12 +1,12 @@
 # IPMS 安裝與運維 SOP
 
 適用：在一台**全新、空白的 Linux** 上部署 IPMS。
-架構：nginx 以 HTTPS（預設 **33443**）對外，反向代理到只綁 `127.0.0.1` 的應用程式，
+架構：nginx 以 HTTPS（預設 **443**）對外，反向代理到只綁 `127.0.0.1` 的應用程式，
 應用程式的服務埠不對外開放；HTTP（80）一律轉到 HTTPS。預設使用自簽憑證。
 
 ```
-瀏覽器 ──http://主機/───────────► nginx :80     ─301─► https://主機:33443/
-瀏覽器 ──https://主機:33443/───► nginx :33443  (TLS、安全標頭)
+瀏覽器 ──http://主機/───────────► nginx :80     ─301─► https://主機/
+瀏覽器 ──https://主機/───► nginx :443  (TLS、安全標頭)
                                      │ 反向代理
                                      ▼
                           uvicorn 127.0.0.1:8080   ← 不對外，外部連不到
@@ -23,7 +23,7 @@
 | 硬體 | 1 核心 · 1 GB 記憶體 · 5 GB 磁碟即可 |
 | 網路 | 安裝時需能連到 GitHub 與 apt / PyPI 套件來源 |
 | 權限 | root 或 sudo |
-| 對外埠 | `33443/tcp`（HTTPS）、`80/tcp`（只做轉址，可關閉） |
+| 對外埠 | `443/tcp`（HTTPS）、`80/tcp`（只做轉址，可關閉） |
 
 其他 apt 系發行版會顯示警告後繼續安裝；非 apt 系統不支援。
 
@@ -57,15 +57,15 @@ curl -fsSL https://raw.githubusercontent.com/nox913106/net-tool-table/main/scrip
 4. 寫入設定 `/etc/tool-table/tool-table.env`
 5. 產生自簽憑證 `/etc/tool-table/tls/server.{crt,key}`（ECDSA P-384，SAN 自動帶入主機名稱與所有本機 IP）
 6. 安裝並啟動 `tool-table.service`（只綁 `127.0.0.1:8080`）與每日備份排程 `tool-table-backup.timer`
-7. 設定 nginx：`33443` HTTPS 反向代理、`80` 轉 HTTPS；停用 nginx 預設站台
-8. 若 `ufw` / `firewalld` 已啟用，自動開放 `33443/tcp` 與 `80/tcp`
+7. 設定 nginx：`443` HTTPS 反向代理、`80` 轉 HTTPS；停用 nginx 預設站台
+8. 若 `ufw` / `firewalld` 已啟用，自動開放 `443/tcp` 與 `80/tcp`
 9. 確認服務真的有回應後，印出入口網址
 
 完成時會顯示：
 
 ```
-  入口      https://<伺服器IP>:33443/
-  管理後台  https://<伺服器IP>:33443/admin
+  入口      https://<伺服器IP>/
+  管理後台  https://<伺服器IP>/admin
 ```
 
 ### 2.3 安裝選項
@@ -74,12 +74,12 @@ curl -fsSL https://raw.githubusercontent.com/nox913106/net-tool-table/main/scrip
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nox913106/net-tool-table/main/scripts/bootstrap.sh \
-  | sudo bash -s -- --https-port 33443 --fqdn portal.example.com
+  | sudo bash -s -- --https-port 443 --fqdn portal.example.com
 ```
 
 | 選項 | 預設 | 說明 |
 |------|------|------|
-| `--https-port N` | `33443` | 對外 HTTPS 埠 |
+| `--https-port N` | `443` | 對外 HTTPS 埠 |
 | `--http-port N` | `80` | 只做轉址的 HTTP 埠；`0` = 不開 HTTP |
 | `--app-port N` | `8080` | 應用程式埠（只綁 127.0.0.1，不對外） |
 | `--fqdn 名稱` | 空（接受任何主機名稱） | nginx `server_name` 與自簽憑證的 CN |
@@ -94,7 +94,7 @@ sudo bash /opt/tool-table/scripts/tool-table.sh install --https-port 443 --http-
 
 ### 2.4 第一次使用
 
-1. 瀏覽 `https://<伺服器IP>:33443/`，瀏覽器會警告自簽憑證，確認後繼續
+1. 瀏覽 `https://<伺服器IP>/`，瀏覽器會警告自簽憑證，確認後繼續
 2. 用安裝結束時印出的**本機管理員**（`localadmin` ＋ 密碼）登入，第一次登入會要求設定新密碼
 3. 照第 2.5 節在後台設定 AD，並在「帳號與權限」指定至少一位 AD 系統管理者；之後平常都用 AD 帳號
 4. 首頁是空的，點「前往管理後台新增 →」或開啟 `/admin`
@@ -121,7 +121,7 @@ sudo bash /opt/tool-table/scripts/tool-table.sh install --https-port 443 --http-
 | 系統設定 → HTTPS 憑證 | 目前憑證資訊與到期天數；貼上或選擇正式憑證（fullchain）與私鑰套用；重新產生自簽憑證 |
 | 系統設定 → 連線埠與名稱 | HTTPS 埠、HTTP 埠（0 = 不開）、伺服器名稱（FQDN） |
 | 備份與匯入 → 自動備份 | 每天幾點、保留天數、立即備份、下載、上傳備份檔、還原 |
-| 帳號與權限 | 指定權限（系統管理者、看板總管理者 RW / RO、部門看板管理者 RW / RO、使用者）與管理部門、停用帳號、預先加入 AD 帳號 |
+| 帳號與權限 | 指定權限（系統管理者、看板總管理者 RW / RO、部門看板管理者 RW / RO、使用者、訪客）與管理部門；新登入的 AD 帳號是「訪客」，在這裡開通、停用帳號、預先加入 AD 帳號 |
 
 | 權限 | 後台 | 看板：看得到 | 看板：可編輯 / 刪除 / 指派 |
 |------|------|--------------|----------------------------|
@@ -131,11 +131,12 @@ sudo bash /opt/tool-table/scripts/tool-table.sh install --https-port 443 --http-
 | 看板總管理者（RO） | — | 所有部門的卡片（詳細內容） | 只有自己的卡片；其他卡片可以留言 |
 | 部門看板管理者（RW） | — | 管理部門的卡片 ＋ 自己的 | 管理部門的卡片（只能指派該部門的人）＋ 自己的 |
 | 部門看板管理者（RO） | — | 管理部門的卡片 ＋ 自己的 | 只有自己的卡片；其他卡片可以留言 |
-| 使用者（AD 預設） | — | 自己建立、被指派、被 @ 的卡片 | 同左（不能指派） |
+| 使用者 | — | 自己建立、被指派、被 @ 的卡片 | 同左（不能指派） |
+| 訪客（AD／Entra ID 帳號第一次登入的預設） | — | 只有入口的公用連結；頁面上方提示聯絡系統管理員 | 無（看板、專案、個人區、單機版連線都要開通後才能用） |
 
 卡片屬於「建立者」與「負責人」所在的部門（AD 的 `department`）。部門看板管理者預設管理自己的部門，
 可在「帳號與權限」勾選要管理的其他部門。系統要求**至少保留一位 AD 系統管理者**。
-本機管理員第一次登入必須改成自己的密碼；AD 帳號第一次登入時自動建立為「使用者」。
+本機管理員第一次登入必須改成自己的密碼；AD 帳號第一次登入時自動建立為「訪客」（只能看入口連結，畫面上方提示聯絡系統管理員），到「帳號與權限」把權限改成「使用者」或以上才算開通。
 
 **第一次設定 AD 的順序**
 
@@ -148,7 +149,7 @@ sudo bash /opt/tool-table/scripts/tool-table.sh install --https-port 443 --http-
 - 憑證與連線埠的變更由伺服器上的 `tool-table-apply.path` 套用：網頁服務本身沒有 root 權限，它只留下變更要求，由這個系統服務檢查內容（憑證與私鑰是否成對、埠號是否被占用）後套用；nginx 不接受時自動還原
 - 服務帳號密碼以 AES-256-GCM 加密保存，金鑰在 `/var/lib/tool-table/.secret.key`（安裝時自動產生，僅服務帳號可讀；備份會一併帶上）
 
-**公開進度看板** `https://<伺服器>:33443/dashboard`：不需登入、唯讀、只顯示數量（不顯示任何卡片標題或內容，不含週期工作），每 15 秒自動更新：
+**公開進度看板** `https://<伺服器>/dashboard`：不需登入、唯讀、只顯示數量（不顯示任何卡片標題或內容，不含週期工作），每 15 秒自動更新：
 
 - 各狀態卡片數與近 8 週趨勢、到期（已過到期日／今天／3 天內／7 天內）、每人一條狀態色條
 - 專案進度（預設只顯示「專案 A、B…」與進度，可改為顯示名稱或不顯示）、人員負載（每人每週預估工時）、系統狀態燈號（預設關閉，只顯示正常／注意／異常）
@@ -223,18 +224,18 @@ sudo bash /opt/tool-table/scripts/tool-table.sh doctor
 ```
 
 ```bash
-# HTTP 應回 301 並轉到 https://…:33443/
+# HTTP 應回 301 並轉到 https://…/
 curl -sI http://127.0.0.1/ | grep -iE '^(HTTP|location)'
 ```
 
 ```bash
 # 服務埠只能出現在 127.0.0.1
-sudo ss -ltnp | grep -E ':(80|8080|33443) '
+sudo ss -ltnp | grep -E ':(80|8080|443) '
 ```
 
 ```bash
 # 安全標頭（每個應只出現一次，Server 不含版本）
-curl -skI https://127.0.0.1:33443/ | grep -iE 'strict-transport|content-security|x-frame|^server'
+curl -skI https://127.0.0.1/ | grep -iE 'strict-transport|content-security|x-frame|^server'
 ```
 
 ---
@@ -258,6 +259,10 @@ sudo bash /opt/tool-table/scripts/tool-table.sh upgrade
 
 流程：`git pull` → 備份 → 更新 Python 套件 → 更新 systemd / nginx 設定 → 重啟 → 確認有回應。
 設定檔、資料庫、圖示、憑證都會保留。
+
+- 預設 HTTPS 埠已改為 **443**（網址不必再帶埠號）。仍使用舊預設 `33443` 的伺服器，升級時若 443 沒有被其他程式占用會自動改到 443
+  並開放防火牆；被占用則維持原埠並提示。要用其他埠可在後台「系統設定 → 連線」修改。
+- 新增「訪客」等級：升級後第一次登入的 AD／Entra ID 帳號是訪客，只能看入口連結；已經存在的帳號維持原本的權限。
 
 ---
 
@@ -319,7 +324,7 @@ sudo bash /opt/tool-table/scripts/tool-table.sh uninstall --purge
 ## 8. 安全設計
 
 - 應用程式只綁 `127.0.0.1`，唯一入口是 nginx
-- HTTP 與「用 http:// 連 33443」都會 301 轉到 HTTPS
+- HTTP 與「用 http:// 連 HTTPS 埠」都會 301 轉到 HTTPS
 - TLS 1.2 / 1.3、只用 AEAD 加密套件
 - 安全標頭：HSTS、CSP（只允許本站 script，不載入任何第三方 script）、X-Frame-Options、nosniff、Referrer-Policy、Permissions-Policy、COOP、CORP
 - 時鐘向本伺服器校時（`/api/time`），不依賴外部服務；離線內網也能正常運作
@@ -339,7 +344,7 @@ sudo bash /opt/tool-table/scripts/tool-table.sh uninstall --purge
 |------|------|
 | 任何問題 | 先跑 `sudo bash /opt/tool-table/scripts/tool-table.sh doctor` |
 | 網頁顯示 502 | 應用程式沒起來：`sudo journalctl -u tool-table -n 50 --no-pager` |
-| 連不到 33443 | 確認雲端安全群組 / 外部防火牆有開 `33443/tcp` |
+| 連不到 443 | 確認雲端安全群組 / 外部防火牆有開 `443/tcp` |
 | 安裝時說埠被占用 | 用 `--https-port` / `--http-port` / `--app-port` 換一個 |
 | 主機沒有 IPv6 | 安裝腳本會自動改成只監聽 IPv4 |
 | 想讓 80 埠給別的服務用 | `install --http-port 0`，就不再監聽 HTTP |

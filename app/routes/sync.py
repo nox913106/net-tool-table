@@ -118,6 +118,8 @@ async def link(body: LinkIn, request: Request):
 
 
 async def _issue_device(db, user: dict, name: str, device: str, ip: str) -> str:
+    if user.get("role") == "guest":                 # not given a level yet: nothing to sync
+        raise HTTPException(status_code=403, detail="帳號尚未開通：目前是訪客，請聯絡系統管理員開通為使用者或以上後再連線")
     token = secrets.token_urlsafe(32)
     await db.execute("INSERT INTO sync_devices (user_id, token_hash, name, device, last_seen, ip) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?)",
                      (user["id"], hashlib.sha256(token.encode()).hexdigest(), (name or "").strip()[:80] or None,

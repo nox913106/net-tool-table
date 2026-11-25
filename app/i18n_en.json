@@ -531,5 +531,8 @@
  "甘特圖　（每欄一週（週一起），{0} – {1}）": "Gantt   (one column per week from Monday, {0} – {1})",
  "甘特圖　（每欄一個月，{0} – {1}）": "Gantt   (one column per month, {0} – {1})",
  "這些卡片都還沒有日期": "None of these cards has dates yet",
- "第 &P / &N 頁": "Page &P of &N"
+ "第 &P / &N 頁": "Page &P of &N",
+ "帳號尚未開通：目前是訪客，請聯絡系統管理員開通為使用者或以上": "Account not activated: you are a guest; ask a system administrator for the user level or above",
+ "帳號尚未開通：目前是訪客，請聯絡系統管理員開通為使用者或以上後再連線": "Account not activated: you are a guest; ask a system administrator for the user level or above, then connect again",
+ "訪客（未開通）": "Guest (not activated)"
 }

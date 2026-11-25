@@ -4,7 +4,7 @@
 # Usage (no manual git needed):
 #   curl -fsSL https://raw.githubusercontent.com/nox913106/net-tool-table/main/scripts/bootstrap.sh | sudo bash
 #   # with options:
-#   ... | sudo bash -s -- --https-port 33443 --fqdn portal.example.com
+#   ... | sudo bash -s -- --https-port 443 --fqdn portal.example.com
 #
 set -euo pipefail
 

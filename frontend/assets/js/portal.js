@@ -63,6 +63,7 @@
     $('personal-add').innerHTML = svg('plus');
     $('personal-add').addEventListener('click', () => personalMenu(null));
     TT.userMenu($('user-menu'));
+    guestNotice();
     if (boardOn()) { TTBoard.init(s); TTBoard.mountBell($('bell-btn')); if (window.TTRadar) TTRadar.float(); }
 
     window.addEventListener('hashchange', route);
@@ -84,7 +85,9 @@
 
   const isFolder = n => n.node_type === 'folder';
   /** 個人區: everyone signed in on the server; on a standalone copy once it is linked to a server */
-  const personalOn = () => state.me?.user?.id != null;
+  const personalOn = () => state.me?.user?.id != null && !isGuest();
+  /** 訪客: an AD account no administrator has given a level yet — the public links only, and how to get access */
+  const isGuest = () => !!state.me?.guest;
   const publicRoots = () => state.tree.filter(n => !n.personal);
   const personalRoots = () => state.tree.filter(n => n.personal);
   const sideRow = id => document.querySelector(`#sidebar .tree-row[data-id="${id}"]`);
@@ -300,7 +303,7 @@
   }
   document.addEventListener('tt:tasks', paintNavCounts);
   document.addEventListener('tt:analysis', paintNavCounts);
-  const boardOn = () => state.settings.board_enabled !== false && typeof TTBoard !== 'undefined';
+  const boardOn = () => state.settings.board_enabled !== false && typeof TTBoard !== 'undefined' && !isGuest();
 
   function buildTree() {
     const s = state.settings;
@@ -588,6 +591,23 @@
     return h < 5 ? _t('夜深了') : h < 11 ? _t('早安') : h < 14 ? _t('午安') : h < 18 ? _t('午後愉快') : _t('晚安');
   }
 
+  /** The guest's notice: whom to ask for access (shown on every page until an administrator gives a level) */
+  function guestNotice() {
+    if (!isGuest() || document.getElementById('guest-notice')) return;
+    const who = state.me.contacts || [];
+    const box = el('div', { class: 'guest-notice', id: 'guest-notice', role: 'status' },
+      el('span', { class: 'guest-notice-icon', html: svg('lock') }),
+      el('div', { class: 'guest-notice-text' },
+        el('strong', { text: _t('你的帳號目前是「訪客」，尚未開通') }),
+        el('p', { text: _t('可以瀏覽入口的連結；待辦看板、專案、個人區等功能需要系統管理員把帳號開通為「使用者」或以上。請聯絡：') }),
+        who.length ? el('ul', { class: 'guest-contacts' }, ...who.map(c => el('li', {},
+          el('b', { text: c.name }), c.department ? el('span', { class: 'muted', text: `（${c.department}）` }) : null,
+          c.email ? el('span', { class: 'guest-mail', text: c.email }) : null)))
+          : el('p', { class: 'muted', text: _t('（尚未指定系統管理員，請洽資訊部門）') }),
+        el('p', { class: 'muted', text: _t("請提供你的帳號：{0}", state.me.user.username) })));
+    document.querySelector('.main')?.prepend(box) || $('view').before(box);
+  }
+
   function renderHome() {
     const s = state.settings;
     const view = $('view');
@@ -602,8 +622,10 @@
     frag.append(hero);
 
     if (!state.tree.length && !personalOn()) {
-      frag.append(emptyState('🧭', _t('還沒有任何項目'), _t('到管理後台建立資料夾與連結，或匯入一份 JSON 範本。'),
-        el('a', { class: 'btn btn-primary', href: '/admin', html: svg('settings') + _t('前往管理後台') })));
+      frag.append(state.me?.is_admin
+        ? emptyState('🧭', _t('還沒有任何項目'), _t('到管理後台建立資料夾與連結，或匯入一份 JSON 範本。'),
+          el('a', { class: 'btn btn-primary', href: '/admin', html: svg('settings') + _t('前往管理後台') }))
+        : emptyState('🧭', _t('還沒有任何連結'), _t('管理員還沒有在入口加入連結。')));
       view.replaceChildren(frag);
       return;
     }

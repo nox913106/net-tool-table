@@ -744,7 +744,7 @@ async def _resolve_people(db, usernames: List[str]) -> List[dict]:
                 hit = next((h for h in hits if name in (h["username"], h["upn"].split("@")[0], h["sam"])), None)
                 if hit:
                     cur = await db.execute("INSERT INTO users (username, source, display_name, email, department, role, active) "
-                                           "VALUES (?, 'entra', ?, ?, ?, 'user', 1)", (hit["username"], hit["display_name"], hit["email"], hit["department"]))
+                                           "VALUES (?, 'entra', ?, ?, ?, 'guest', 1)", (hit["username"], hit["display_name"], hit["email"], hit["department"]))
                     cur = await db.execute("SELECT id, username, display_name, active, source FROM users WHERE id = ?", (cur.lastrowid,))
                     row = await cur.fetchone()
         if row is None and not C.AUTH:                # linked copy: ask the server's directory (AD) while online

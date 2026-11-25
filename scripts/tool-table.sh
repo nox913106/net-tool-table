@@ -3,7 +3,7 @@
 # IPMS — single entry-point deployment tool (Debian / Ubuntu)
 #
 # Usage:
-#   tool-table.sh install   [--https-port 33443] [--http-port 80|0] [--app-port 8080]
+#   tool-table.sh install   [--https-port 443] [--http-port 80|0] [--app-port 8080]
 #                           [--fqdn portal.example.com]
 #   tool-table.sh upgrade   [--no-pull]
 #   tool-table.sh uninstall [--purge] [--yes]
@@ -47,7 +47,8 @@ NGINX_LINK="/etc/nginx/sites-enabled/tool-table"
 NGINX_SNIPPETS="/etc/nginx/snippets"
 UNIT_DIR="/etc/systemd/system"
 
-DEFAULT_HTTPS_PORT=33443
+DEFAULT_HTTPS_PORT=443
+OLD_DEFAULT_HTTPS_PORT=33443        # earlier versions' default: upgrade moves it to 443 when that port is free
 DEFAULT_HTTP_PORT=80
 DEFAULT_APP_PORT=8080
 
@@ -136,7 +137,9 @@ render_nginx() {
     install -m 0644 "$src/tool-table-proxy.conf"   "$NGINX_SNIPPETS/tool-table-proxy.conf"
 
     local tmp; tmp="$(mktemp)"
+    local suffix=":$https_port"; [[ "$https_port" == 443 ]] && suffix=""     # https://host/ rather than https://host:443/
     sed -e "s/__HTTPS_PORT__/$https_port/g" \
+        -e "s/__HTTPS_SUFFIX__/$suffix/g" \
         -e "s/__HTTP_PORT__/$http_port/g" \
         -e "s/__APP_PORT__/$app_port/g" \
         -e "s/__SERVER_NAME__/$server_name/g" \
@@ -205,18 +208,19 @@ print_summary() {
     local https_port="$1" http_port="$2" fqdn="$3" ip
     ip="$(primary_ip)"
     local host="${fqdn:-${ip:-<伺服器IP>}}"
+    [[ "$https_port" != 443 ]] && host="${host}:${https_port}"; https_port=""
     echo
     echo "=============================================================="
     echo "  IPMS 已就緒"
     echo "--------------------------------------------------------------"
-    echo "  入口      https://${host}:${https_port}/"
-    echo "  管理後台  https://${host}:${https_port}/admin"
+    echo "  入口      https://${host}/"
+    echo "  管理後台  https://${host}/admin"
     [[ "$http_port" != 0 ]] && \
     echo "  HTTP      http://${host}$( [[ "$http_port" != 80 ]] && echo ":$http_port")/  → 自動轉到 HTTPS"
     echo
     if [[ "$(env_get TOOL_TABLE_AUTH)" =~ ^(1|true|yes|on)$ ]]; then
     echo
-    echo "  整站需要登入（公開進度看板 https://${host}:${https_port}/dashboard 除外）"
+    echo "  整站需要登入（公開進度看板 https://${host}/dashboard 除外）"
     if [[ -n "$ADMIN_NOTE" ]]; then
     echo "  ---- 本機管理員（最高權限，平常不用）----"
     sed 's/^/  /' <<<"$ADMIN_NOTE"
@@ -379,6 +383,17 @@ cmd_upgrade() {
     cp -n "$APP_DIR/resource/icon/"* "$(env_get TOOL_TABLE_ICON_DIR)/" 2>/dev/null || true
     chown -R "$APP_USER:$APP_USER" "$(env_get TOOL_TABLE_ICON_DIR)"
 
+    # The default HTTPS port is now 443: a server still on the old default moves there when 443 is free
+    if [[ "$(env_get TOOL_TABLE_HTTPS_PORT)" == "$OLD_DEFAULT_HTTPS_PORT" ]]; then
+        local owner443; owner443="$(port_owner 443)"
+        if [[ -z "$owner443" || "$owner443" == nginx ]]; then
+            env_set TOOL_TABLE_HTTPS_PORT 443
+            open_firewall 443 "$(env_get TOOL_TABLE_HTTP_PORT)" || true
+            log "HTTPS 埠改為預設的 443：網址變成 https://<主機>/（原本的 :$OLD_DEFAULT_HTTPS_PORT 不再使用）"
+        else
+            warn "443 埠已被 $owner443 使用，HTTPS 維持 :$OLD_DEFAULT_HTTPS_PORT（可在後台「系統設定 → 連線」改）"
+        fi
+    fi
     render_nginx "$(env_get TOOL_TABLE_HTTPS_PORT)" "$(env_get TOOL_TABLE_HTTP_PORT)" \
                  "$(env_get TOOL_TABLE_APP_PORT)" "$(env_get TOOL_TABLE_FQDN)"
     systemctl restart tool-table.service
@@ -647,7 +662,7 @@ req_state() {    # current network settings for the admin UI
     local tmp; tmp="$(mktemp)"
     python3 - "$(env_get TOOL_TABLE_HTTPS_PORT)" "$(env_get TOOL_TABLE_HTTP_PORT)" "$(env_get TOOL_TABLE_FQDN)" > "$tmp" <<'PY'
 import json, sys
-print(json.dumps({"https_port": int(sys.argv[1] or 33443), "http_port": int(sys.argv[2] or 0), "fqdn": sys.argv[3]}))
+print(json.dumps({"https_port": int(sys.argv[1] or 443), "http_port": int(sys.argv[2] or 0), "fqdn": sys.argv[3]}))
 PY
     install -m 0640 -o "$APP_USER" -g "$APP_USER" "$tmp" "$REQ_DIR/state.json"
     rm -f "$tmp"

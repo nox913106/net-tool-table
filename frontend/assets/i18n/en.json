@@ -1522,5 +1522,16 @@
  "匯出格式": "Export format",
  "匯出 {0} 張卡片": "Export {0} cards",
  "格式": "Format",
- "匯出目前甘特圖上的卡片：Excel 甘特圖或 MS Project": "Export the cards on this Gantt chart: Excel Gantt or MS Project"
+ "匯出目前甘特圖上的卡片：Excel 甘特圖或 MS Project": "Export the cards on this Gantt chart: Excel Gantt or MS Project",
+ "AD 帳號第一次登入時是「訪客」：只能看入口連結。把權限改成「使用者」或以上即可開通": "An AD account signing in for the first time is a guest: it sees the portal links only. Give it 使用者 (user) or above to activate it",
+ "{0} 位訪客待開通": "{0} guests waiting",
+ "待開通": "Waiting",
+ "訪客（未開通）": "Guest (not activated)",
+ "你的帳號目前是「訪客」，尚未開通": "Your account is a guest account and is not activated yet",
+ "可以瀏覽入口的連結；待辦看板、專案、個人區等功能需要系統管理員把帳號開通為「使用者」或以上。請聯絡：": "You can browse the portal links. The board, projects and your personal area need a system administrator to give your account the user level or above. Please contact:",
+ "（尚未指定系統管理員，請洽資訊部門）": "(No system administrator has been set yet; please contact IT)",
+ "請提供你的帳號：{0}": "Give them your account: {0}",
+ "還沒有任何連結": "No links yet",
+ "管理員還沒有在入口加入連結。": "An administrator has not added links to the portal yet.",
+ "AD 帳號第一次登入後會出現在這裡，預設是「訪客」（只能看入口連結）；在這裡開通為「使用者」或指定管理員。": "AD accounts appear here after their first sign-in, as guests (portal links only); give them the user level or make them administrators here."
 }

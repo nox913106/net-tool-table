@@ -1714,3 +1714,11 @@ button.g-tog:focus-visible { outline: 2px solid var(--accent); outline-offset: -
 .kb-fmt-opt > span { display: flex; flex-direction: column; gap: 3px; }
 .kb-fmt-opt small { color: var(--text-3); font-size: 12px; }
 .kb-fmt-opt select { margin-top: 4px; width: auto; align-self: flex-start; }
+.guest-notice { display: flex; gap: 14px; align-items: flex-start; margin: 16px clamp(16px, 3vw, 32px) 0; padding: 14px 18px; border: 1px solid color-mix(in srgb, #f59e0b 55%, var(--border));
+  border-left: 4px solid #f59e0b; border-radius: var(--r-lg, 12px); background: color-mix(in srgb, #f59e0b 9%, var(--surface)); }
+.guest-notice-icon svg { width: 22px; height: 22px; color: #f59e0b; }
+.guest-notice-text { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.guest-notice-text strong { font-size: 15px; }
+.guest-notice-text p { margin: 0; font-size: 13.5px; color: var(--text-2); }
+.guest-contacts { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; font-size: 13.5px; }
+.guest-mail { margin-left: 8px; font-family: var(--mono, monospace); font-size: 12.5px; user-select: all; color: var(--accent-text); }

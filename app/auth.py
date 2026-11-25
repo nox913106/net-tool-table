@@ -48,6 +48,9 @@ ADMIN_ANY_METHOD = ("/api/export", "/api/import", "/api/users", "/api/local", "/
                     "/api/system")
 ADMIN_WRITE = ("/api/nodes", "/api/auth-links", "/api/icons", "/api/settings")
 SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
+# a guest (an AD account not yet given a level) may only read the portal and their own account
+GUEST_API = ("/api/auth", "/api/profile", "/api/public", "/api/health", "/api/time", "/api/whoami")
+GUEST_READ = ("/api/settings", "/api/nodes/tree", "/api/auth-links")
 
 
 def is_admin(user: dict) -> bool:
@@ -276,6 +279,9 @@ async def gate(request: Request, call_next):
             and path not in ("/api/auth/me", "/api/auth/password", "/api/auth/logout", "/api/public/branding", "/api/settings"):
         return JSONResponse({"detail": "請先變更本機管理員的預設密碼"}, status_code=403)
 
+    if user is not None and user.get("role") == "guest" and path.startswith("/api/") \
+            and not _starts(path, GUEST_API) and not (method in SAFE_METHODS and _starts(path, GUEST_READ)):
+        return JSONResponse({"detail": "帳號尚未開通：目前是訪客，請聯絡系統管理員開通為使用者或以上"}, status_code=403)
     if user is not None and not is_admin(user):
         if path in ADMIN_PAGES:
             return RedirectResponse("/", status_code=303)

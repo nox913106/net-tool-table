@@ -19,7 +19,7 @@
     { id: 'icons', icon: 'image', label: _t('圖示'), desc: _t('上傳、改名、刪除圖示。') },
     { id: 'settings', icon: 'palette', label: _t('外觀與設定'), desc: _t('品牌、配色、頁首元件、導覽與卡片。') },
     { id: 'backup', icon: 'database', label: _t('備份與匯入'), desc: _t('把全部內容匯出成 JSON，或從 JSON 匯入。') },
-    { id: 'users', icon: 'users', label: _t('帳號與權限'), desc: _t('AD 帳號第一次登入後會出現在這裡，預設是「使用者」；在這裡指定管理員。'), auth: true },
+    { id: 'users', icon: 'users', label: _t('帳號與權限'), desc: _t('AD 帳號第一次登入後會出現在這裡，預設是「訪客」（只能看入口連結）；在這裡開通為「使用者」或指定管理員。'), auth: true },
     { id: 'system', icon: 'settings', label: _t('系統設定'), desc: _t('AD 登入、登入安全、HTTPS 憑證、連線埠。所有設定都在這裡完成，不需要登入伺服器。') },
   ];
 
@@ -1419,11 +1419,15 @@
     }
     const summary = el('div', { class: 'users-summary' },
       el('span', { class: 'badge', text: _t("{0} 個帳號", data.users.length) }),
-      el('span', { class: 'badge' + (data.ad_admins ? '' : ' badge-alert'), text: _t("{0} 位 AD 系統管理者", data.ad_admins) }));
+      el('span', { class: 'badge' + (data.ad_admins ? '' : ' badge-alert'), text: _t("{0} 位 AD 系統管理者", data.ad_admins) }),
+      data.users.some(u => u.role === 'guest' && u.active)
+        ? el('span', { class: 'badge badge-warn', title: _t('AD 帳號第一次登入時是「訪客」：只能看入口連結。把權限改成「使用者」或以上即可開通'),
+          text: _t("{0} 位訪客待開通", data.users.filter(u => u.role === 'guest' && u.active).length) }) : null);
     const list = el('div', { class: 'users-list panel' });
     const paint = () => {
       const q = filter.value.trim().toLowerCase();
-      const rows = data.users.filter(u => !q || [u.username, u.display_name, u.department].some(v => (v || '').toLowerCase().includes(q)));
+      const rows = data.users.filter(u => !q || [u.username, u.display_name, u.department].some(v => (v || '').toLowerCase().includes(q)))
+        .sort((a, b) => (b.role === 'guest' && b.active) - (a.role === 'guest' && a.active));      // waiting for a level: first
       list.replaceChildren(el('div', { class: 'users-row users-head' },
         el('span', { text: _t('帳號') }), el('span', { text: _t('部門') }), el('span', { text: _t('上級') }), el('span', { text: _t('卡片') }), el('span', { text: _t('最後登入') }), el('span', { text: _t('權限') }), el('span', { text: _t('啟用') })),
         ...rows.map(u => {
@@ -1492,9 +1496,9 @@
             boss.replaceChildren(...[pick, u.reports ? el('small', { class: 'muted', text: _t("下級 {0} 人", u.reports) }) : null].filter(Boolean));
           };
           paintBoss();
-          return el('div', { class: 'users-row' + (u.active ? '' : ' is-off') },
+          return el('div', { class: 'users-row' + (u.active ? '' : ' is-off') + (u.role === 'guest' ? ' is-guest' : '') },
             el('span', { class: 'users-who' }, TT.avatar({ ...u, name: u.display_name }, 32),
-              el('span', {}, el('strong', { text: u.display_name || u.username }), el('small', { text: `${u.username}${u.source === 'local' ? _t(' · 本機帳號') : u.source === 'demo' ? _t(' · 示範帳號') : ''}${u.email ? ' · ' + u.email : ''}` }))),
+              el('span', {}, el('strong', { text: u.display_name || u.username }, u.role === 'guest' ? el('span', { class: 'users-guest', text: _t('待開通') }) : null), el('small', { text: `${u.username}${u.source === 'local' ? _t(' · 本機帳號') : u.source === 'demo' ? _t(' · 示範帳號') : ''}${u.email ? ' · ' + u.email : ''}` }))),
             el('span', { text: u.department || '—' }),
             boss,
             el('span', { class: 'muted', text: _t("建 {0} · 負責 {1}", u.created_cards, u.assigned_cards) }),
