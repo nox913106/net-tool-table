@@ -146,6 +146,7 @@
       el('div', { class: 'ai-row' }, el('span', { class: 'ai-label', text: _t('範圍') }), scopeSeg, projSel),
       el('div', { class: 'ai-row ai-btns' }, ...btns), out);
     view.replaceChildren(head, reportCard, projectCard());
+    window.TTAIPM?.inbox().then(box => { if (box && reportCard.isConnected) reportCard.before(box); });
     if (args.project && args.run) runReport(args.run, (KINDS.find(k => k[0] === args.run) || [])[2] || '', null);
   }
 

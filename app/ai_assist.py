@@ -81,9 +81,12 @@ async def collect(request, scope: str, project_id: Optional[int] = None) -> Dict
         await db.close()
     items: List[Dict] = []
 
+    def owner_of_card(c):
+        return (c.get("assignees") or [None])[0] or c.get("owner") or {}
+
     def who_of_card(c):
-        p = (c.get("assignees") or [None])[0] or c.get("owner")
-        return (p or {}).get("name") or (p or {}).get("display_name") or (p or {}).get("username") or ""
+        p = owner_of_card(c)
+        return p.get("name") or p.get("display_name") or p.get("username") or ""
 
     def walk(card, parent, code, depth):
         for k, s in enumerate(kids.get((card["id"], parent), []), start=1):
@@ -93,7 +96,9 @@ async def collect(request, scope: str, project_id: Optional[int] = None) -> Dict
                           "due": _d(s["due_at"]), "done_at": _d(s.get("completed_at")), "priority": s.get("priority") or "normal",
                           "blocked": "", "est": s.get("estimate") or 0, "spent": s.get("spent") or 0, "milestone": s.get("milestone"),
                           "project": names.get(card.get("project_id")) or (card["title"] if card.get("kind") == "project" else ""),
-                          "mine": bool(s.get("assignee") and s["assignee"]["id"] == me)})
+                          "mine": bool(s.get("assignee") and s["assignee"]["id"] == me),
+                          "uid": (s.get("assignee") or {}).get("id"), "username": (s.get("assignee") or {}).get("username") or "",
+                          "parent": s["parent"], "started": _d(s.get("started_at"))})
             walk(card, s["id"], sc, depth + 1)
 
     for n, c in enumerate(cards, start=1):
@@ -104,7 +109,9 @@ async def collect(request, scope: str, project_id: Optional[int] = None) -> Dict
                       "priority": c.get("priority") or "normal", "blocked": b.get("reason") if b.get("since") else "",
                       "blocked_since": _d(b.get("since")), "est": 0, "spent": 0, "milestone": c.get("milestone"),
                       "project": names.get(c.get("project_id")) or (c["title"] if c.get("kind") == "project" else ""),
-                      "is_project": c.get("kind") == "project", "notes": notes.get(c["id"], []), "mine": bool(c.get("mine"))})
+                      "is_project": c.get("kind") == "project", "notes": notes.get(c["id"], []), "mine": bool(c.get("mine")),
+                      "uid": owner_of_card(c).get("id"), "username": owner_of_card(c).get("username") or "",
+                      "desc": c.get("description") or "", "updated": c.get("updated_at")})
         walk(c, None, code, 1)
     return {"items": items, "cards": len(cards), "scope": scope, "project": names.get(project_id) if project_id else None}
 
@@ -143,7 +150,7 @@ def lists(items, today: Optional[date] = None) -> Dict:
     w0, w1 = week_range(today)
     n0, n1 = week_range(today, 1)
     open_ = [it for it in items if it["status"] not in CLOSED and not it.get("is_project")]
-    pick = lambda xs: [{k: (v.isoformat() if isinstance(v, date) else v) for k, v in it.items() if k != "notes"} for it in xs]
+    pick = lambda xs: [{k: (v.isoformat() if isinstance(v, date) else v) for k, v in it.items() if k not in ("notes", "desc")} for it in xs]
     overdue = [it for it in open_ if it["due"] and it["due"] < today]
     blocked = [it for it in open_ if it.get("blocked")]
     done_week = [it for it in items if it["status"] == "complete" and it["done_at"] and w0 <= it["done_at"] <= w1]

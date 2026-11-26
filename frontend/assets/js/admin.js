@@ -2370,6 +2370,10 @@
       max_output_tokens: input(S.max_output_tokens, { type: 'number', min: '64', max: '128000' }),
       temperature: input(S.temperature, { type: 'number', min: '0', max: '2', step: '0.1' }),
       system_prompt: el('textarea', { class: 'textarea', rows: '4' }),
+      images_to_cloud: switchCtl(S.images_to_cloud, _t('允許把截圖送到雲端服務（預設只送地端）'), () => {}),
+      aipm_enabled: switchCtl(S.aipm_enabled, _t('啟用 AiPM（AI 專案經理）'), () => {}),
+      aipm_auto_low: switchCtl(S.aipm_auto_low, _t('低風險的補充（說明、驗收條件、截圖清單）直接套用，可以復原'), () => {}),
+      aipm_patrol: input(S.aipm_patrol || '08:30', { type: 'time' }),
     };
     sf.system_prompt.value = S.system_prompt || '';
     let mode = S.mode;
@@ -2378,7 +2382,9 @@
     saveS.addEventListener('click', async () => {
       try {
         await api('/api/ai/settings', { method: 'PUT', body: { enabled: sf.enabled.querySelector('input').checked, allow_cloud: sf.allow_cloud.querySelector('input').checked, mode,
-          timeout: Number(sf.timeout.value), max_output_tokens: Number(sf.max_output_tokens.value), temperature: Number(sf.temperature.value), system_prompt: sf.system_prompt.value } });
+          timeout: Number(sf.timeout.value), max_output_tokens: Number(sf.max_output_tokens.value), temperature: Number(sf.temperature.value), system_prompt: sf.system_prompt.value,
+          images_to_cloud: sf.images_to_cloud.querySelector('input').checked, aipm_enabled: sf.aipm_enabled.querySelector('input').checked,
+          aipm_auto_low: sf.aipm_auto_low.querySelector('input').checked, aipm_patrol: sf.aipm_patrol.value || '08:30' } });
         toast(_t('已儲存')); route();
       } catch (e) { toast(e.message, true); }
     });
@@ -2390,6 +2396,11 @@
       el('div', { class: 'sys-form' }, field(_t('逾時（秒）'), sf.timeout), field(_t('每次最多輸出（token）'), sf.max_output_tokens),
         field(_t('溫度（只送給勾選「傳送溫度」的服務）'), sf.temperature)),
       field(_t('系統提示詞（預設）'), sf.system_prompt, _t('功能沒有指定時使用；用來約束語氣、語言與「只根據提供的內容回答」')),
+      sf.images_to_cloud,
+      el('h4', { class: 'sys-sub', text: 'AiPM' }),
+      el('p', { class: 'hint', text: _t('AiPM 會讀整個專案、預估風險、追問、建議補充的工作與截圖紀錄；專案有變動時（每 10 分鐘檢查，同一專案最多每 30 分鐘一次）與每天的巡檢時間會主動檢視。日期、負責人、狀態與新增工作一律要有人按「採用」。') }),
+      sf.aipm_enabled, sf.aipm_auto_low,
+      el('div', { class: 'sys-form' }, field(_t('每日巡檢時間'), sf.aipm_patrol, _t('進行中的專案每天檢視一次，結果通知專案負責人'))),
       el('div', { class: 'sys-actions' }, saveS));
 
     // ---------------- services
@@ -2493,7 +2504,7 @@
       const pre = p ? {} : (D.presets[presetKey] || {});
       const v = p ? { ...p } : { name: pre.label, preset: presetKey, kind: pre.kind, location: pre.location || 'cloud', billing: pre.billing || (pre.location === 'onprem' ? 'self_hosted' : 'token'),
         base_url: pre.base_url || '', model: pre.model || '', deployment: '', api_version: pre.api_version || '', region: pre.region || '',
-        token_param: pre.token_param || 'max_tokens', send_temperature: pre.kind === 'anthropic' ? 0 : 1, extra_body: '', enabled: 1,
+        token_param: pre.token_param || 'max_tokens', send_temperature: pre.kind === 'anthropic' ? 0 : 1, extra_body: '', enabled: 1, vision: pre.vision ? 1 : 0,
         priority: (D.providers.reduce((m, x) => Math.max(m, x.priority), 0) || 0) + 10, price_in: pre.price_in || 0, price_out: pre.price_out || 0,
         currency: 'USD', monthly_budget: 0, monthly_fee: 0, monthly_token_quota: 0, reset_day: 1, note: '' };
       const f = {};
@@ -2506,6 +2517,7 @@
       f.extra_body = el('textarea', { class: 'textarea mono', rows: '2', placeholder: '{"top_p": 0.9}' }); f.extra_body.value = v.extra_body || '';
       f.note = el('textarea', { class: 'textarea', rows: '2' }); f.note.value = v.note || '';
       f.send_temperature = switchCtl(!!v.send_temperature, _t('傳送溫度（目前的 Claude 模型不接受，預設不傳）'), () => {});
+      f.vision = switchCtl(!!v.vision, _t('可看圖片（模型支援看圖；AiPM 的截圖只送給勾選的服務）'), () => {});
       const kindSel = sel('kind', D.kinds);
       const billSel = sel('billing', D.billing);
       const rowsFor = {};
@@ -2529,6 +2541,7 @@
         (rowsFor.quota = field(_t('每期 token 額度（0 = 不限）'), txt('monthly_token_quota', { type: 'number', min: '0' }))),
         field(_t('每期起算日（每月幾號）'), txt('reset_day', { type: 'number', min: '1', max: '28' })),
         el('div', { class: 'field span-all' }, f.send_temperature),
+        el('div', { class: 'field span-all' }, f.vision),
         el('div', { class: 'span-all' }, field(_t('額外參數（JSON，合併到請求內容）'), f.extra_body, _t('例如 Claude 的 {"output_config": {"effort": "high"}}，或 OpenAI 相容服務的 {"top_p": 0.9}'))),
         el('div', { class: 'span-all' }, field(_t('備註'), f.note)));
       const paint = () => {
@@ -2549,7 +2562,7 @@
       save.addEventListener('click', async () => {
         const values = {};
         for (const [k, c] of Object.entries(f)) {
-          if (k === 'send_temperature') values[k] = c.querySelector('input').checked ? 1 : 0;
+          if (k === 'send_temperature' || k === 'vision') values[k] = c.querySelector('input').checked ? 1 : 0;
           else values[k] = ['priority', 'price_in', 'price_out', 'monthly_budget', 'monthly_fee', 'monthly_token_quota', 'reset_day'].includes(k) ? Number(c.value || 0) : c.value;
         }
         if (!p) values.preset = presetKey;

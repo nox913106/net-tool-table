@@ -431,6 +431,30 @@ window.TT_HELP_EN = [
     ],
   },
   {
+    id: 'aipm', icon: 'sparkles', title: 'AiPM (AI project manager)',
+    intro: 'AiPM is each project\'s AI project manager: engineers just <b>paste screenshots and say a sentence or two</b>; AiPM reads the whole project, forecasts what is likely to happen, asks for what is missing and fills in notes, acceptance criteria, screenshot lists and follow-ups, so engineers can focus on the technical work. An administrator turns on AI and AiPM under “AI services”.',
+    items: [
+      { h: 'Where to open it', b: 'The “AiPM” button on a project page, “AiPM” at the bottom of the card and subtask editors (that item is preselected), AiPM notifications in the bell, and “AiPM to do” at the top of the AI assistant page. For a card that belongs to a project, AiPM works on the whole project.' },
+      { h: 'Chat: paste, then describe', b: `<ul>
+        <li>Under “About”, pick the item the note is about (A, A1, A1-1, A1-1.1…).</li>
+        <li>Paste (Ctrl+V) or drop screenshots, up to 6, or press “Screenshot”; write a sentence or two: what is done, what you ran into, what is next. Press “Send” or Ctrl+Enter.</li>
+        <li>With “Also keep as a comment” (the default) the text and screenshots become a comment on that item, so the record stays where it belongs.</li>
+        <li>AiPM answers with <b>my understanding</b> (what it sees in the note and screenshots), its assessment and what to watch, and a <b>forecast and risks</b> (high / medium / low, marked as estimates).</li>
+      </ul>` },
+      { h: 'Who sees screenshots', b: 'Screenshots go only to AI services an administrator marked “can see images”, and by default only to <b>on-premises</b> ones; sending them to the cloud needs “Allow screenshots to be sent to cloud services”. Without such a service the screenshots are still kept in the comment and AiPM works from the text (the header says “cannot see screenshots”).' },
+      { h: 'AiPM\'s questions', b: 'Up to 3 precise questions at a time, each with why it matters and options to click; the person who should answer (by default the item\'s owner) is notified. Click an option or type and press “Answer”: the answer is kept as a comment on the item and AiPM reviews again. “Skip” the ones that do not matter.' },
+      { h: 'Suggested changes', b: `<ul>
+        <li><b>Low risk</b>: added notes (acceptance criteria, screenshot lists, cautions). When the administrator allows it they are added at once to the end of the item\'s description (marked 【AiPM】 with the date, nothing overwritten), listed under “Added automatically”, and can be undone (not once the description has been edited again).</li>
+        <li><b>Needs confirmation</b>: new work, dates, status, owner, priority, marking blocked. Nothing changes until someone presses “Apply”; “Skip” the rest. Applied changes can be undone too.</li>
+        <li>Every change runs with the permissions of the person who pressed the button; if they may not make it, the reason is shown. Background reviews act as the “AiPM” system account and only apply low-risk notes.</li>
+      </ul>` },
+      { h: 'Follow-ups', b: 'Things AiPM thinks need chasing (a vendor reply, a change window, a check after go-live…), with a date. Press “Done” or “No need”; AiPM also closes the ones that are done when it next reviews.' },
+      { h: 'What the system detects', b: 'Computed by the system, not the AI: overdue, due soon but not started, blocked, milestones within 7 days, in progress with no update for 5+ days, no owner, no due date, no estimate, no description, done without any screenshot or file, and how far behind plan. AiPM gets these as evidence too.' },
+      { h: 'AiPM reviews on its own', b: 'Without being asked: after a project changes (checked every 10 minutes, at most every 30 minutes per project, once changes have settled for 10 minutes) and at the daily patrol time (08:30 by default, set by the administrator) it reviews active projects, adds low-risk notes, leaves suggestions and questions, and notifies the project lead. On-hold, finished, canceled and History projects are skipped. “Ask AiPM to review” runs it any time.' },
+      { h: 'Note', b: 'AiPM only knows what is in the system and what you tell it, and marks guesses as estimates; important changes always need a person. Projects in History are read-only.' },
+    ],
+  },
+  {
     id: 'export', icon: 'download', title: 'Export and import (Excel, MS Project)',
     items: [
       { h: 'Where to export', b: 'Board “Select / export” then “Export report”; “Excel” in the card editor; “Excel report” on a project page; “Export” on the Gantt toolbar; “Export Excel” in History; “Export by person…” on the board.' },

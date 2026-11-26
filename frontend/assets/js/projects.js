@@ -338,6 +338,7 @@
       aiBtn?.addEventListener('click', () => { location.hash = `#/ai/project/${id}`; });
       const nav = el('button', { class: 'btn', type: 'button', html: svg('layout') + _t('任務視窗') });
       nav.addEventListener('click', () => TTBoard.openNavigator(c));
+      const aipmBtn = !archived && window.TTAIPM ? TTAIPM.button(id, {}, 'btn btn-primary') : null;
       // my notifications for this project: all / only mine / a daily summary / off
       const bell = el('select', { class: 'select pj-watch', 'aria-label': _t('這個專案的通知'), title: _t('每天在「每日提醒時間」送出：落後基準線、跨專案前置延誤、時段衝突、3 天內到期的里程碑') },
         ...[['all', _t('通知：全部')], ['mine', _t('通知：只跟我有關')], ['digest', _t('通知：每日摘要')], ['off', _t('通知：關閉')]].map(([v, l]) => el('option', { value: v, text: l })));
@@ -359,7 +360,7 @@
           el('div', { class: 'pj-stat' + ((p?.slip || 0) > 0 ? ' bad' : '') }, el('b', { text: p?.slip == null ? '—' : _t("{0}{1} 天", p.slip > 0 ? '+' : '', p.slip) }), el('span', { text: _t('相對基準線') })),
           el('div', { class: 'pj-stat' }, el('b', { text: p?.next ? md(p.next.due) : '—' }), el('span', { text: p?.next ? `◆ ${p.next.title}` : _t('下個里程碑') })),
           el('div', { class: 'pj-stat' + (p?.problem_items ? ' bad' : '') }, el('b', { text: p?.problem_items ?? 0 }), el('span', { text: _t('有問題的項目') }))),
-        el('div', { class: 'pj-actions' }, bell, aiBtn, nav, edit, xls));
+        el('div', { class: 'pj-actions' }, bell, aipmBtn, aiBtn, nav, edit, xls));
       // what needs me elsewhere — no need to leave this page to find out
       if (archived) { strip.hidden = true; return; }
       const mine = await myItems();

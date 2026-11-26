@@ -1628,6 +1628,11 @@ const TTBoard = window.TTBoard = (() => {
 
   /** 「AI 建議」: suggested content, execution flow and screenshots for this card / subtask (app/ai_assist.py);
    *  「加到說明」 appends the text to the description box (saved with the form). Shown only when AI is on. */
+  /** AiPM for this card (its project when it belongs to one), pointed at the card or subtask. */
+  function aipmBtn(cardId, sub = null) {
+    return window.TTAIPM ? TTAIPM.button(cardId, { target: { card: cardId, sub } }, 'btn btn-ghost') : null;
+  }
+
   function aiSuggestBtn(target, descBox) {
     if (!window.TTAI?.on) return null;
     const b = el('button', { class: 'btn btn-ghost', type: 'button', title: _t('AI 建議：這項工作的內容、執行流程與需要保留的截圖'), html: svg('sparkles') + _t('AI 建議') });
@@ -1743,7 +1748,7 @@ const TTBoard = window.TTBoard = (() => {
           el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('calendar') + _t('排程（甘特圖）') }), sched.el),
           hint,
           el('p', { class: 'hint', text: _t("已記錄工時 {0}{1}（計時與明細在卡片的子任務區）", fmtMin(spent), s.estimate_minutes ? _t(" / 預估 {0}", fmtMin(s.estimate_minutes)) : '') })),
-        el('div', { class: 'modal-foot' }, aiSuggestBtn({ card_id: card.id, comment_id: c.id, title: s.title }, c.can_edit_body ? desc : null), el('span', { class: 'spacer' }), cancel, edit || c.can_edit_body || s.can_update ? ok : null)));
+        el('div', { class: 'modal-foot' }, aiSuggestBtn({ card_id: card.id, comment_id: c.id, title: s.title }, c.can_edit_body ? desc : null), aipmBtn(card.id, c.id), el('span', { class: 'spacer' }), cancel, edit || c.can_edit_body || s.can_update ? ok : null)));
 
     const close = async () => {
       wrap.remove(); window.removeEventListener('keydown', onKey, true);
@@ -2615,7 +2620,7 @@ const TTBoard = window.TTBoard = (() => {
           repeatHint,
           meta,
           comments),
-        el('div', { class: 'modal-foot' }, del, xlsBtn, navBtn, task ? aiSuggestBtn({ card_id: task.id, title: task.title }, readOnly ? null : desc) : null, el('span', { class: 'spacer' }), cancel, ok)));
+        el('div', { class: 'modal-foot' }, del, xlsBtn, navBtn, task ? aiSuggestBtn({ card_id: task.id, title: task.title }, readOnly ? null : desc) : null, task && !task.history ? aipmBtn(task.id) : null, el('span', { class: 'spacer' }), cancel, ok)));
 
     const close = () => { stopTicker(); wrap.remove(); document.removeEventListener('keydown', onKey); document.body.classList.remove('modal-open'); };
     const onKey = e => {
@@ -2769,11 +2774,12 @@ const TTBoard = window.TTBoard = (() => {
       if (!pop) return;
       const noteRows = notes.slice(0, 12).map(n => {
         const row = el('button', { class: 'bell-item bell-note' + (n.read ? ' is-read' : ''), type: 'button' },
-          el('span', { class: 'bell-kind kind-note', html: svg(n.kind === 'comment' ? 'message' : n.kind === 'assigned' ? 'user' : n.kind === 'subtask' ? 'check' : ['project', 'card'].includes(n.kind) ? 'flag' : 'users') }),
+          el('span', { class: 'bell-kind kind-note', html: svg(n.kind === 'aipm' ? 'sparkles' : n.kind === 'comment' ? 'message' : n.kind === 'assigned' ? 'user' : n.kind === 'subtask' ? 'check' : ['project', 'card'].includes(n.kind) ? 'flag' : 'users') }),
           el('span', { class: 'bell-text' }, el('strong', { text: n.text }), el('small', { text: (n.created_at || '').slice(5, 16) })));
         row.addEventListener('click', async () => {
           close();
           if (!n.read) { n.read = 1; api('/api/notifications/read', { method: 'POST', body: { ids: [n.id] } }).catch(() => {}); refreshAlerts(); }
+          if (n.kind === 'aipm' && n.task_id && window.TTAIPM) { TTAIPM.open(n.task_id); return; }
           if (n.kind === 'project') { if (n.task_id) location.hash = `#/project/${n.task_id}`; else { TT.store.set('projects-tab', 'load'); location.hash = '#/projects'; } return; }
           openTask(n.task_id);
         });

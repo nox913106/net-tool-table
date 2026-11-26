@@ -19,6 +19,7 @@ from . import auth as auth_mod
 from .routes import auth as auth_routes, auth_links, dashboard, local, nodes, search, settings, system, tasks
 from .routes import sync as sync_routes
 from .routes import ai as ai_routes
+from .routes import aipm as aipm_routes
 
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 VERSION = (PROJECT_ROOT / "VERSION").read_text().strip() if (PROJECT_ROOT / "VERSION").is_file() else "0.0.0"
@@ -95,6 +96,12 @@ async def _scheduler():
                 await loop.run_in_executor(None, cleanup_images, DB_PATH)
             except Exception:
                 pass
+        if tick % 10 == 3:                      # every 10 minutes: AiPM's review after changes and the daily 巡檢 (app/aipm.py)
+            try:
+                from .aipm import start_tick
+                start_tick()
+            except Exception:
+                logging.getLogger("tool_table").exception("aipm")
         tick += 1
         await asyncio.sleep(60)
 
@@ -178,6 +185,7 @@ app.include_router(dashboard.router)
 app.include_router(system.router)
 app.include_router(sync_routes.router)
 app.include_router(ai_routes.router)
+app.include_router(aipm_routes.router)
 
 
 @app.middleware("http")

@@ -220,6 +220,10 @@ sudo bash /opt/tool-table/scripts/tool-table.sh reset-admin
 **雲端**服務需要能連到對方的 API（例如 `api.anthropic.com`、`api.openai.com`、`generativelanguage.googleapis.com`、`<資源>.openai.azure.com`、`bedrock-runtime.<區域>.amazonaws.com`），
 並在後台打開「允許使用雲端服務」。每個服務先按「測試」確認連線，再到「測試台」比較回答。呼叫 Claude 用官方 `anthropic` 套件（已列在 requirements.txt，升級時自動安裝）。
 
+**AiPM（AI 專案經理）**：同一頁下方的「AiPM」區塊。預設啟用、低風險補充直接套用（可復原）、每日巡檢 08:30（伺服器本機時間）。
+工程師貼的截圖只會送給勾選「可看圖片」的服務，而且預設只送地端；要送雲端，另外打開「允許把截圖送到雲端服務」。
+背景檢視每 10 分鐘看一次哪些進行中的專案有變動（同一專案最多每 30 分鐘一次）；每次檢視是一次 AI 呼叫，用量記在「用量紀錄」（用途 `aipm_*`）。
+
 ### 2.8 介面語言
 
 繁體中文與英文。每個人用頁首的「中／EN」切換，會記在自己的帳號；網站預設語言在「外觀與設定」選（繁體中文、英文或跟隨瀏覽器）。

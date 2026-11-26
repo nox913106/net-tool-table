@@ -45,13 +45,13 @@ P = dict
 # Presets: the defaults a new service starts from. Prices change: only Claude's are filled in.
 PRESETS = {
     # ---- 雲端：按量
-    "anthropic": P(group="cloud_token", label="Anthropic Claude API", kind="anthropic", model="claude-opus-5-5",
+    "anthropic": P(group="cloud_token", label="Anthropic Claude API", kind="anthropic", vision=1, model="claude-opus-5-5",
                    price_in=4.0, price_out=20.0, hint="預設 Claude Opus 5.5（每 100 萬 token：input US$4、output US$20）；也可填 claude-sonnet-5-5、claude-haiku-5-5"),
-    "openai": P(group="cloud_token", label="OpenAI API", kind="openai", base_url="https://api.openai.com/v1",
+    "openai": P(group="cloud_token", label="OpenAI API", kind="openai", vision=1, base_url="https://api.openai.com/v1",
                 token_param="max_completion_tokens", hint="模型名稱依 OpenAI 文件填寫"),
-    "gemini": P(group="cloud_token", label="Google Gemini API", kind="gemini", base_url="https://generativelanguage.googleapis.com",
+    "gemini": P(group="cloud_token", label="Google Gemini API", kind="gemini", vision=1, base_url="https://generativelanguage.googleapis.com",
                 hint="模型名稱依 Google AI Studio 文件填寫"),
-    "azure_openai": P(group="cloud_token", label="Azure OpenAI（按量）", kind="azure_openai", base_url="https://<資源名稱>.openai.azure.com",
+    "azure_openai": P(group="cloud_token", label="Azure OpenAI（按量）", kind="azure_openai", vision=1, base_url="https://<資源名稱>.openai.azure.com",
                       api_version="2024-10-21", token_param="max_completion_tokens", hint="填部署名稱（deployment），模型名稱可留空"),
     "bedrock": P(group="cloud_token", label="AWS Bedrock（按量）", kind="bedrock", region="ap-northeast-1",
                  hint="填 Bedrock 模型 ID 或推論設定檔 ID；金鑰使用 Bedrock API 金鑰"),
@@ -68,7 +68,7 @@ PRESETS = {
                    hint="Provisioned Throughput：按月計費，填月費與部署名稱"),
     "bedrock_pt": P(group="cloud_monthly", label="AWS Bedrock Provisioned Throughput", kind="bedrock", billing="monthly",
                     region="ap-northeast-1", hint="模型 ID 填 Provisioned Throughput 的 ARN"),
-    "anthropic_commit": P(group="cloud_monthly", label="Anthropic Claude（企業包月／預付）", kind="anthropic", billing="monthly",
+    "anthropic_commit": P(group="cloud_monthly", label="Anthropic Claude（企業包月／預付）", kind="anthropic", vision=1, billing="monthly",
                           model="claude-opus-5-5", hint="預付或承諾用量合約：填月費與額度；呼叫方式與 Claude API 相同"),
     # ---- 地端（資料不離開公司）
     "gateway": P(group="onprem", label="公司 AI 閘道（OpenAI 相容，例如 LiteLLM）", kind="openai", location="onprem", billing="monthly",
@@ -84,14 +84,15 @@ PRESETS = {
 GROUPS = {"cloud_token": "雲端：按量計費", "cloud_monthly": "雲端：包月／預留容量", "onprem": "地端：自建主機與公司閘道"}
 
 DEFAULTS = {"enabled": False, "allow_cloud": False, "mode": "fallback", "timeout": 120, "max_output_tokens": 16000,
-            "temperature": 0.2, "system_prompt": "你是 IPMS（基礎建設專案管理系統）的助理。用繁體中文，簡潔、條列，只根據提供的內容回答，不要編造。"}
+            "temperature": 0.2, "images_to_cloud": False,
+            "aipm_enabled": True, "aipm_patrol": "08:30", "aipm_auto_low": True, "system_prompt": "你是 IPMS（基礎建設專案管理系統）的助理。用繁體中文，簡潔、條列，只根據提供的內容回答，不要編造。"}
 FIELDS = {  # column: (type, default)
     "name": (str, ""), "preset": (str, ""), "kind": (str, "openai"), "location": (str, "cloud"), "billing": (str, "token"),
     "base_url": (str, ""), "model": (str, ""), "deployment": (str, ""), "api_version": (str, ""), "region": (str, ""),
     "token_param": (str, "max_tokens"), "send_temperature": (int, 1), "extra_body": (str, ""), "enabled": (int, 1),
     "priority": (int, 100), "price_in": (float, 0.0), "price_out": (float, 0.0), "currency": (str, "USD"),
     "monthly_budget": (float, 0.0), "monthly_fee": (float, 0.0), "monthly_token_quota": (int, 0), "reset_day": (int, 1),
-    "note": (str, ""),
+    "note": (str, ""), "vision": (int, 0),
 }
 
 
@@ -101,6 +102,12 @@ async def ensure(db):
                      for k, (t, d) in FIELDS.items())
     await db.execute(f"CREATE TABLE IF NOT EXISTS ai_providers (id INTEGER PRIMARY KEY AUTOINCREMENT, {cols}, api_key_enc TEXT, "
                      "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP)")
+    cur = await db.execute("PRAGMA table_info(ai_providers)")
+    have = {r[1] for r in await cur.fetchall()}
+    for k, (t, d) in FIELDS.items():                     # columns added in later versions (vision …)
+        if k not in have:
+            await db.execute(f"ALTER TABLE ai_providers ADD COLUMN {k} {'INTEGER' if t is int else 'REAL' if t is float else 'TEXT'} "
+                             f"DEFAULT {json.dumps(d) if t is str else d}")
     await db.execute("""CREATE TABLE IF NOT EXISTS ai_usage (id INTEGER PRIMARY KEY AUTOINCREMENT,
                             at TIMESTAMP NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S', 'now', 'localtime')),
                             provider_id INTEGER, provider_name TEXT, model TEXT, purpose TEXT, user_id INTEGER,
@@ -300,8 +307,16 @@ def _extra(p):
     return json.loads(p["extra_body"]) if (p.get("extra_body") or "").strip() else {}
 
 
+def _images(o):
+    return o.get("images") or []
+
+
 def _openai_body(p, system, user, o):
-    body = {"messages": [{"role": "system", "content": system}, {"role": "user", "content": user}], "stream": False}
+    content = user
+    if _images(o):
+        content = [{"type": "text", "text": user}] + [
+            {"type": "image_url", "image_url": {"url": f"data:{im['mime']};base64,{im['data']}"}} for im in _images(o)]
+    body = {"messages": [{"role": "system", "content": system}, {"role": "user", "content": content}], "stream": False}
     if p.get("send_temperature"):
         body["temperature"] = o["temperature"]
     if p.get("token_param") in ("max_tokens", "max_completion_tokens"):
@@ -337,7 +352,9 @@ def call_anthropic(p, key, system, user, o):
     import anthropic
     client = anthropic.Anthropic(api_key=key or None, base_url=p.get("base_url") or None, timeout=o["timeout"], max_retries=1)
     kwargs = dict(model=p["model"], max_tokens=o["max_output_tokens"], system=system,
-                  messages=[{"role": "user", "content": user}], **_extra(p))
+                  messages=[{"role": "user", "content": [
+                      *({"type": "image", "source": {"type": "base64", "media_type": im["mime"], "data": im["data"]}} for im in _images(o)),
+                      {"type": "text", "text": user}]}], **_extra(p))
     try:
         if p["model"] in CLAUDE_FALLBACK_MODELS and not p.get("base_url"):
             resp = client.beta.messages.create(**kwargs, betas=["server-side-fallback-2026-07-01"], fallbacks="default")
@@ -368,7 +385,8 @@ def call_gemini(p, key, system, user, o):
     cfg = {"maxOutputTokens": o["max_output_tokens"]}
     if p.get("send_temperature"):
         cfg["temperature"] = o["temperature"]
-    body = {"systemInstruction": {"parts": [{"text": system}]}, "contents": [{"role": "user", "parts": [{"text": user}]}],
+    body = {"systemInstruction": {"parts": [{"text": system}]}, "contents": [{"role": "user", "parts": [
+                *({"inline_data": {"mime_type": im["mime"], "data": im["data"]}} for im in _images(o)), {"text": user}]}],
             "generationConfig": cfg, **_extra(p)}
     data = _post(url, body, {"x-goog-api-key": key}, o["timeout"])
     parts = ((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
@@ -382,7 +400,9 @@ def call_bedrock(p, key, system, user, o):
     cfg = {"maxTokens": o["max_output_tokens"]}
     if p.get("send_temperature"):
         cfg["temperature"] = o["temperature"]
-    body = {"system": [{"text": system}], "messages": [{"role": "user", "content": [{"text": user}]}], "inferenceConfig": cfg, **_extra(p)}
+    body = {"system": [{"text": system}], "messages": [{"role": "user", "content": [
+                *({"image": {"format": im["mime"].split("/")[-1].replace("jpg", "jpeg"), "source": {"bytes": im["data"]}}} for im in _images(o)),
+                {"text": user}]}], "inferenceConfig": cfg, **_extra(p)}
     data = _post(f"{base.rstrip('/')}/model/{urllib.parse.quote(p['model'], safe='')}/converse", body,
                  {"Authorization": f"Bearer {key}"}, o["timeout"])
     content = ((data.get("output") or {}).get("message") or {}).get("content") or []
@@ -406,10 +426,13 @@ def _log(p, purpose, user_id, ok, err, reply, cost, ms):
         con.close()
 
 
-def call(p: dict, system: str, user: str, purpose: str = "ask", user_id: Optional[int] = None, opts: Optional[dict] = None) -> dict:
-    """One service; never raises: {provider_id, name, location, ok, text, model, input_tokens, output_tokens, cost, latency_ms, error}."""
+def call(p: dict, system: str, user: str, purpose: str = "ask", user_id: Optional[int] = None, opts: Optional[dict] = None,
+         images: Optional[List[dict]] = None) -> dict:
+    """One service; never raises: {provider_id, name, location, ok, text, model, input_tokens, output_tokens, cost, latency_ms, error}.
+    images: [{mime, data (base64)}] — only for a service marked 「可看圖片」 (see sees_images)."""
     s = settings()
-    o = opts or {"timeout": s["timeout"], "max_output_tokens": s["max_output_tokens"], "temperature": s["temperature"]}
+    o = dict(opts or {"timeout": s["timeout"], "max_output_tokens": s["max_output_tokens"], "temperature": s["temperature"]})
+    o["images"] = images or []
     t0 = time.monotonic()
     reply, err = None, None
     try:
@@ -431,8 +454,15 @@ def call(p: dict, system: str, user: str, purpose: str = "ask", user_id: Optiona
             "cost": cost, "currency": p.get("currency"), "latency_ms": ms, "error": err}
 
 
+def sees_images(p: dict, s: Optional[dict] = None) -> bool:
+    """Screenshots go to a service only when it is marked 「可看圖片」 and is on-premises — or cloud images are allowed."""
+    s = s or settings()
+    return bool(p.get("vision")) and (p.get("location") == "onprem" or bool(s.get("images_to_cloud")))
+
+
 def ask(prompt: str, system: Optional[str] = None, mode: Optional[str] = None, ids: Optional[List[int]] = None,
-        purpose: str = "ask", user_id: Optional[int] = None, ignore_switch: bool = False) -> dict:
+        purpose: str = "ask", user_id: Optional[int] = None, ignore_switch: bool = False,
+        images: Optional[List[dict]] = None) -> dict:
     """Route one question. mode fallback: the first usable service by priority that answers (the others are
     tried in turn); parallel: every usable service at once. {mode, results: [...], answer: first good result or None}."""
     s = settings()
@@ -443,17 +473,29 @@ def ask(prompt: str, system: Optional[str] = None, mode: Optional[str] = None, i
     if not pool:
         raise RuntimeError("沒有可用的 AI 服務（都已停用、雲端未允許、超過預算或設定不完整）")
     system = system or s["system_prompt"]
+    if images:
+        # services that may see the screenshots first; the others still answer from the text alone
+        pool = sorted(pool, key=lambda p: 0 if sees_images(p, s) else 1)
+
+    def one(p):
+        if not images or sees_images(p, s):
+            return call(p, system, prompt, purpose, user_id, images=images if images else None)
+        note = f"\n\n（工程師附了 {len(images)} 張截圖，但這個 AI 服務不能看圖或不允許把圖片送到雲端，請只依文字判斷，需要時請對方用文字補充截圖內容。）"
+        return call(p, system, prompt + note, purpose, user_id)
+
     if mode == "parallel":
         with ThreadPoolExecutor(max_workers=min(8, len(pool))) as ex:
-            results = list(ex.map(lambda p: call(p, system, prompt, purpose, user_id), pool))
+            results = list(ex.map(one, pool))
     else:
         results = []
         for p in pool:
-            r = call(p, system, prompt, purpose, user_id)
+            r = one(p)
             results.append(r)
             if r["ok"]:
                 break
-    return {"mode": mode, "results": results, "answer": next((r for r in results if r["ok"]), None)}
+    ans = next((r for r in results if r["ok"]), None)
+    return {"mode": mode, "results": results, "answer": ans,
+            "images_seen": bool(images) and bool(ans) and sees_images(next(p for p in pool if p["id"] == ans["provider_id"]), s)}
 
 
 def recent(limit: int = 40) -> List[dict]:

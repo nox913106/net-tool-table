@@ -29,6 +29,10 @@ class SettingsIn(BaseModel):
     max_output_tokens: Optional[int] = None
     temperature: Optional[float] = None
     system_prompt: Optional[str] = None
+    images_to_cloud: Optional[bool] = None
+    aipm_enabled: Optional[bool] = None
+    aipm_patrol: Optional[str] = None
+    aipm_auto_low: Optional[bool] = None
 
 
 class ProviderIn(BaseModel):
@@ -69,6 +73,12 @@ async def put_settings(body: SettingsIn, request: Request, _: dict = Depends(req
         raise HTTPException(status_code=400, detail="溫度要在 0–2 之間")
     if "system_prompt" in v:
         v["system_prompt"] = v["system_prompt"][:8000]
+    if "aipm_patrol" in v:
+        import re
+        m = re.match(r"^([01]?\d|2[0-3]):([0-5]\d)$", v["aipm_patrol"].strip())
+        if not m:
+            raise HTTPException(status_code=400, detail="巡檢時間格式是 HH:MM，例如 08:30")
+        v["aipm_patrol"] = f"{int(m.group(1)):02d}:{m.group(2)}"
     old = ai.settings()
     s = ai.save_settings(v)
     request.state.audit_detail = "；".join(f"{k} {old[k]} → {s[k]}" for k in v if k != "system_prompt" and old[k] != s[k]) \

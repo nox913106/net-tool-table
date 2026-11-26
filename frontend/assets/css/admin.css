@@ -597,3 +597,4 @@ body.link-dragging .quick-admin { outline: 2px dashed var(--accent-line); outlin
 .stage-body > .panel, .sys-grid > .panel { min-width: 0; }
 .adm-scroll { max-width: 100%; position: relative; }
 .adm-card-head > .select { width: auto; flex: 0 1 280px; min-width: 0; }
+.sys-sub { font-size: 14px; margin: 14px 0 0; padding-top: 12px; border-top: 1px solid var(--border); }
