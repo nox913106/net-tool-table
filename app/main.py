@@ -20,6 +20,7 @@ from .routes import auth as auth_routes, auth_links, dashboard, local, nodes, se
 from .routes import sync as sync_routes
 from .routes import ai as ai_routes
 from .routes import aipm as aipm_routes
+from .routes import aipm_my as aipm_my_routes
 
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 VERSION = (PROJECT_ROOT / "VERSION").read_text().strip() if (PROJECT_ROOT / "VERSION").is_file() else "0.0.0"
@@ -186,6 +187,7 @@ app.include_router(system.router)
 app.include_router(sync_routes.router)
 app.include_router(ai_routes.router)
 app.include_router(aipm_routes.router)
+app.include_router(aipm_my_routes.router)
 
 
 @app.middleware("http")

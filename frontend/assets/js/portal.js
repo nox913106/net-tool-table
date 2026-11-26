@@ -276,6 +276,7 @@
       boardOn() && { href: '#/board', icon: 'kanban', label: _t('待辦看板'), board: true },
       boardOn() && { href: '#/projects', icon: 'layout', label: _t('專案總覽'), projects: true },
       boardOn() && { href: '#/history', icon: 'archive', label: _t('歷史區') },
+      boardOn() && window.TTAI?.on && window.TTAIPMMY && { href: '#/aipm', icon: 'message', label: _t('我的 AiPM'), aipm: true },
       boardOn() && window.TTAI?.on && { href: '#/ai', icon: 'sparkles', label: _t('AI 助理') },
       window.TTHelp && { href: '#/help', icon: 'help', label: _t('使用說明') },
     ].filter(Boolean);
@@ -286,8 +287,10 @@
         it.count ? el('span', { class: 'badge', text: it.count }) : null,
         it.board ? el('span', { class: 'badge badge-alert', dataset: { boardBadge: '' }, hidden: true, title: _t('需要注意的待辦') }) : null,
         it.mine ? el('span', { class: 'badge badge-alert', dataset: { mineBadge: '' }, hidden: true }) : null,
-        it.projects ? el('span', { class: 'badge badge-alert', dataset: { projBadge: '' }, hidden: true }) : null)));
+        it.projects ? el('span', { class: 'badge badge-alert', dataset: { projBadge: '' }, hidden: true }) : null,
+        it.aipm ? el('span', { class: 'badge badge-alert', dataset: { aipmBadge: '' }, hidden: true, title: _t('等你做結案對齊') }) : null)));
     paintNavCounts();
+    window.TTAIPMMY?.badge();
   }
   /** Sidebar counts that point at the other pages: my overdue / due today, projects behind or with problems. */
   let navTimer = null;
@@ -375,7 +378,7 @@
 
   function highlightNav() {
     const hash = location.hash || '#/';
-    document.querySelectorAll('.nav-item').forEach(a => a.classList.toggle('active', a.dataset.route === hash || (hash.startsWith('#/help') && a.dataset.route === '#/help') || (hash.startsWith('#/ai') && a.dataset.route === '#/ai') || (hash === '#' && a.dataset.route === '#/') || (hash.startsWith('#/project/') && a.dataset.route === (window.TTBoard && TTBoard.find && TTBoard.find(Number(hash.split('/')[2]))?.history ? '#/history' : '#/projects'))));
+    document.querySelectorAll('.nav-item').forEach(a => a.classList.toggle('active', a.dataset.route === hash || (hash.startsWith('#/help') && a.dataset.route === '#/help') || (hash.startsWith('#/ai') && !hash.startsWith('#/aipm') && a.dataset.route === '#/ai') || (hash.startsWith('#/aipm') && a.dataset.route === '#/aipm') || (hash === '#' && a.dataset.route === '#/') || (hash.startsWith('#/project/') && a.dataset.route === (window.TTBoard && TTBoard.find && TTBoard.find(Number(hash.split('/')[2]))?.history ? '#/history' : '#/projects'))));
     document.querySelectorAll('#sidebar .tree-row.active').forEach(r => r.classList.remove('active'));
     const m = hash.match(/^#\/f\/(\d+)/);
     if (m) {
@@ -436,6 +439,7 @@
     else if ((m = hash.match(/^#\/project\/(\d+)/)) && boardOn() && window.TTProjects) TTProjects.renderProject(view, Number(m[1]));
     else if (hash === '#/history' && boardOn() && window.TTProjects) TTProjects.renderHistory(view);
     else if ((m = hash.match(/^#\/help(?:\/([\w-]+))?$/)) && window.TTHelp) TTHelp.render(view, m[1]);
+    else if ((m = hash.match(/^#\/aipm(?:\/(\w+)(?:\/(\d+))?)?$/)) && window.TTAIPMMY) TTAIPMMY.render(view, { tab: m[1] || 'chat', id: m[2] ? Number(m[2]) : null });
     else if ((m = hash.match(/^#\/ai(?:\/project\/(\d+)(?:\/(\w+))?)?$/)) && window.TTAI) TTAI.render(view, { project: m[1] ? Number(m[1]) : null, run: m[2] });
     else if ((m = hash.match(/^#\/card\/(\d+)/)) && boardOn()) {          // a link from Teams: the board, with the card open
       const id = Number(m[1]);

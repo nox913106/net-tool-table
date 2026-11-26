@@ -601,5 +601,20 @@
  "AiPM 檢視變動「{0}」：{1}": "AiPM reviewed changes to “{0}”: {1}",
  "AiPM 的變更只有專案負責人或看板管理人可以核准": "Only the project lead or a board administrator can approve AiPM's changes",
  "這個項目已經完成或取消，AiPM 不能變更": "This item is complete or canceled; AiPM cannot change it",
- "AiPM「{0}」：{1} 項變更等你核准": "AiPM “{0}”: {1} changes awaiting your approval"
+ "AiPM「{0}」：{1} 項變更等你核准": "AiPM “{0}”: {1} changes awaiting your approval",
+ "請說點什麼或貼上截圖": "Say something or paste a screenshot",
+ "找不到這則訊息": "Message not found",
+ "找不到要記錄的項目": "The item to record on was not found",
+ "請貼上會議內容（筆記、逐字稿或重點）": "Paste the meeting content (notes, transcript or key points)",
+ "找不到這份會議紀錄，或你沒有權限看": "Meeting minutes not found, or you are not allowed to see them",
+ "只有整理這份會議紀錄的人可以記錄到項目": "Only the person who wrote these minutes can record them on items",
+ "找不到這個結案對齊": "Closure not found",
+ "只有負責的人、專案負責人或看板管理人可以做結案對齊": "Only the person responsible, the project lead or a board administrator can align this closure",
+ "請寫一段結案摘要": "Write a closure summary",
+ "歷史區的卡片不能再加紀錄": "Cards in History cannot take new records",
+ "只能記到子任務": "Only subtasks can be chosen",
+ "只能附加截圖（圖片）": "Only screenshots (images) can be attached",
+ "AiPM 每日對齊：你有 {0} 項進行中的工作": "AiPM daily check-in: you have {0} items in progress",
+ "AiPM 每日對齊：你有 {0} 項進行中的工作，{1} 項要注意": "AiPM daily check-in: you have {0} items in progress, {1} need attention",
+ "「{0}」已完成：請跟 AiPM 做結案對齊（完成條件、紀錄、結案摘要）": "“{0}” is done: align the closure with AiPM (completion criteria, records, summary)"
 }

@@ -431,6 +431,22 @@ window.TT_HELP_EN = [
     ],
   },
   {
+    id: 'aipm-my', icon: 'message', title: 'My AiPM (work secretary)',
+    intro: '“My AiPM” in the sidebar is everyone\'s work secretary and project manager, and the main way to work with the system: talk to it, paste screenshots or meeting notes, and it records, organises, follows up and remembers, so you need not take notes or recall meetings. Boards and Gantt charts show those records.',
+    items: [
+      { h: 'Chat', b: `<ul>
+        <li>Just say what happened: what you did, what you ran into, what is next, who you need; paste or drop screenshots (up to 6). Several things in one message is fine.</li>
+        <li>AiPM works out which item each part belongs to and lists them under “To record on these items”: change the item or text, tick and press “Record on items” to record them as <b>your</b> comments on those items (with the screenshots). When it cannot tell where something belongs, it asks you first.</li>
+        <li>Changes it suggests (dates, status, owner, new work…) go to that project\'s AiPM and wait for the project lead or a board administrator; things to chase go to that project\'s follow-ups.</li>
+      </ul>` },
+      { h: 'Ask about the past', b: 'For example “What did we decide with the vendor last week?” or “What problems has this switch had before?”: AiPM answers from meeting minutes, comments and what you told it, citing sources (M = meeting, C = comment, P = what you said). It only searches cards you can already see, and says so when it finds nothing.' },
+      { h: 'Daily check-in', b: 'At the daily patrol time (08:30 by default) everyone with work in progress gets a private message and notification listing their own items, with overdue, due today, due soon and blocked marked. Reply with what you did, what is next and what is blocking you; AiPM records it on the items. Only to that person, only their items; administrators can turn it off.' },
+      { h: 'Meetings', b: 'No recording: after a meeting paste the notes, transcript or key points under “Meetings” and press “Write the minutes”. AiPM writes a summary, attendees, discussion, <b>decisions</b>, <b>action items</b> (owner, due date) and open questions. Action items become suggested new work for the project lead or a board administrator to approve; the writer records the related entries with one click. Minutes are visible to the writer and to people who can see every card involved.' },
+      { h: 'Closure alignment', b: 'When an item is finished, AiPM asks the person responsible (or, without one, the project lead or a board administrator) to align it under “Closure alignment”: check the description, completion criteria and screenshot or file records, write a closure summary (“Draft with AiPM” writes a first draft), and press “Align” — the summary is kept as a comment on the item. <b>Closing is never blocked</b>; items not yet aligned are flagged in the project\'s AiPM under “What the system detects”.' },
+      { h: 'Today\'s work', b: 'On the right: your items in progress, blocked and overdue first; click one to open its project\'s AiPM.' },
+    ],
+  },
+  {
     id: 'aipm', icon: 'sparkles', title: 'AiPM (AI project manager)',
     intro: 'AiPM is each project\'s AI project manager, for every department (administration, management, PM, infrastructure, R&D, purchasing…): members just <b>paste screenshots and say a sentence or two</b>; AiPM reads the whole project with that field\'s expertise, forecasts what is likely to happen, asks for what is missing and suggests notes, completion criteria, screenshot lists and follow-ups, so everyone can focus on their own work. An administrator turns on AI and AiPM under “AI services”.',
     items: [

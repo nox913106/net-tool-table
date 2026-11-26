@@ -1936,3 +1936,45 @@ button.g-tog:focus-visible { outline: 2px solid var(--accent); outline-offset: -
 }
 .aipm-rule { margin: 0 0 4px; }
 .aipm-wait-ok { font-size: 12px; color: var(--warning); font-weight: 700; }
+
+/* ---------------------------------------------------------------- 我的 AiPM (aipm-my.js) */
+.my-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+.my-main { min-width: 0; }
+.my-chat { display: flex; flex-direction: column; border: 1px solid var(--border); background: var(--surface); height: min(78vh, 900px); min-height: 420px; }
+.my-msgs { flex: 1; }
+.aipm-msg.daily .aipm-bubble { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.aipm-bubble .aipm-tag { display: inline-block; margin-bottom: 6px; }
+.my-side { border: 1px solid var(--border); background: var(--surface); padding: 12px 14px; position: sticky; top: 12px; max-height: 80vh; overflow: auto; }
+.my-side h3 { display: flex; align-items: center; gap: 6px; font-size: 14px; margin: 0 0 8px; }
+.my-side h3 svg { width: 15px; height: 15px; color: var(--accent-text); }
+.my-works { display: flex; flex-direction: column; gap: 6px; }
+.my-work { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 7px 9px; border: 1px solid var(--border);
+  background: var(--surface-2); color: inherit; cursor: pointer; font: inherit; text-decoration: none; overflow-wrap: anywhere; }
+.my-work:hover { border-color: var(--accent); }
+.my-work.late { border-left: 3px solid var(--warning); }
+.my-work.blocked { border-left: 3px solid var(--danger); }
+.my-records { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+.my-records h4 { display: flex; align-items: center; gap: 6px; font-size: 13px; margin: 0; }
+.my-records h4 svg { width: 14px; height: 14px; color: var(--accent-text); }
+.my-records p { margin: 0; }
+.my-rec { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 8px; align-items: center; }
+.my-rec .textarea { grid-column: 1 / -1; min-height: 52px; }
+.my-rec .select { min-width: 0; width: 100%; }
+.my-rec-head { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.my-rec.done { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-size: 13px; overflow-wrap: anywhere; }
+.my-sent { margin-top: 8px; font-size: 13px; }
+.my-sent ul, .my-sec ul { margin: 4px 0 0 18px; }
+.my-sec h4 { font-size: 14px; margin: 12px 0 4px; }
+.my-meeting h2 { margin-top: 8px; }
+.my-raw { margin-top: 12px; }
+.my-close { border-top: 1px solid var(--border); padding: 12px 0; display: flex; flex-direction: column; gap: 8px; }
+.my-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
+.my-checks li { display: inline-flex; align-items: center; gap: 4px; }
+.my-checks svg { width: 13px; height: 13px; }
+.my-checks .ok { color: var(--success); } .my-checks .no { color: var(--warning); }
+@media (max-width: 980px) {
+  .my-grid { grid-template-columns: minmax(0, 1fr); }
+  .my-side { position: static; max-height: none; }
+  .my-chat { height: 72vh; }
+}
+.my-tab { text-decoration: none; }

@@ -154,7 +154,19 @@ async def snapshot(request, card_id: int) -> Dict:
         else:
             it["files"] = card_files.get(it["id"], 0)
             it["last_act"] = A._d(it.get("updated"))
-    return {"root": root, "items": items, "people": people, "signals": signals(items, today), "today": today}
+    sig = signals(items, today)
+    db = await get_db()
+    try:                                     # closed without being aligned with AiPM: flagged (never blocked)
+        cl = await _rows(db, f"SELECT card_id, sub_id, title, closed_at FROM aipm_closures WHERE aligned = 0 AND card_id IN ({marks})", cards)
+    finally:
+        await db.close()
+    where = {(it["card"], it["id"] if it["kind"] == "sub" else None): it for it in items}
+    for c in cl:
+        it = where.get((c["card_id"], c["sub_id"]))
+        if it:
+            sig.append({"code": it["code"], "kind": "unaligned", "severity": "medium", "title": it["title"],
+                        "text": f"已結案但還沒跟 AiPM 做結案對齊（{str(c['closed_at'] or '')[:10]}）"})
+    return {"root": root, "items": items, "people": people, "signals": sig, "today": today}
 
 
 def _leaf(items, it) -> bool:
@@ -735,13 +747,23 @@ def start_tick():
 
 
 async def tick():
-    """Called every minute by the scheduler; acts every 10 minutes and at the daily 巡檢 time."""
-    if not enabled() or not ai.usable():
+    """Called every 10 minutes by the scheduler: closures to align, the daily personal check-in and 巡檢 at the
+    巡檢 time, reviews after changes."""
+    if not enabled():
         return
+    from . import aipm_my
     now = datetime.now()
     s = ai.settings()
     hh, mm = (s.get("aipm_patrol") or "08:30").split(":")
     patrol_due = now.hour * 60 + now.minute >= int(hh) * 60 + int(mm)
+    try:
+        await aipm_my.closures()
+        if patrol_due:
+            await aipm_my.daily()
+    except Exception:  # noqa: BLE001
+        log.exception("aipm personal")
+    if not ai.usable():
+        return
     today = now.date().isoformat()
     db = await get_db()
     try:

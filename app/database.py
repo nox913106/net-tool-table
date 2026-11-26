@@ -409,8 +409,9 @@ async def init_db():
         # AI 接入點 (app/ai.py): services and their usage, local to each copy
         from . import ai
         await ai.ensure(db)
-        from . import aipm
+        from . import aipm, aipm_my
         await aipm.ensure(db)
+        await aipm_my.ensure(db)
 
         # Sync between standalone copies and the server (app/sync.py): uids, clocks, capture triggers
         from . import sync

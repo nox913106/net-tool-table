@@ -3319,7 +3319,13 @@ def cleanup_images(db_path) -> int:
         con.execute("DELETE FROM sync_blobs WHERE created < datetime('now', '-1 day')")
         con.commit()
         img.remove(gone)
-        known = {r[0] for r in con.execute("SELECT stored FROM task_images")} | {r[0] for r in con.execute("SELECT stored FROM sync_blobs")}
+        # AiPM screenshots not yet recorded anywhere (app/aipm_my.py): kept two weeks
+        old = [r[0] for r in con.execute("SELECT stored FROM aipm_uploads WHERE at < datetime('now', '-14 days')")]
+        con.execute("DELETE FROM aipm_uploads WHERE at < datetime('now', '-14 days')")
+        con.commit()
+        img.remove(old)
+        known = {r[0] for r in con.execute("SELECT stored FROM task_images")} | {r[0] for r in con.execute("SELECT stored FROM sync_blobs")} \
+            | {r[0] for r in con.execute("SELECT stored FROM aipm_uploads")}
     finally:
         con.close()
     return len(stale) + img.sweep_orphans(known)

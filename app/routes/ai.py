@@ -32,6 +32,7 @@ class SettingsIn(BaseModel):
     images_to_cloud: Optional[bool] = None
     aipm_enabled: Optional[bool] = None
     aipm_patrol: Optional[str] = None
+    aipm_daily: Optional[bool] = None
 
 
 class ProviderIn(BaseModel):
