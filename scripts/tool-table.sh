@@ -643,7 +643,8 @@ cmd_doctor() {
     if [[ "$http_port" != 0 ]]; then
         local loc
         loc="$(curl -s -o /dev/null -w '%{redirect_url}' --max-time 5 "http://127.0.0.1:$http_port/admin" || true)"
-        [[ "$loc" == "https://127.0.0.1:$https_port/admin" ]] && ok "HTTP :$http_port → HTTPS 轉址" \
+        # on 443 nginx leaves the port out of the address (https://127.0.0.1/admin); both forms are right
+        [[ "$loc" == "https://127.0.0.1:$https_port/admin" || ( "$https_port" == 443 && "$loc" == "https://127.0.0.1/admin" ) ]] && ok "HTTP :$http_port → HTTPS 轉址" \
             || bad "HTTP :$http_port 沒有轉到 HTTPS（得到：${loc:-無}）" "sudo bash $APP_DIR/scripts/tool-table.sh install"
     fi
     loc="$(curl -s -o /dev/null -w '%{redirect_url}' --max-time 5 "http://127.0.0.1:$https_port/" || true)"
