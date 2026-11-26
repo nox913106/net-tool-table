@@ -569,5 +569,14 @@
  "呼叫方式只能是備援或並行": "Routing must be fallback or parallel",
  "請填名稱": "Enter a name",
  "服務網址要以 http:// 或 https:// 開頭": "The endpoint URL must start with http:// or https://",
- "金鑰無法解密，請重新輸入": "The key cannot be decrypted; enter it again"
+ "金鑰無法解密，請重新輸入": "The key cannot be decrypted; enter it again",
+ "報告類型或範圍無效": "Invalid report type or scope",
+ "請選擇專案": "Choose a project",
+ "找不到這個專案，或你沒有權限看": "Project not found, or you may not see it",
+ "找不到這個子任務": "Subtask not found",
+ "請輸入專案名稱": "Enter a project name",
+ "AI 沒有回傳 JSON": "The AI did not return JSON",
+ "AI 的規劃裡沒有任何工作項目": "The AI's plan has no work items",
+ "專案卡沒有建立": "The project card was not created",
+ "帳號尚未開通": "The account is not activated yet"
 }

@@ -411,6 +411,26 @@ window.TT_HELP_EN = [
     ],
   },
   {
+    id: 'ai', icon: 'sparkles', title: 'AI assistant',
+    intro: '“AI assistant” in the sidebar and “AI suggestions” in the card editor. They appear once an administrator enables at least one usable service under “AI services”. Only work you can see is sent to the AI.',
+    items: [
+      { h: 'Scope', b: '“My work” (cards you lead or collaborate on, or with subtasks assigned to you), “Project” (one project with the cards that belong to it), or “Everything I can see”. The project page\'s “AI assistant” button opens it for that project.' },
+      { h: 'Progress summary', b: 'Overall progress (share done, on schedule or not, the one thing to watch), where each main piece of work stands, risks and things to note.' },
+      { h: 'What to do about blocked or overdue items', b: 'Each blocked or overdue item: likely causes, concrete steps, whether to move the due date or escalate — ordered by impact; then overall adjustments.' },
+      { h: 'This week (done / not done)', b: 'What was finished and what was not this week (Monday to Sunday), with where the unfinished ones are stuck and when they should finish, plus notes for next week.' },
+      { h: 'Suggested plan for next week', b: 'Next week\'s work <b>from highest to lowest priority</b> as a table (priority, number, item, owner, suggested time, reason), and what can wait. Overdue items, blockers of later work, milestones and high priority come first.' },
+      { h: 'Lists to check against', b: 'Under every report are lists computed by the system (done this week, not done this week, overdue, blocked, candidates for next week) — not by the AI — to check its text against. The number tiles at the top are computed too.' },
+      { h: 'Generate a project', b: `<ul>
+        <li>Enter the name, start date, target finish (optional), how many levels, and the requirements and scope (equipment, quantities, windows, acceptance… the more specific the better), then “Generate project plan”.</li>
+        <li>The AI plans main tasks, subtasks and a schedule, each with <b>suggested content</b>, an <b>execution flow</b> and the <b>screenshots to keep</b>. Click an item to read it; unticked items (and everything below) are not created; you can rename the project.</li>
+        <li>“Create project” creates the project card and its subtasks (dates from the start date, sign-offs as milestones), each with its content, flow and screenshot list as its description, then opens the project page. Adjust owners and dates as usual afterwards.</li>
+      </ul>` },
+      { h: '“AI suggestions” on cards and subtasks', b: 'At the bottom of the card editor and the subtask window: suggested content (with a definition of done), an execution flow (risky steps with checks and how to roll back) and the screenshots to keep (which step, what to capture, what must be visible, a file name). “Add to description” appends it; remember to save.' },
+      { h: 'Several models', b: 'With routing set to “parallel”, each AI service\'s answer has its own tab to compare; when generating a project each model\'s plan can be picked. With “fallback” you see the first service that answered and which ones were skipped. Every answer shows cloud or on-prem, model, time and tokens.' },
+      { h: 'Note', b: 'AI output is for reference; check it before using it. It only knows what is in the system and general practice, and may get things wrong.' },
+    ],
+  },
+  {
     id: 'export', icon: 'download', title: 'Export and import (Excel, MS Project)',
     items: [
       { h: 'Where to export', b: 'Board “Select / export” then “Export report”; “Excel” in the card editor; “Excel report” on a project page; “Export” on the Gantt toolbar; “Export Excel” in History; “Export by person…” on the board.' },

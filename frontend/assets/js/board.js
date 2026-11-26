@@ -1626,6 +1626,15 @@ const TTBoard = window.TTBoard = (() => {
   }
   const PROBLEM_ZH = { overdue: _t('逾期'), blocked: _t('卡住'), conflict: _t('排程衝突'), xdep: _t('跨專案前置'), window: _t('時段衝突'), overload: _t('超載') };
 
+  /** 「AI 建議」: suggested content, execution flow and screenshots for this card / subtask (app/ai_assist.py);
+   *  「加到說明」 appends the text to the description box (saved with the form). Shown only when AI is on. */
+  function aiSuggestBtn(target, descBox) {
+    if (!window.TTAI?.on) return null;
+    const b = el('button', { class: 'btn btn-ghost', type: 'button', title: _t('AI 建議：這項工作的內容、執行流程與需要保留的截圖'), html: svg('sparkles') + _t('AI 建議') });
+    b.addEventListener('click', () => TTAI.suggest(target, descBox ? text => { descBox.value = (descBox.value.trim() ? descBox.value.trimEnd() + '\n\n' : '') + text; descBox.dispatchEvent(new Event('input')); } : null));
+    return b;
+  }
+
   function openSubtaskEditor(card, c, onSaved) {
     const s = c.task;
     const edit = s.can_edit;
@@ -1734,7 +1743,7 @@ const TTBoard = window.TTBoard = (() => {
           el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('calendar') + _t('排程（甘特圖）') }), sched.el),
           hint,
           el('p', { class: 'hint', text: _t("已記錄工時 {0}{1}（計時與明細在卡片的子任務區）", fmtMin(spent), s.estimate_minutes ? _t(" / 預估 {0}", fmtMin(s.estimate_minutes)) : '') })),
-        el('div', { class: 'modal-foot' }, el('span', { class: 'spacer' }), cancel, edit || c.can_edit_body || s.can_update ? ok : null)));
+        el('div', { class: 'modal-foot' }, aiSuggestBtn({ card_id: card.id, comment_id: c.id, title: s.title }, c.can_edit_body ? desc : null), el('span', { class: 'spacer' }), cancel, edit || c.can_edit_body || s.can_update ? ok : null)));
 
     const close = async () => {
       wrap.remove(); window.removeEventListener('keydown', onKey, true);
@@ -2606,7 +2615,7 @@ const TTBoard = window.TTBoard = (() => {
           repeatHint,
           meta,
           comments),
-        el('div', { class: 'modal-foot' }, del, xlsBtn, navBtn, el('span', { class: 'spacer' }), cancel, ok)));
+        el('div', { class: 'modal-foot' }, del, xlsBtn, navBtn, task ? aiSuggestBtn({ card_id: task.id, title: task.title }, readOnly ? null : desc) : null, el('span', { class: 'spacer' }), cancel, ok)));
 
     const close = () => { stopTicker(); wrap.remove(); document.removeEventListener('keydown', onKey); document.body.classList.remove('modal-open'); };
     const onKey = e => {

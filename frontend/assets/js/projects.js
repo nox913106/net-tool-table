@@ -334,6 +334,8 @@
       edit.addEventListener('click', () => TTBoard.openEditor(c));
       const xls = el('button', { class: 'btn', type: 'button', html: svg('download') + _t('Excel 報告') });
       xls.addEventListener('click', () => TTBoard.exportReport([id, ...attached().map(t => t.id)]));
+      const aiBtn = window.TTAI?.on && !archived ? el('button', { class: 'btn', type: 'button', html: svg('sparkles') + _t('AI 助理') }) : null;
+      aiBtn?.addEventListener('click', () => { location.hash = `#/ai/project/${id}`; });
       const nav = el('button', { class: 'btn', type: 'button', html: svg('layout') + _t('任務視窗') });
       nav.addEventListener('click', () => TTBoard.openNavigator(c));
       // my notifications for this project: all / only mine / a daily summary / off
@@ -357,7 +359,7 @@
           el('div', { class: 'pj-stat' + ((p?.slip || 0) > 0 ? ' bad' : '') }, el('b', { text: p?.slip == null ? '—' : _t("{0}{1} 天", p.slip > 0 ? '+' : '', p.slip) }), el('span', { text: _t('相對基準線') })),
           el('div', { class: 'pj-stat' }, el('b', { text: p?.next ? md(p.next.due) : '—' }), el('span', { text: p?.next ? `◆ ${p.next.title}` : _t('下個里程碑') })),
           el('div', { class: 'pj-stat' + (p?.problem_items ? ' bad' : '') }, el('b', { text: p?.problem_items ?? 0 }), el('span', { text: _t('有問題的項目') }))),
-        el('div', { class: 'pj-actions' }, bell, nav, edit, xls));
+        el('div', { class: 'pj-actions' }, bell, aiBtn, nav, edit, xls));
       // what needs me elsewhere — no need to leave this page to find out
       if (archived) { strip.hidden = true; return; }
       const mine = await myItems();
