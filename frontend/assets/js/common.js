@@ -409,8 +409,10 @@ const TT = (() => {
     if (m.user?.lang && m.user.lang !== TTI18n.lang) TTI18n.set(m.user.lang);      // the account's language wins
     return m;
   }).catch(() => ({ user: { username: 'local', display_name: _t('本機'), role: 'superadmin' }, auth: false, is_admin: true, board: { view: 'all', edit: 'all', depts: [] } })));
-  const ROLE = { superadmin: _t('本機最高管理員'), sysadmin: _t('系統管理者'), board_admin: _t('看板總管理者（RW）'), board_viewer: _t('看板總管理者（RO）'),
+  const ROLE = { superadmin: _t('本機最高管理員'), sysadmin: _t('系統管理'), board_admin: _t('看板總管理者（RW）'), board_viewer: _t('看板總管理者（RO）'),
     dept_admin: _t('部門看板管理者（RW）'), dept_viewer: _t('部門看板管理者（RO）'), user: _t('使用者'), guest: _t('訪客（未開通）') };
+  /** “使用者＋系統管理”: the level, plus 系統管理 when the account has it (app/roles.py) */
+  const roleText = u => (ROLE[u.role] || u.role) + (u.sys_admin && !['superadmin', 'guest'].includes(u.role) ? _t('＋系統管理') : '');
   const nameOf = p => (p && (p.name || p.display_name || p.username)) || '';
   function avatar(person, size = 24) {
     const name = nameOf(person) || '?';
@@ -438,7 +440,7 @@ const TT = (() => {
     const info = await me();
     if (!info.auth || !host) return info;
     const u = info.user;
-    const btn = el('button', { class: 'user-btn', type: 'button', 'aria-haspopup': 'menu', title: `${nameOf(u)}（${ROLE[u.role] || u.role}）` },
+    const btn = el('button', { class: 'user-btn', type: 'button', 'aria-haspopup': 'menu', title: `${nameOf(u)}（${roleText(u)}）` },
       avatar(u, 30), el('span', { class: 'user-btn-name', text: nameOf(u) }));
     host.replaceChildren(btn);
     host.hidden = false;
@@ -455,7 +457,7 @@ const TT = (() => {
       pop = el('div', { class: 'user-pop', role: 'menu' },
         el('div', { class: 'user-pop-head' }, avatar(u, 40),
           el('div', {}, el('strong', { text: nameOf(u) }), el('small', { text: [u.username, u.department].filter(Boolean).join(' · ') }),
-            el('span', { class: `role-badge role-${u.role}`, text: ROLE[u.role] || u.role }),
+            el('span', { class: `role-badge role-${u.role}`, text: roleText(u) }),
             ['dept_admin', 'dept_viewer'].includes(u.role) && info.board?.depts?.length ? el('small', { text: _t('管理部門：') + info.board.depts.join('、') }) : null)),
         info.is_admin && location.pathname !== '/admin' ? item('settings', _t('管理後台'), null, '/admin') : null,
         location.pathname !== '/' ? item('home', _t('回到入口'), null, '/') : null,

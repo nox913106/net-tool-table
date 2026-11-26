@@ -570,3 +570,9 @@ body.link-dragging .quick-admin { outline: 2px dashed var(--accent-line); outlin
   .adm-table.kv th { white-space: normal; width: 40%; }
   .adm-table.kv td, .adm-table td { overflow-wrap: anywhere; }
 }
+.role-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.role-line .role-select { flex: 1 1 150px; min-width: 0; }
+.sa-toggle { display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border: 1px solid var(--border); font-size: 12px; font-weight: 650; color: var(--text-3); cursor: pointer; white-space: nowrap; }
+.sa-toggle.on { color: var(--accent-text); border-color: var(--accent); background: var(--accent-soft); }
+.sa-toggle input { margin: 0; }
+.sa-toggle:has(input:disabled) { opacity: .45; cursor: not-allowed; }

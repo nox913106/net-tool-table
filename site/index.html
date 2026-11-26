@@ -556,17 +556,17 @@ footer a { color: var(--ink-2); }
           <div class="tblwrap"><table class="tbl">
             <thead><tr><th>權限</th><th>看得到</th><th>可以改</th></tr></thead>
             <tbody>
-              <tr><td>系統管理者</td><td>全部＋後台</td><td>全部</td></tr>
               <tr><td>看板總管理者 RW／RO</td><td>所有卡片</td><td>RW 全部；RO 只有自己的，其他可留言</td></tr>
               <tr><td>部門看板管理者 RW／RO</td><td>管理部門＋自己的</td><td>RW 管理部門；RO 只有自己的</td></tr>
               <tr><td>使用者</td><td>自己建立、被指派、被 @ 的</td><td>同左（不能指派）</td></tr>
               <tr><td>訪客（新帳號預設）</td><td>只有公用連結</td><td>無，提示聯絡系統管理員開通</td></tr>
+              <tr><td>＋系統管理（附加）</td><td>後台設定與查詢；看板依原本的等級</td><td>看板不增加權限</td></tr>
             </tbody>
           </table></div>
           <ul class="points">
             <li><span><b>上級</b>看得到所有下級的卡片（可多層）；權限可設可編輯或只看＋留言</span></li>
             <li><span>登入頁自動帶入 AD 網域後綴；Entra ID 用 OIDC＋PKCE，支援多重要素驗證，可限定群組</span></li>
-            <li><span>本機管理員只在緊急時用；系統要求至少保留一位 AD 系統管理者</span></li>
+            <li><span>本機管理員只在緊急時用；「系統管理」是附加身分，使用者以上都可賦予；系統要求至少保留一位 AD 帳號有系統管理</span></li>
           </ul>
         </div>
       </div>

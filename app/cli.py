@@ -60,9 +60,10 @@ def list_users() -> int:
     with contextlib.redirect_stdout(io.StringIO()):     # keep the output to what the admin needs
         asyncio.run(init_db())
     con = sqlite3.connect(DB_PATH)
-    rows = con.execute("SELECT username, source, role, active, department, display_name, last_login FROM users ORDER BY role, username").fetchall()
+    rows = con.execute("SELECT username, source, role, active, department, display_name, last_login, sys_admin FROM users ORDER BY role, username").fetchall()
     for r in rows:
-        print(f"{r[0]:<20} {r[1]:<6} {r[2]:<11} {'啟用' if r[3] else '停用':<3} {r[4] or '':<12} {r[5] or '':<12} {r[6] or ''}")
+        role = r[2] + ("+系統管理" if r[7] and r[2] not in ("superadmin", "guest") else "")
+        print(f"{r[0]:<20} {r[1]:<6} {role:<18} {'啟用' if r[3] else '停用':<3} {r[4] or '':<12} {r[5] or '':<12} {r[6] or ''}")
     if not rows:
         print("（沒有帳號）")
     return 0

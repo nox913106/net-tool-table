@@ -183,7 +183,7 @@ async def end_session(token: Optional[str]):
 
 def public_user(row) -> dict:
     keys = ("id", "username", "source", "display_name", "email", "department", "role", "active", "last_login", "created_at",
-            "must_change_password", "scope_departments", "manager_id", "manager_source", "lang")
+            "must_change_password", "scope_departments", "manager_id", "manager_source", "lang", "sys_admin")
     out = {k: row[k] for k in keys if k in row.keys()}
     if isinstance(out.get("scope_departments"), str):
         import json

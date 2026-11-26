@@ -54,7 +54,7 @@ async def _config_checks() -> List[dict]:
                        "、".join(modes) + "，另有本機緊急帳號" if modes else "只有本機管理員帳號"))
         db = await get_db()
         try:
-            cur = await db.execute("SELECT COUNT(*) FROM users WHERE source IN ('ldap', 'entra') AND role = 'sysadmin' AND active = 1")
+            cur = await db.execute("SELECT COUNT(*) FROM users WHERE source IN ('ldap', 'entra') AND sys_admin = 1 AND role != 'guest' AND active = 1")
             n_ad = (await cur.fetchone())[0]
             cur = await db.execute("SELECT COUNT(*) FROM users WHERE active = 1")
             n_all = (await cur.fetchone())[0]

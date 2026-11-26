@@ -25,7 +25,8 @@ from ..auth import (ANON, COOKIE, clear_failures, client_ip, create_session, cur
                     hash_password, is_admin, public_user, record_failure, require_admin, set_cookie,
                     too_many, verify_password)
 from ..database import get_db
-from ..roles import ASSIGNABLE, LABELS, board_access
+from ..roles import ASSIGNABLE, LABELS, SYS_ADMIN_LABEL, board_access
+from ..roles import label as role_label
 
 router = APIRouter(tags=["auth"])
 
@@ -45,6 +46,7 @@ class UserUpdate(BaseModel):
     active: Optional[bool] = None
     manager: Optional[str] = None                     # 上級: username; "" = none; "@ad" = follow AD again
     scope_departments: Optional[List[str]] = None     # department managers; [] = their own AD department
+    sys_admin: Optional[bool] = None                  # 系統管理 on top of the level (not for guests)
 
 
 class UserAdd(BaseModel):
@@ -179,7 +181,7 @@ async def entra_callback(request: Request, code: str = "", state: str = "", erro
 
 
 async def ad_admin_count(db) -> int:
-    cur = await db.execute("SELECT COUNT(*) AS c FROM users WHERE source IN ('ldap', 'entra') AND role = 'sysadmin' AND active = 1")
+    cur = await db.execute("SELECT COUNT(*) AS c FROM users WHERE source IN ('ldap', 'entra') AND sys_admin = 1 AND role != 'guest' AND active = 1")
     return (await cur.fetchone())["c"]
 
 
@@ -308,7 +310,7 @@ async def me(user: dict = Depends(current_user)):
     # people: a multi-user board (server, or a standalone copy linked to a server as an account)
     people_on = C.AUTH or bool(user.get("local_admin"))
     out = {"user": user, "auth": C.AUTH, "people": people_on and user.get("id") is not None, "is_admin": is_admin(user),
-           "board": board_access(user), "role_label": LABELS.get(user.get("role"), user.get("role"))}
+           "board": board_access(user), "role_label": role_label(user)}
     if people_on and user.get("id") is not None:
         db = await get_db()
         try:
@@ -341,7 +343,7 @@ async def admin_contacts() -> list:
     db = await get_db()
     try:
         cur = await db.execute("""SELECT display_name, username, department, email FROM users
-                                  WHERE role = 'sysadmin' AND active = 1 AND source IN ('ldap', 'entra')
+                                  WHERE sys_admin = 1 AND role != 'guest' AND active = 1 AND source IN ('ldap', 'entra')
                                   ORDER BY display_name LIMIT 10""")
         return [{"name": r[0] or r[1], "department": r[2], "email": r[3]} for r in await cur.fetchall()]
     finally:
@@ -414,6 +416,7 @@ async def list_users(_: dict = Depends(require_admin)):
         return {"users": rows, "ad_admins": await ad_admin_count(db), "directory": ldapauth.directory_enabled() or entra.directory_enabled(),
                 "entra": entra.enabled(),
                 "ldap": ldapauth.enabled(), "roles": [{"key": k, "label": LABELS[k]} for k in ASSIGNABLE],
+                "sys_admin_label": SYS_ADMIN_LABEL,
                 "departments": departments, "sync_manager": sysconfig.ldap().sync_manager}
     finally:
         await db.close()
@@ -446,22 +449,30 @@ async def update_user(user_id: int, body: UserUpdate, request: Request, me_: dic
             raise HTTPException(status_code=400, detail="本機最高管理員帳號不能在這裡修改")
         role = body.role if body.role is not None else row["role"]
         active = int(body.active) if body.active is not None else row["active"]
+        sys_admin = int(body.sys_admin) if body.sys_admin is not None else int(row["sys_admin"] or 0)
         if role not in ASSIGNABLE:
             raise HTTPException(status_code=400, detail="權限無效")
-        was_ad_admin = row["source"] in ("ldap", "entra") and row["role"] == "sysadmin" and row["active"]
-        if was_ad_admin and (role != "sysadmin" or not active) and await ad_admin_count(db) <= 1:
-            raise HTTPException(status_code=400, detail="至少要保留一個 AD 帳號是系統管理者")
-        if user_id == me_.get("id") and (role != "sysadmin" or not active):
-            raise HTTPException(status_code=400, detail="不能取消自己的系統管理者權限或停用自己")
+        if role == "guest" and sys_admin:
+            if body.sys_admin:
+                raise HTTPException(status_code=400, detail="訪客不能被賦予系統管理，請先開通為使用者或以上")
+            sys_admin = 0                                   # back to guest: the 系統管理 identity goes too
+        is_ad_admin = lambda r, a, s_: r != "guest" and s_ and a
+        was_ad_admin = row["source"] in ("ldap", "entra") and is_ad_admin(row["role"], row["active"], row["sys_admin"])
+        if was_ad_admin and not is_ad_admin(role, active, sys_admin) and await ad_admin_count(db) <= 1:
+            raise HTTPException(status_code=400, detail="至少要保留一個 AD 帳號是系統管理")
+        if user_id == me_.get("id") and (not sys_admin or not active or role == "guest"):
+            raise HTTPException(status_code=400, detail="不能取消自己的系統管理或停用自己")
         scope = row["scope_departments"]
         if body.scope_departments is not None:
             clean = sorted({d.strip()[:100] for d in body.scope_departments if isinstance(d, str) and d.strip()})
             scope = json.dumps(clean, ensure_ascii=False) if clean else None
-        await db.execute("UPDATE users SET role = ?, active = ?, scope_departments = ? WHERE id = ?", (role, active, scope, user_id))
+        await db.execute("UPDATE users SET role = ?, active = ?, scope_departments = ?, sys_admin = ? WHERE id = ?", (role, active, scope, sys_admin, user_id))
         request.state.audit_target = row["username"]
         what = []
         if role != row["role"]:
             what.append(f"權限 {LABELS.get(row['role'], row['role'])} → {LABELS.get(role, role)}")
+        if sys_admin != int(row["sys_admin"] or 0):
+            what.append("賦予系統管理" if sys_admin else "移除系統管理")
         if active != row["active"]:
             what.append("啟用" if active else "停用")
         if scope != row["scope_departments"]:

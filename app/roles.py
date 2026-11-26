@@ -1,8 +1,7 @@
 """
 Roles (server edition).
 
-  superadmin    本機最高管理員      local break-glass account (installer); same rights as sysadmin
-  sysadmin      系統管理者 (RW)     every admin-panel setting + every board, full rights
+  superadmin    本機最高管理員      local break-glass account (installer): the admin panel + every board
   board_admin   看板總管理者 (RW)   every board, full rights (create / edit / delete / assign)
   board_viewer  看板總管理者 (RO)   every board in detail, read only; may comment
   dept_admin    部門看板管理者 (RW) boards of the managed departments, full rights
@@ -11,6 +10,11 @@ Roles (server edition).
   guest         訪客（未開通）      a new AD / Entra ID account: may sign in and see the public links, nothing
                                     else, until an administrator gives it a level (使用者 or above)
 
+系統管理 (sys_admin) is not a level but an extra identity on top of one: any level except guest may
+also be given it. It grants the admin panel only (settings, accounts, audit log, status, backups …) —
+no board rights of its own: what such a person sees and may do on the board comes from their level.
+So a 使用者 + 系統管理 runs the system but on the board sees just their own cards.
+
 Read-only roles still work on their *own* cards like any user. A card belongs to the
 departments of its creator and its assignees (AD "department"). Department managers manage
 their own AD department unless the admin ticks other departments (scope_departments).
@@ -18,10 +22,10 @@ their own AD department unless the admin ticks other departments (scope_departme
 import json
 from typing import List
 
-ROLES = ("superadmin", "sysadmin", "board_admin", "board_viewer", "dept_admin", "dept_viewer", "user", "guest")
+ROLES = ("superadmin", "board_admin", "board_viewer", "dept_admin", "dept_viewer", "user", "guest")
 ASSIGNABLE = ROLES[1:]
 LABELS = {
-    "superadmin": "本機最高管理員", "sysadmin": "系統管理者", "board_admin": "看板總管理者（RW）",
+    "superadmin": "本機最高管理員", "sysadmin": "系統管理", "board_admin": "看板總管理者（RW）",
     "board_viewer": "看板總管理者（RO）", "dept_admin": "部門看板管理者（RW）", "dept_viewer": "部門看板管理者（RO）",
     "user": "使用者", "guest": "訪客（未開通）",
 }
@@ -33,9 +37,21 @@ def is_guest(user: dict) -> bool:
 DEPT_ROLES = ("dept_admin", "dept_viewer")
 
 
+SYS_ADMIN_LABEL = "系統管理"
+
+
 def is_sysadmin(user: dict) -> bool:
-    """May use the admin panel (portal content, settings, accounts, system)."""
-    return user.get("role") in ("superadmin", "sysadmin") or user.get("id") is None or bool(user.get("local_admin"))
+    """May use the admin panel (portal content, settings, accounts, system): the local admin, or an account
+    given 系統管理 (sys_admin) on top of its level — never a guest."""
+    if user.get("role") == "superadmin" or user.get("id") is None or bool(user.get("local_admin")):
+        return True
+    return bool(user.get("sys_admin")) and user.get("role") not in ("guest", None)
+
+
+def label(user: dict) -> str:
+    """“使用者＋系統管理”: the level, plus 系統管理 when given."""
+    base = LABELS.get(user.get("role"), user.get("role") or "")
+    return base + ("＋" + SYS_ADMIN_LABEL if user.get("sys_admin") and user.get("role") not in ("superadmin", "guest") else "")
 
 
 def scope_departments(user: dict) -> List[str]:
@@ -54,7 +70,7 @@ def board_access(user: dict) -> dict:
     team = everyone below this person in the reporting line (app/team.py); on top of the role, a
     supervisor sees (team_view) and, with board_supervisor = rw, edits (team_edit) their team's cards."""
     role = user.get("role")
-    if user.get("id") is None or role in ("superadmin", "sysadmin", "board_admin"):
+    if user.get("id") is None or role in ("superadmin", "board_admin"):
         acc = {"view": "all", "edit": "all", "depts": []}
     elif role == "board_viewer":
         acc = {"view": "all", "edit": "own", "depts": []}

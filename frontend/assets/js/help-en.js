@@ -455,13 +455,13 @@ window.TT_HELP_EN = [
     id: 'accounts', icon: 'users', title: 'Accounts',
     items: [
       { h: 'Roles', b: `<table>
-        <tr><td>System admin</td><td>All admin settings; all cards</td></tr>
         <tr><td>Board admin RW</td><td>Can see, change and assign every card</td></tr>
         <tr><td>Board admin RO</td><td>Can see every card; changes only their own, comments on others</td></tr>
         <tr><td>Department admin RW</td><td>Manages their departments\' cards + their own (assigns only within the department)</td></tr>
         <tr><td>Department admin RO</td><td>Sees their departments\' cards + their own; changes only their own, comments on others</td></tr>
         <tr><td>User</td><td>Cards they created, are assigned or are @mentioned on (cannot assign)</td></tr>
         <tr><td>Guest</td><td>Only the public portal links, waiting for an administrator</td></tr>
+              <tr><td>+ System admin</td><td>An extra identity any level except guest can be given: the admin console only (settings and queries), no extra board rights — e.g. “User + System admin” still sees just their own cards on the board</td></tr>
       </table>A card belongs to the departments of its creator and assignees (AD “department”).` },
       { h: 'Managers and reports', b: 'Managers come from AD\'s “manager” attribute by default (administrators can override), across several levels. Managers see all their reports\' cards (marked “Report”) and, depending on the setting, can edit and assign to reports, or only view and comment.' },
       { h: 'Language and personal settings', b: '“EN / 中” in the header switches the language, saved to your account; other personal settings (favorites, layouts, view choices) are stored on the server too.' },
@@ -469,7 +469,7 @@ window.TT_HELP_EN = [
   },
   {
     id: 'admin', icon: 'settings', title: 'Admin console (administrators)',
-    intro: 'Open /admin, or click the logo or the clock 5 times quickly; on the server it is also in the account menu. Only system admins can enter. Every setting applies on save, with no need to sign in to the host, and every change is recorded in the audit log.',
+    intro: 'Open /admin, or click the logo or the clock 5 times quickly; on the server it is also in the account menu. Only accounts with “System admin” (and the local admin) can enter. Every setting applies on save, with no need to sign in to the host, and every change is recorded in the audit log.',
     items: [
       { h: 'Two groups on the left', b: '<b>Portal</b>: content, home layout, quick links, icons, appearance and settings. <b>System settings</b> (the same tabs as the CFXD daily report system): status, AD sign-in, accounts, audit log, backup & restore, HTTPS certificate, notifications, system info, versions. When the health check has failed items, a red bar at the top of every page links to “System status”.' },
       { h: 'Content', b: 'Tree editor for public folders and links: drag to reorder or into folders; name, URL, description, icon, color, open in new tab, enabled, and <b>visibility</b> (everyone, or chosen departments / people; a folder\'s limit applies to everything inside).' },
@@ -482,7 +482,7 @@ window.TT_HELP_EN = [
         <li><b>Decided at install time (read only)</b>: version, program / data / icon / backup locations, ports and server name.</li>
       </ul>` },
       { h: 'AD sign-in', b: 'AD / LDAP connection (server, base DN, service account, domain, group filter, advanced attributes and TLS — test before saving), Microsoft Entra ID sign-in, and sign-in security (idle sign-out, longest session, lockout).' },
-      { h: 'Accounts', b: 'AD accounts appear here after their first sign-in, as guests; promote them to user or admin, set managed departments and managers, or disable accounts. At least one AD system admin must remain.' },
+      { h: 'Accounts', b: 'AD accounts appear here after their first sign-in, as guests; give them a level (user or above), set managed departments and managers, or disable accounts. “+ System admin” next to the level adds admin-console rights (not for guests): settings and queries only, the board still follows the level. At least one AD account must keep system admin, and you cannot remove your own or disable yourself.' },
       { h: 'Audit log', b: `<ul>
         <li>Records sign-ins / failed sign-ins / sign-outs, account permission changes, every system setting, backups (now, download, upload, delete, restore), HTTPS certificate and ports, appearance settings, portal content import / export and link changes, deleted cards, Excel report imports, demo data, standalone copies, upgrades. Each row has time, action, who, target, details and source IP; failed actions are shaded red.</li>
         <li><b>Search</b>: from / to (up to 366 days), action, who, target (contains), details (contain), failures only; quick ranges today / yesterday / last 7 / last 30 days / this month; rows grouped by day with clickable per-day counts; 100 per page with “← Newer / Older →”.</li>

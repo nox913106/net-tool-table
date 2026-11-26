@@ -556,5 +556,10 @@
  "歷史區時間要在 1～8760 小時（一年）之間": "The History time must be 1–8760 hours (a year)",
  "保存天數必須在 {0}–{1} 天之間": "Retention must be between {0} and {1} days",
  "主機尚未安裝升級服務：請先在主機用指令升級一次，之後就能用這個按鈕": "The host does not have the upgrade service yet: upgrade once with the command on the host, then this button works",
- "已經在升級中，請稍候": "An upgrade is already running, please wait"
+ "已經在升級中，請稍候": "An upgrade is already running, please wait",
+ "訪客不能被賦予系統管理，請先開通為使用者或以上": "A guest cannot be a system admin; give the account a level (user or above) first",
+ "至少要保留一個 AD 帳號是系統管理": "At least one AD account must keep system admin",
+ "不能取消自己的系統管理或停用自己": "You cannot remove your own system admin or disable yourself",
+ "系統管理": "System admin",
+ "＋系統管理": " + System admin"
 }

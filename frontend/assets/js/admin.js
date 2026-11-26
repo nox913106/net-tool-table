@@ -1503,7 +1503,7 @@
     }
     const summary = el('div', { class: 'users-summary' },
       el('span', { class: 'badge', text: _t("{0} 個帳號", data.users.length) }),
-      el('span', { class: 'badge' + (data.ad_admins ? '' : ' badge-alert'), text: _t("{0} 位 AD 系統管理者", data.ad_admins) }),
+      el('span', { class: 'badge' + (data.ad_admins ? '' : ' badge-alert'), text: _t("{0} 位 AD 系統管理", data.ad_admins) }),
       data.users.some(u => u.role === 'guest' && u.active)
         ? el('span', { class: 'badge badge-warn', title: _t('AD 帳號第一次登入時是「訪客」：只能看入口連結。把權限改成「使用者」或以上即可開通'),
           text: _t("{0} 位訪客待開通", data.users.filter(u => u.role === 'guest' && u.active).length) }) : null);
@@ -1545,9 +1545,28 @@
                 paintScope();
               } catch (e) { toast(e.message, true); sel.value = u.role; }
               data = { ...data, ...(await api('/api/users')) };
-              summary.lastChild.textContent = _t("{0} 位 AD 系統管理者", data.ad_admins); summary.lastChild.classList.toggle('badge-alert', !data.ad_admins);
+              summary.lastChild.textContent = _t("{0} 位 AD 系統管理", data.ad_admins); summary.lastChild.classList.toggle('badge-alert', !data.ad_admins);
             });
-            role = el('div', { class: 'role-cell' }, sel, scope);
+            // 系統管理: an extra identity on top of the level (any level except guest) — the admin panel only
+            const sa = el('label', { class: 'sa-toggle' + (u.sys_admin ? ' on' : ''), title: _t('系統管理：可以進後台調整設定與查詢（稽核紀錄、系統狀態…）；看板上的權限仍依左邊的等級') },
+              el('input', { type: 'checkbox', checked: !!u.sys_admin, disabled: u.role === 'guest' }), el('span', { text: _t('＋系統管理') }));
+            if (u.role === 'guest') sa.title = _t('訪客不能被賦予系統管理，請先開通為使用者或以上');
+            sa.querySelector('input').addEventListener('change', async e => {
+              const on = e.target.checked;
+              try {
+                Object.assign(u, await api(`/api/users/${u.id}`, { method: 'PUT', body: { sys_admin: on } }));
+                toast(on ? _t('{0}：已賦予系統管理', u.display_name || u.username) : _t('{0}：已移除系統管理', u.display_name || u.username));
+              } catch (err) { toast(err.message, true); e.target.checked = !on; }
+              sa.classList.toggle('on', !!u.sys_admin);
+              data = { ...data, ...(await api('/api/users')) };
+              summary.lastChild.textContent = _t("{0} 位 AD 系統管理", data.ad_admins); summary.lastChild.classList.toggle('badge-alert', !data.ad_admins);
+            });
+            sel.addEventListener('change', () => {
+              const g = sel.value === 'guest';
+              sa.querySelector('input').disabled = g;
+              if (g) { sa.querySelector('input').checked = false; sa.classList.remove('on'); }
+            });
+            role = el('div', { class: 'role-cell' }, el('div', { class: 'role-line' }, sel, sa), scope);
           }
           const active = local ? el('span') : switchInput(!!u.active, async v => {
             try { Object.assign(u, await api(`/api/users/${u.id}`, { method: 'PUT', body: { active: v } })); toast(v ? _t('已啟用') : _t('已停用（已登出）')); }
@@ -1598,15 +1617,16 @@
       el('table', { class: 'role-table' },
         el('thead', {}, el('tr', {}, ...[_t('權限'), _t('後台'), _t('看板：看得到'), _t('看板：可編輯 / 刪除 / 指派')].map(t => el('th', { text: t })))),
         el('tbody', {}, ...[
-          [_t('系統管理者'), _t('全部設定'), _t('所有卡片'), _t('所有卡片')],
           [_t('看板總管理者（RW）'), '—', _t('所有卡片'), _t('所有卡片')],
           [_t('看板總管理者（RO）'), '—', _t('所有部門的卡片'), _t('只有自己的卡片；其他卡片可留言')],
           [_t('部門看板管理者（RW）'), '—', _t('管理部門的卡片 ＋ 自己的'), _t('管理部門的卡片（只能指派該部門的人）＋ 自己的')],
           [_t('部門看板管理者（RO）'), '—', _t('管理部門的卡片 ＋ 自己的'), _t('只有自己的卡片；其他卡片可留言')],
           [_t('使用者'), '—', _t('自己建立、被指派、被 @ 的卡片'), _t('同左（不能指派）')],
+          [_t('訪客（未開通）'), '—', _t('只有入口的公用連結'), _t('無')],
+          [_t('＋ 系統管理（使用者以上任何等級都可另外賦予）'), _t('全部設定與查詢'), _t('不增加：依原本的等級'), _t('不增加：依原本的等級')],
           [_t('＋ 上級（任何權限都適用）'), '—', _t('另外加上所有下級（多層）的卡片'), _t('依「外觀與設定 → 上級對下級卡片的權限」：可編輯（增刪修、指派給下級）／檢視＋留言')],
         ].map(r => el('tr', {}, ...r.map(c => el('td', { text: c })))))),
-      el('p', { class: 'hint', html: _t("卡片屬於「建立者」與「負責人」所在的部門（AD 的 department）。部門看板管理者預設管理自己的部門，可以在上面勾選其他部門。<br>至少要保留一位 AD 系統管理者。本機最高管理員（{0}）只在緊急時使用，密碼可在右上角選單修改，或在伺服器執行 <code>tool-table.sh reset-admin</code>。", esc((data.users.find(u => u.role === 'superadmin') || {}).username || 'localadmin')) }));
+      el('p', { class: 'hint', html: _t("卡片屬於「建立者」與「負責人」所在的部門（AD 的 department）。部門看板管理者預設管理自己的部門，可以在上面勾選其他部門。<br>「系統管理」是附加在等級上的身分：只能操作後台的設定與查詢，看板上看得到、能改什麼仍依原本的等級（例如「使用者＋系統管理」在看板上只看得到自己的卡片）；訪客不能被賦予。至少要保留一位 AD 帳號有系統管理。本機最高管理員（{0}）只在緊急時使用，密碼可在右上角選單修改，或在伺服器執行 <code>tool-table.sh reset-admin</code>。", esc((data.users.find(u => u.role === 'superadmin') || {}).username || 'localadmin')) }));
     paint();
   }
 

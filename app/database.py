@@ -223,6 +223,11 @@ async def init_db():
             await db.execute("ALTER TABLE users ADD COLUMN manager_id INTEGER REFERENCES users(id) ON DELETE SET NULL")
             await db.execute("ALTER TABLE users ADD COLUMN manager_source TEXT")   # ad | manual
         await db.execute("UPDATE users SET role = 'sysadmin' WHERE role = 'admin'")   # older two-role model
+        if "sys_admin" not in user_cols:
+            # 系統管理 is now an extra identity on top of a level (app/roles.py). The former 系統管理者 level had
+            # every board too: they keep that as 看板總管理者（RW）＋系統管理 — lower the level in 帳號管理 if not wanted.
+            await db.execute("ALTER TABLE users ADD COLUMN sys_admin INTEGER NOT NULL DEFAULT 0")
+        await db.execute("UPDATE users SET sys_admin = 1, role = 'board_admin' WHERE role = 'sysadmin'")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_members_user ON task_members(user_id)")
         await db.execute("""
             CREATE TABLE IF NOT EXISTS task_images (
