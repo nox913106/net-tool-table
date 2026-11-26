@@ -34,6 +34,7 @@ HINTS = {
     "key": "金鑰遺失時已加密的密碼（AD 服務帳號、Entra 用戶端密碼）要重新輸入",
     "teams": "到「發送與通知」按「測試」看是哪個頻道送不出去",
     "upgrade": "到「版本紀錄」看新版內容並按「升級到最新版」",
+    "ai": "到「AI 接入點」看每個服務停用的原因，或按「測試」",
     "upgrade_svc": "在主機執行一次 sudo bash /opt/tool-table/scripts/tool-table.sh upgrade，之後就能在網頁升級",
 }
 
@@ -78,6 +79,14 @@ async def _config_checks() -> List[dict]:
         out.append(_it(G, "auth", "版本型態", "ok", "單機版／開發模式（不需登入）"))
     out.append(_it(G, "key", "加密金鑰", "ok" if sysconfig.KEY_FILE.exists() else "warn",
                    str(sysconfig.KEY_FILE) if sysconfig.KEY_FILE.exists() else "還沒有產生（第一次儲存密碼時自動建立）"))
+    from . import ai
+    s_ai, rows = ai.settings(), ai.providers()
+    n_ok = sum(1 for p in rows if not ai.blocked_reason(p, s_ai))
+    out.append(_it("背景工作", "ai", "AI 接入點",
+                   "ok" if not s_ai["enabled"] or n_ok else "warn",
+                   (f"已啟用（{'並行' if s_ai['mode'] == 'parallel' else '備援'}）：{n_ok} / {len(rows)} 個服務可用"
+                    f"（雲端 {sum(1 for p in rows if p.get('location') == 'cloud')}、地端 {sum(1 for p in rows if p.get('location') == 'onprem')}）")
+                   if s_ai["enabled"] else f"未啟用；已設定 {len(rows)} 個服務"))
     from . import audit
     out.append(_it("背景工作", "audit", "稽核紀錄", "ok", f"{a_n or 0} 筆，最早 {(a_first or '—')[:10]}；保存 {audit.keep_days()} 天"))
     cur = upgrade.current()

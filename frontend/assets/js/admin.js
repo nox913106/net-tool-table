@@ -1,7 +1,7 @@
 /* =============================================================================
    IPMS — admin
    Panels (hash): 入口網站 #content #home #quick #icons #settings
-                  系統設定 (same tabs as CFXD_DailyReportDocSys) #status #auth #users #audit #backup #tls #delivery #sysinfo #versions
+                  系統設定 (same tabs as CFXD_DailyReportDocSys) #status #auth #users #audit #backup #tls #delivery #ai #sysinfo #versions
    ============================================================================= */
 'use strict';
 
@@ -26,6 +26,7 @@
     { id: 'backup', icon: 'database', label: _t('備份還原'), desc: _t('自動與手動備份、下載、還原；入口內容匯出成 JSON 或從 JSON 匯入；示範資料。') },
     { id: 'tls', icon: 'globe', label: _t('HTTPS 憑證'), desc: _t('目前的憑證、更換憑證、連線埠與伺服器名稱。') },
     { id: 'delivery', icon: 'megaphone', label: _t('發送與通知'), desc: _t('Microsoft Teams 頻道：卡片異動、專案事件、系統與硬體警示、定時狀態報告。'), auth: true },
+    { id: 'ai', icon: 'sparkles', label: _t('AI 接入點'), desc: _t('雲端與地端的 AI 服務，可同時接入多種模型：依優先順序備援，或並行比較。') },
     { id: 'sysinfo', icon: 'monitor', label: _t('系統資訊'), desc: _t('硬體、作業系統、執行環境、服務、系統套件與 Python 套件（每次開頁即時讀取）。') },
     { id: 'versions', icon: 'history', label: _t('版本紀錄'), desc: _t('目前版本、GitHub 上的新版與升級、全部版本的變更內容。') },
   ];
@@ -267,7 +268,7 @@
 
     ({ content: renderContent, home: renderHome, quick: renderQuick, icons: renderIcons, settings: renderSettings, backup: renderBackup, users: renderUsers,
        status: renderStatus, auth: () => renderSystem('auth'), tls: () => renderSystem('tls'), delivery: () => renderSystem('delivery'),
-       audit: renderAudit, sysinfo: renderSysinfo, versions: renderVersions })[panel.id]();
+       audit: renderAudit, sysinfo: renderSysinfo, versions: renderVersions, ai: renderAI })[panel.id]();
   }
 
   // ======================================================================
@@ -2348,6 +2349,218 @@
             el('td', { class: 'nowrap' }, vtype(r.type)), el('td', { text: r.text }));
         }) : [el('tr', {}, el('td', { colspan: '5', class: 'hint', text: _t('找不到 CHANGELOG.md。') }))])))));
     body.replaceChildren(head, up, all);
+  }
+
+  // ======================================================================
+  // AI 接入點: cloud and on-premises AI services, fallback or in parallel (app/ai.py)
+  // ======================================================================
+  async function renderAI() {
+    const body = $('stage-body');
+    let D;
+    try { D = await api('/api/ai'); } catch (e) { body.append(el('p', { class: 'hint', text: e.message })); return; }
+    const LOC = { cloud: _t('雲端'), onprem: _t('地端') };
+    const locBadge = l => el('span', { class: `ai-loc ai-loc-${l}`, text: LOC[l] || l });
+    const S = D.settings;
+
+    // ---------------- settings
+    const sf = {
+      enabled: switchCtl(S.enabled, _t('啟用 AI 接入點'), () => {}),
+      allow_cloud: switchCtl(S.allow_cloud, _t('允許使用雲端服務（資料會送到公司外部）'), () => {}),
+      timeout: input(S.timeout, { type: 'number', min: '5', max: '900' }),
+      max_output_tokens: input(S.max_output_tokens, { type: 'number', min: '64', max: '128000' }),
+      temperature: input(S.temperature, { type: 'number', min: '0', max: '2', step: '0.1' }),
+      system_prompt: el('textarea', { class: 'textarea', rows: '4' }),
+    };
+    sf.system_prompt.value = S.system_prompt || '';
+    let mode = S.mode;
+    const modeSeg = segmented([['fallback', _t('備援：依優先順序，失敗換下一個'), 'refresh'], ['parallel', _t('並行：所有可用的服務同時回答'), 'grid']], mode, v => { mode = v; });
+    const saveS = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + _t('儲存設定') });
+    saveS.addEventListener('click', async () => {
+      try {
+        await api('/api/ai/settings', { method: 'PUT', body: { enabled: sf.enabled.querySelector('input').checked, allow_cloud: sf.allow_cloud.querySelector('input').checked, mode,
+          timeout: Number(sf.timeout.value), max_output_tokens: Number(sf.max_output_tokens.value), temperature: Number(sf.temperature.value), system_prompt: sf.system_prompt.value } });
+        toast(_t('已儲存')); route();
+      } catch (e) { toast(e.message, true); }
+    });
+    const setCard = sysCard('sparkles', _t('AI 接入點設定'),
+      _t('可以同時接入多個雲端與地端的 AI 服務、多種模型。<b>地端</b>（Ollama、vLLM、LM Studio、llama.cpp、LocalAI、公司 AI 閘道）的資料不離開公司；<b>雲端</b>（Claude、OpenAI、Gemini、Azure OpenAI、AWS Bedrock…）要打開下面的「允許使用雲端服務」才會使用。金鑰加密保存，不會再顯示；每次呼叫都記錄用量與費用。'),
+      sf.enabled, sf.allow_cloud,
+      el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('呼叫方式') }), modeSeg,
+        el('span', { class: 'hint', text: _t('備援：先用優先順序最前面的可用服務，失敗、超過預算或額度時自動換下一個。並行：同時問所有可用的服務，每個模型的回答都會回傳，可以比較或彙整。') })),
+      el('div', { class: 'sys-form' }, field(_t('逾時（秒）'), sf.timeout), field(_t('每次最多輸出（token）'), sf.max_output_tokens),
+        field(_t('溫度（只送給勾選「傳送溫度」的服務）'), sf.temperature)),
+      field(_t('系統提示詞（預設）'), sf.system_prompt, _t('功能沒有指定時使用；用來約束語氣、語言與「只根據提供的內容回答」')),
+      el('div', { class: 'sys-actions' }, saveS));
+
+    // ---------------- services
+    const presetSel = el('select', { class: 'select' }, ...Object.entries(D.groups).map(([g, gl]) =>
+      el('optgroup', { label: gl }, ...Object.entries(D.presets).filter(([, p]) => p.group === g).map(([k, p]) => el('option', { value: k, text: p.label })))));
+    const addBtn = el('button', { class: 'btn btn-primary', type: 'button', html: svg('plus') + _t('新增服務') });
+    addBtn.addEventListener('click', () => editProvider(null, presetSel.value));
+    const rows = D.providers.map(p => {
+      const res = el('div', { class: 'ai-test-res', hidden: true });
+      const test = el('button', { class: 'btn btn-sm', type: 'button', html: svg('zap') + _t('測試') });
+      test.addEventListener('click', async () => {
+        test.disabled = true; res.hidden = false; res.className = 'ai-test-res'; res.textContent = _t('測試中…');
+        try {
+          const r = await api(`/api/ai/providers/${p.id}/test`, { method: 'POST' });
+          res.className = 'ai-test-res ' + (r.ok ? 'ok' : 'fail');
+          res.textContent = r.ok ? _t('成功（{0}，{1} 秒）：{2}', r.model, (r.latency_ms / 1000).toFixed(1), r.text) : _t('失敗（{0} 秒）：{1}', (r.latency_ms / 1000).toFixed(1), r.error);
+        } catch (e) { res.className = 'ai-test-res fail'; res.textContent = e.message; }
+        test.disabled = false;
+      });
+      const edit = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', html: svg('edit') + _t('編輯') });
+      edit.addEventListener('click', () => editProvider(p));
+      const del = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', html: svg('trash') });
+      del.addEventListener('click', async () => {
+        if (!(await confirmDialog(_t('刪除「{0}」？', p.name), _t('用量紀錄會保留。'), _t('刪除')))) return;
+        try { await api(`/api/ai/providers/${p.id}`, { method: 'DELETE' }); route(); } catch (e) { toast(e.message, true); }
+      });
+      const on = switchInput(!!p.enabled, async v => { try { await api(`/api/ai/providers/${p.id}`, { method: 'PUT', body: { values: { enabled: v } } }); route(); } catch (e) { toast(e.message, true); } });
+      const u = p.usage;
+      const money = p.billing === 'token' ? `${u.cost.toFixed(2)} ${p.currency || ''}${p.monthly_budget ? ' / ' + p.monthly_budget + ' ' + (p.currency || '') : ''}`
+        : p.billing === 'monthly' ? (p.monthly_token_quota ? `${u.tokens.toLocaleString()} / ${p.monthly_token_quota.toLocaleString()} token` : _t('月費 {0} {1}', p.monthly_fee || 0, p.currency || ''))
+          : _t('自建');
+      return [el('tr', { class: p.blocked ? 'is-off' : '' },
+        el('td', { class: 'nowrap', text: p.priority }),
+        el('td', {}, el('b', { text: p.name }), p.note ? el('small', { class: 'adm-sub', text: p.note }) : null),
+        el('td', {}, locBadge(p.location)),
+        el('td', {}, el('span', { text: D.kinds[p.kind] || p.kind }), el('small', { class: 'adm-sub mono-sm', text: p.model || p.deployment || '—' })),
+        el('td', { class: 'nowrap' }, el('span', { text: D.billing[p.billing] || p.billing }), el('small', { class: 'adm-sub', text: money })),
+        el('td', { class: 'nowrap', text: _t('{0} 次（成功 {1}）', u.calls, u.ok) }),
+        el('td', {}, p.blocked ? el('span', { class: 'tm-lv lv-warn', title: p.blocked, text: _t('不可用') }) : el('span', { class: 'tm-lv lv-ok', text: _t('可用') }),
+          p.blocked ? el('small', { class: 'adm-sub', text: p.blocked }) : null),
+        el('td', {}, on),
+        el('td', { class: 'nowrap' }, test, edit, del)),
+      el('tr', { class: 'ai-test-row' }, el('td', { colspan: '9' }, res))];
+    });
+    const list = el('section', { class: 'panel settings-card' },
+      el('div', { class: 'adm-card-head' }, el('h3', { class: 'settings-card-title', html: svg('grid') + esc(_t('AI 服務（{0} 個，可用 {1} 個）', D.providers.length, D.usable)) }), el('span', { class: 'spacer' }), presetSel, addBtn),
+      D.providers.length ? el('div', { class: 'adm-scroll' }, el('table', { class: 'adm-table ai-table' },
+        el('thead', {}, el('tr', {}, ...[_t('優先'), _t('名稱'), _t('位置'), _t('協定／模型'), _t('計費／本期'), _t('本期呼叫'), _t('狀態'), _t('啟用'), ''].map(h => el('th', { text: h })))),
+        el('tbody', {}, ...rows.flat())))
+        : el('p', { class: 'hint', text: _t('還沒有任何 AI 服務。從右上角選一個範本（雲端或地端），按「新增服務」。') }),
+      el('p', { class: 'hint', text: _t('優先數字小的先用（備援模式）。「測試」用固定的短句測試連線，不會送出公司資料，也不受總開關與雲端限制影響。') }));
+
+    // ---------------- playground
+    const prompt = el('textarea', { class: 'textarea', rows: '4', placeholder: _t('輸入問題，例如：請把下面的機房巡檢紀錄整理成三點重點…') });
+    let pmode = S.mode;
+    const pSeg = segmented([['fallback', _t('備援')], ['parallel', _t('並行比較')]], pmode, v => { pmode = v; });
+    const picks = el('div', { class: 'scope-box' }, ...D.providers.map(p => {
+      const b = el('button', { type: 'button', class: 'scope-chip', 'aria-pressed': String(!p.blocked), dataset: { id: p.id }, disabled: !!p.blocked, title: p.blocked || '' },
+        `${p.name}（${LOC[p.location]}）`);
+      b.addEventListener('click', () => b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true')));
+      return b;
+    }));
+    const runBtn = el('button', { class: 'btn btn-primary', type: 'button', html: svg('sparkles') + _t('送出') });
+    const out = el('div', { class: 'ai-results' });
+    runBtn.addEventListener('click', async () => {
+      const ids = [...picks.querySelectorAll('[aria-pressed="true"]')].map(b => Number(b.dataset.id));
+      if (!prompt.value.trim()) return toast(_t('請輸入要問的內容'), true);
+      if (!ids.length) return toast(_t('至少選一個可用的服務'), true);
+      runBtn.disabled = true; out.replaceChildren(el('p', { class: 'hint', text: _t('等待回覆…') }));
+      try {
+        const r = await api('/api/ai/playground', { method: 'POST', body: { prompt: prompt.value, mode: pmode, ids } });
+        out.replaceChildren(...r.results.map(x => el('div', { class: 'ai-result ' + (x.ok ? 'ok' : 'fail') + (r.answer && r.answer.provider_id === x.provider_id && r.mode === 'fallback' ? ' chosen' : '') },
+          el('div', { class: 'ai-result-head' }, el('b', { text: x.name }), locBadge(x.location), el('span', { class: 'spacer' }),
+            el('small', { class: 'hint', text: `${x.model || ''} · ${(x.latency_ms / 1000).toFixed(1)}s` + (x.ok ? ` · ${x.input_tokens}+${x.output_tokens} token` + (x.cost ? ` · ${x.cost} ${x.currency || ''}` : '') : '') })),
+          el('div', { class: 'ai-result-text', text: x.ok ? x.text : x.error }))));
+      } catch (e) { out.replaceChildren(el('p', { class: 'hint', text: e.message })); }
+      runBtn.disabled = false;
+    });
+    const play = sysCard('sparkles', _t('測試台'), _t('實際問一次，比較不同模型的回答、速度與用量。會使用預設系統提示詞；雲端服務要先允許才會出現。這裡的呼叫也記錄在用量裡。'),
+      field(_t('問題'), prompt), el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('使用的服務') }), picks),
+      el('div', { class: 'sys-actions adm-actions-left' }, pSeg, el('span', { class: 'spacer' }), runBtn), out);
+
+    // ---------------- recent usage
+    let U = [];
+    try { U = await api('/api/ai/usage'); } catch { /* ignore */ }
+    const PURPOSE = { test: _t('測試'), playground: _t('測試台'), ask: _t('提問') };
+    const usage = el('section', { class: 'panel settings-card' }, el('h3', { class: 'settings-card-title', html: svg('history') + esc(_t('最近的呼叫')) }),
+      U.length ? el('div', { class: 'adm-scroll' }, el('table', { class: 'adm-table' },
+        el('thead', {}, el('tr', {}, ...[_t('時間'), _t('服務'), _t('模型'), _t('用途'), _t('結果'), 'token', _t('費用'), _t('耗時')].map(h => el('th', { text: h })))),
+        el('tbody', {}, ...U.map(r => el('tr', { class: r.ok ? '' : 'lv-row-fail' },
+          el('td', { class: 'nowrap', text: r.at.slice(5, 16) }), el('td', { text: r.provider_name }), el('td', { class: 'mono-sm', text: r.model || '' }),
+          el('td', { text: PURPOSE[r.purpose] || r.purpose }), el('td', { text: r.ok ? _t('成功') : r.error || _t('失敗') }),
+          el('td', { class: 'nowrap', text: r.ok ? `${r.input_tokens}+${r.output_tokens}` : '' }), el('td', { class: 'nowrap', text: r.cost ? `${r.cost} ${r.currency || ''}` : '' }),
+          el('td', { class: 'nowrap', text: r.latency_ms != null ? `${(r.latency_ms / 1000).toFixed(1)}s` : '' }))))))
+        : el('p', { class: 'hint', text: _t('還沒有呼叫紀錄') }));
+
+    body.append(setCard, list, play, usage);
+
+    // ---------------- editor
+    function editProvider(p, presetKey) {
+      const pre = p ? {} : (D.presets[presetKey] || {});
+      const v = p ? { ...p } : { name: pre.label, preset: presetKey, kind: pre.kind, location: pre.location || 'cloud', billing: pre.billing || (pre.location === 'onprem' ? 'self_hosted' : 'token'),
+        base_url: pre.base_url || '', model: pre.model || '', deployment: '', api_version: pre.api_version || '', region: pre.region || '',
+        token_param: pre.token_param || 'max_tokens', send_temperature: pre.kind === 'anthropic' ? 0 : 1, extra_body: '', enabled: 1,
+        priority: (D.providers.reduce((m, x) => Math.max(m, x.priority), 0) || 0) + 10, price_in: pre.price_in || 0, price_out: pre.price_out || 0,
+        currency: 'USD', monthly_budget: 0, monthly_fee: 0, monthly_token_quota: 0, reset_day: 1, note: '' };
+      const f = {};
+      const txt = (k, attrs = {}) => (f[k] = input(v[k], attrs));
+      const sel = (k, opts) => { f[k] = el('select', { class: 'select' }, ...Object.entries(opts).map(([a, b]) => el('option', { value: a, text: b }))); f[k].value = v[k]; return f[k]; };
+      const key = input('', { type: 'password', autocomplete: 'new-password', placeholder: p?.key_set ? _t('••••••••（已設定；留空 = 不變）') : (v.location === 'onprem' ? _t('地端服務通常不需要') : _t('API 金鑰')) });
+      let clearKey = false;
+      const clearBtn = p?.key_set ? el('button', { class: 'kb-link-btn', type: 'button', text: _t('清除金鑰') }) : null;
+      clearBtn?.addEventListener('click', () => { clearKey = true; key.value = ''; key.placeholder = _t('（儲存後清除）'); });
+      f.extra_body = el('textarea', { class: 'textarea mono', rows: '2', placeholder: '{"top_p": 0.9}' }); f.extra_body.value = v.extra_body || '';
+      f.note = el('textarea', { class: 'textarea', rows: '2' }); f.note.value = v.note || '';
+      f.send_temperature = switchCtl(!!v.send_temperature, _t('傳送溫度（目前的 Claude 模型不接受，預設不傳）'), () => {});
+      const kindSel = sel('kind', D.kinds);
+      const billSel = sel('billing', D.billing);
+      const rowsFor = {};
+      const grid = el('div', { class: 'sys-form' },
+        field(_t('名稱'), txt('name')),
+        field(_t('位置'), sel('location', { cloud: _t('雲端（資料送到公司外部）'), onprem: _t('地端（資料不離開公司）') })),
+        field(_t('呼叫協定'), kindSel, _t('OpenAI 相容涵蓋 Ollama、vLLM、LM Studio、llama.cpp、LocalAI、公司閘道與多數雲端服務')),
+        (rowsFor.base_url = field(_t('服務網址'), txt('base_url', { placeholder: 'https://… 或 http://ai-host:11434/v1' }), pre.hint || '')),
+        (rowsFor.model = field(_t('模型名稱'), txt('model', { placeholder: 'claude-opus-5-5、qwen3:32b…' }))),
+        (rowsFor.deployment = field(_t('部署名稱（Azure）'), txt('deployment'))),
+        (rowsFor.api_version = field(_t('API 版本（Azure）'), txt('api_version'))),
+        (rowsFor.region = field(_t('區域（Bedrock）'), txt('region'))),
+        el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('API 金鑰') }), key, clearBtn),
+        (rowsFor.token_param = field(_t('輸出上限參數'), sel('token_param', { max_tokens: 'max_tokens', max_completion_tokens: 'max_completion_tokens', none: _t('不傳送') }))),
+        field(_t('優先順序（小的先用）'), txt('priority', { type: 'number' })),
+        field(_t('計費方式'), billSel),
+        (rowsFor.price = el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('單價（每 100 萬 token：輸入／輸出）') }),
+          el('div', { class: 'sys-test-row' }, txt('price_in', { type: 'number', step: 'any', min: '0' }), txt('price_out', { type: 'number', step: 'any', min: '0' }), txt('currency', { style: 'max-width:6em' })))),
+        (rowsFor.budget = field(_t('每期預算上限（0 = 不限）'), txt('monthly_budget', { type: 'number', step: 'any', min: '0' }), _t('用完就跳過，改用下一個服務'))),
+        (rowsFor.fee = field(_t('月費（包月／自建攤提，供比較）'), txt('monthly_fee', { type: 'number', step: 'any', min: '0' }))),
+        (rowsFor.quota = field(_t('每期 token 額度（0 = 不限）'), txt('monthly_token_quota', { type: 'number', min: '0' }))),
+        field(_t('每期起算日（每月幾號）'), txt('reset_day', { type: 'number', min: '1', max: '28' })),
+        el('div', { class: 'field span-all' }, f.send_temperature),
+        el('div', { class: 'span-all' }, field(_t('額外參數（JSON，合併到請求內容）'), f.extra_body, _t('例如 Claude 的 {"output_config": {"effort": "high"}}，或 OpenAI 相容服務的 {"top_p": 0.9}'))),
+        el('div', { class: 'span-all' }, field(_t('備註'), f.note)));
+      const paint = () => {
+        const k = kindSel.value, b = billSel.value;
+        rowsFor.base_url.hidden = k === 'anthropic' && false;
+        rowsFor.deployment.hidden = rowsFor.api_version.hidden = k !== 'azure_openai';
+        rowsFor.region.hidden = k !== 'bedrock';
+        rowsFor.token_param.hidden = !['openai', 'azure_openai'].includes(k);
+        rowsFor.price.hidden = rowsFor.budget.hidden = b !== 'token';
+        rowsFor.fee.hidden = b === 'token';
+        rowsFor.quota.hidden = b !== 'monthly';
+      };
+      kindSel.addEventListener('change', paint); billSel.addEventListener('change', paint); paint();
+      const save = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + _t('儲存') });
+      const cancel = el('button', { class: 'btn btn-ghost', type: 'button', text: _t('取消') });
+      const close = modal({ title: p ? _t('編輯 AI 服務') : _t('新增 AI 服務：{0}', pre.label || ''), body: grid, actions: [cancel, save], wide: true });
+      cancel.addEventListener('click', close);
+      save.addEventListener('click', async () => {
+        const values = {};
+        for (const [k, c] of Object.entries(f)) {
+          if (k === 'send_temperature') values[k] = c.querySelector('input').checked ? 1 : 0;
+          else values[k] = ['priority', 'price_in', 'price_out', 'monthly_budget', 'monthly_fee', 'monthly_token_quota', 'reset_day'].includes(k) ? Number(c.value || 0) : c.value;
+        }
+        if (!p) values.preset = presetKey;
+        const apiKey = clearKey ? '' : (key.value ? key.value : (p ? null : ''));
+        save.disabled = true;
+        try {
+          await api(p ? `/api/ai/providers/${p.id}` : '/api/ai/providers', { method: p ? 'PUT' : 'POST', body: { values, api_key: apiKey } });
+          close(); toast(_t('已儲存')); route();
+        } catch (e) { toast(e.message, true); save.disabled = false; }
+      });
+    }
   }
 
   function renderBackup() {

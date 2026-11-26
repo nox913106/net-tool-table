@@ -18,6 +18,7 @@ from .database import init_db
 from . import auth as auth_mod
 from .routes import auth as auth_routes, auth_links, dashboard, local, nodes, search, settings, system, tasks
 from .routes import sync as sync_routes
+from .routes import ai as ai_routes
 
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
 VERSION = (PROJECT_ROOT / "VERSION").read_text().strip() if (PROJECT_ROOT / "VERSION").is_file() else "0.0.0"
@@ -176,6 +177,7 @@ app.include_router(auth_routes.router)
 app.include_router(dashboard.router)
 app.include_router(system.router)
 app.include_router(sync_routes.router)
+app.include_router(ai_routes.router)
 
 
 @app.middleware("http")

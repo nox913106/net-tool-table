@@ -104,6 +104,7 @@
 - **AD 驗證**：AD／LDAP（可先測試再儲存）、Microsoft Entra ID、登入安全
 - **帳號管理**：開通帳號、權限、管理部門、上級、停用
 - **稽核紀錄**：登入／登入失敗／登出、帳號權限、所有系統設定、備份（立即、下載、上傳、刪除、還原）、憑證與連線埠、入口內容匯入匯出與連結增刪、刪除卡片、匯入 Excel、示範資料、單機版連線、升級；可依日期（最多 366 天）、動作、操作者、對象、內容、只看失敗查詢，匯出 CSV（匯出也會記錄）；保存 180–3650 天（預設 366），畫面上不能修改或刪除；還原備份時保留比備份新的紀錄；不參與單機版同步（`app/audit.py`）
+- **AI 接入點**：同時接入多個 AI 服務與多種模型，雲端與地端都可以——地端：Ollama、vLLM、LM Studio、llama.cpp、LocalAI、公司 AI 閘道（OpenAI 相容）；雲端：Anthropic Claude（官方 SDK，預設 Claude Opus 5.5，含伺服器端 fallback）、OpenAI、Google Gemini、Azure OpenAI（含 PTU）、AWS Bedrock（含 Provisioned Throughput）、Mistral、DeepSeek、xAI、OpenRouter、Groq、Together。呼叫方式可選**備援**（依優先順序，失敗、超過預算或額度就換下一個）或**並行**（所有可用的服務同時回答，可比較或彙整）；雲端服務要另外打開「允許使用雲端服務」才會使用。每個服務可設按量單價與每期預算、包月月費與 token 額度、自建主機攤提；金鑰加密保存；每次呼叫記錄 token、費用、耗時與錯誤。後台有「測試」（固定短句、不含公司資料）與「測試台」（同時問多個模型、並排比較）；`POST /api/ai/ask` 給之後的功能與外部整合使用（`app/ai.py`）
 - **系統資訊**：硬體、作業系統、執行環境與工具、檔案系統、服務、系統套件、Python 套件（對照 requirements.txt），可下載 JSON（`app/sysinfo.py`）
 - **版本紀錄**：版號 vX.Y.Z（`VERSION`、`CHANGELOG.md`，從 11 月第一個 commit 起算 v1.0.0：X 核心架構與大型功能、Y 現有功能變動、Z 錯誤／漏洞／故障修正）；列出 GitHub 上的新版，按「升級到最新版」由 `tool-table-upgrade.path`（root）執行與 `tool-table.sh upgrade` 相同的升級（先備份），頁面顯示進度與記錄（`app/upgrade.py`）
 - **內容**：樹狀編輯，**拖曳排序、拖進資料夾**；名稱、網址、說明、圖示、顏色、開新分頁、啟用 / 停用；也可以直接把網址拖到某個資料夾上新增

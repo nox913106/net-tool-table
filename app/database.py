@@ -406,6 +406,9 @@ async def init_db():
         # 稽核紀錄 (app/audit.py): never synced, kept across restores
         from . import audit
         await audit.ensure(db)
+        # AI 接入點 (app/ai.py): services and their usage, local to each copy
+        from . import ai
+        await ai.ensure(db)
 
         # Sync between standalone copies and the server (app/sync.py): uids, clocks, capture triggers
         from . import sync

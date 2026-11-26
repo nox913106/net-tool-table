@@ -576,3 +576,24 @@ body.link-dragging .quick-admin { outline: 2px dashed var(--accent-line); outlin
 .sa-toggle.on { color: var(--accent-text); border-color: var(--accent); background: var(--accent-soft); }
 .sa-toggle input { margin: 0; }
 .sa-toggle:has(input:disabled) { opacity: .45; cursor: not-allowed; }
+
+/* ---- AI 接入點 ---- */
+.ai-loc { display: inline-block; font: 700 11px var(--mono, monospace); padding: 1px 7px; border: 1px solid currentColor; white-space: nowrap; }
+.ai-loc-cloud { color: #0ea5e9; }
+.ai-loc-onprem { color: var(--success); }
+.ai-table tr.is-off td { opacity: .6; }
+.ai-table td .btn { margin-left: 4px; }
+.ai-test-row td { padding: 0 10px; border-bottom: 0; }
+.ai-test-res { margin: 0 0 8px; padding: 8px 10px; font-size: 12.5px; background: var(--surface-2); overflow-wrap: anywhere; }
+.ai-test-res.ok { border-left: 3px solid var(--success); }
+.ai-test-res.fail { border-left: 3px solid var(--danger); }
+.ai-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 12px; margin-top: 12px; }
+.ai-result { border: 1px solid var(--border); padding: 10px 12px; background: var(--surface-2); min-width: 0; }
+.ai-result.fail { border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+.ai-result.chosen { border-color: var(--accent); }
+.ai-result-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.ai-result-text { white-space: pre-wrap; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.ai-result.fail .ai-result-text { color: var(--danger); }
+.stage-body > .panel, .sys-grid > .panel { min-width: 0; }
+.adm-scroll { max-width: 100%; position: relative; }
+.adm-card-head > .select { width: auto; flex: 0 1 280px; min-width: 0; }

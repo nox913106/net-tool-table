@@ -561,5 +561,13 @@
  "至少要保留一個 AD 帳號是系統管理": "At least one AD account must keep system admin",
  "不能取消自己的系統管理或停用自己": "You cannot remove your own system admin or disable yourself",
  "系統管理": "System admin",
- "＋系統管理": " + System admin"
+ "＋系統管理": " + System admin",
+ "AI 接入點尚未啟用": "AI services are not enabled",
+ "沒有可用的 AI 服務（都已停用、雲端未允許、超過預算或設定不完整）": "No usable AI service (all disabled, cloud not allowed, over budget or incomplete)",
+ "找不到這個 AI 服務": "AI service not found",
+ "請輸入要問的內容": "Type a question",
+ "呼叫方式只能是備援或並行": "Routing must be fallback or parallel",
+ "請填名稱": "Enter a name",
+ "服務網址要以 http:// 或 https:// 開頭": "The endpoint URL must start with http:// or https://",
+ "金鑰無法解密，請重新輸入": "The key cannot be decrypted; enter it again"
 }

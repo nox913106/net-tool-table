@@ -38,6 +38,7 @@ TAGS = [
     ("圖示", "圖示庫：上傳、改名、刪除、自動抓取網站圖示"),
     ("設定與匯出", "外觀與看板設定、整站匯出／匯入"),
     ("系統設定", "AD／LDAP、登入安全、備份、HTTPS 憑證、網路（管理員）"),
+    ("AI 接入點", "雲端與地端 AI 服務：設定、測試、並行比較、用量；/api/ai/ask 給功能與整合呼叫"),
     ("單機版同步", "伺服器端（裝置連結、推送、拉取、附件）與單機版端（連線、立即同步、衝突）"),
     ("本機程式", "Windows 單機版：讀取捷徑、啟動本機程式"),
     ("公開儀表板", "不需登入的部門工作統計"),
@@ -174,6 +175,16 @@ SUMMARY = {
     "GET /api/system/versions": "版本紀錄與 GitHub 上的新版",
     "GET /api/system/upgrade/status": "網頁升級的進度與記錄",
     "POST /api/system/upgrade": "升級到最新版（由主機上的升級服務執行）",
+    # AI 接入點
+    "GET /api/ai": "AI 接入點：設定、服務清單（不含金鑰）與範本",
+    "PUT /api/ai/settings": "AI 總開關、允許雲端、呼叫方式（備援／並行）、上限與系統提示詞",
+    "POST /api/ai/providers": "新增 AI 服務",
+    "PUT /api/ai/providers/{pid}": "修改 AI 服務",
+    "DELETE /api/ai/providers/{pid}": "刪除 AI 服務",
+    "POST /api/ai/providers/{pid}/test": "測試一個 AI 服務（固定的短提示，不含公司資料）",
+    "POST /api/ai/playground": "測試台：同時問多個模型並比較回答",
+    "GET /api/ai/usage": "最近的 AI 呼叫紀錄",
+    "POST /api/ai/ask": "提問（依設定的呼叫方式；並行時回傳每個模型的回答）",
     # 單機版同步
     "GET /api/sync/wait": "等待變更（長輪詢）",
     "POST /api/sync/link": "單機版連結到伺服器（取得裝置權杖）",
@@ -199,7 +210,7 @@ SUMMARY = {
 }
 
 _ROUTER_TAG = {"nodes": "入口網站", "auth-links": "快速連結", "settings": "設定與匯出", "local": "本機程式",
-               "auth": "登入與帳號", "dashboard": "公開儀表板", "system": "系統設定", "sync": "單機版同步"}
+               "auth": "登入與帳號", "dashboard": "公開儀表板", "system": "系統設定", "sync": "單機版同步", "ai": "AI 接入點"}
 
 
 def _tag(method: str, path: str, old: Optional[list]) -> str:
@@ -248,6 +259,7 @@ TAGS_EN = {"待辦看板": ("Board", "Cards: create, change, delete, order, clos
            "圖示": ("Icons", "Icon library: upload, rename, delete, fetch site icons"),
            "設定與匯出": ("Settings & export", "Appearance and board settings, whole-site export / import"),
            "系統設定": ("System settings", "AD / LDAP, sign-in security, backups, HTTPS certificate, network (administrators)"),
+           "AI 接入點": ("AI services", "Cloud and on-premises AI services: settings, tests, side-by-side comparison, usage; /api/ai/ask for features and integrations"),
            "單機版同步": ("Standalone sync", "Server side (device link, push, pull, files) and the standalone side (connect, sync now, conflicts)"),
            "本機程式": ("Local programs", "Windows standalone: read shortcuts, start local programs"),
            "公開儀表板": ("Public dashboard", "Work counts by department, no sign-in"),

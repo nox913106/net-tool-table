@@ -60,6 +60,11 @@ LABELS = {
     "audit_retention": ("稽核紀錄保存天數", "Audit retention"),
     "audit_purge": ("清除過期稽核紀錄", "Old audit rows purged"),
     "health_check": ("執行健康檢查", "Health check run"),
+    "ai_settings": ("AI 接入點設定", "AI settings"),
+    "ai_add": ("新增 AI 服務", "AI service added"),
+    "ai_update": ("修改 AI 服務", "AI service changed"),
+    "ai_delete": ("刪除 AI 服務", "AI service deleted"),
+    "ai_test": ("測試 AI 服務", "AI service tested"),
 }
 
 # (method, route template) → action code; the middleware logs these when they are called
@@ -87,6 +92,11 @@ ROUTES = {
     ("GET", "/api/system/audit.csv"): "audit_export",
     ("PUT", "/api/system/audit/retention"): "audit_retention",
     ("POST", "/api/system/status/check"): "health_check",
+    ("PUT", "/api/ai/settings"): "ai_settings",
+    ("POST", "/api/ai/providers"): "ai_add",
+    ("PUT", "/api/ai/providers/{pid}"): "ai_update",
+    ("DELETE", "/api/ai/providers/{pid}"): "ai_delete",
+    ("POST", "/api/ai/providers/{pid}/test"): "ai_test",
     ("PUT", "/api/settings"): "site_settings",
     ("POST", "/api/settings/reset"): "site_reset",
     ("GET", "/api/export"): "content_export",

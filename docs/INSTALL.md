@@ -214,6 +214,12 @@ sudo bash /opt/tool-table/scripts/tool-table.sh reset-admin
 - 伺服器要能連到 Workflow 網址的主機（通常是 `*.logic.azure.com` 或 `*.environment.api.powerplatform.com`，HTTPS 443）
 - 傳送失敗會自動重試三次；最近一次結果顯示在設定頁
 
+### 2.7.1 AI 接入點（選用）
+
+後台「系統設定 → AI 接入點」新增 AI 服務。**地端**（Ollama、vLLM、LM Studio、llama.cpp、LocalAI、公司 AI 閘道）只要這台伺服器連得到該主機的埠（例如 `http://ai-host:11434/v1`）；
+**雲端**服務需要能連到對方的 API（例如 `api.anthropic.com`、`api.openai.com`、`generativelanguage.googleapis.com`、`<資源>.openai.azure.com`、`bedrock-runtime.<區域>.amazonaws.com`），
+並在後台打開「允許使用雲端服務」。每個服務先按「測試」確認連線，再到「測試台」比較回答。呼叫 Claude 用官方 `anthropic` 套件（已列在 requirements.txt，升級時自動安裝）。
+
 ### 2.8 介面語言
 
 繁體中文與英文。每個人用頁首的「中／EN」切換，會記在自己的帳號；網站預設語言在「外觀與設定」選（繁體中文、英文或跟隨瀏覽器）。
