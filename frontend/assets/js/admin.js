@@ -2273,11 +2273,12 @@
         other.length ? el('details', { class: 'sys-advanced' }, el('summary', { text: _t('其他 {0} 個（間接相依）', other.length) }), table([_t('套件'), _t('版本'), '', _t('說明')], other.map(pyRow))) : null)].filter(Boolean));
   }
 
-  async function renderVersions() {
+  async function renderVersions(refresh) {
     const body = $('stage-body');
+    if (refresh) body.replaceChildren();
     body.append(el('p', { class: 'hint', text: _t('讀取中…') }));
     let V;
-    try { V = await api('/api/system/versions'); } catch (e) { body.replaceChildren(el('p', { class: 'hint', text: e.message })); return; }
+    try { V = await api('/api/system/versions' + (refresh ? '?refresh=1' : '')); } catch (e) { body.replaceChildren(el('p', { class: 'hint', text: e.message })); return; }
     const TY = { X: _t('核心架構'), Y: _t('功能'), Z: _t('修正'), '—': _t('初版') };
     const vtype = t => el('span', { class: `vtype vtype-${['X', 'Y', 'Z'].includes(t) ? t : 'init'}`, text: `${t} ${TY[t] || ''}` });
     const cur = `v${V.current.version}`;
@@ -2321,7 +2322,9 @@
       try { await api('/api/system/upgrade', { method: 'POST' }); toast(_t('已開始升級：會先備份，再更新程式並重新啟動服務；這一頁會自動更新。')); paintStatus({ pending: true, log: '' }); poll(); }
       catch (e) { toast(e.message, true); }
     });
-    const upTop = el('div', { class: 'adm-card-head' }, el('h3', { class: 'settings-card-title', text: _t('升級') }), el('span', { class: 'spacer' }));
+    const recheck = el('button', { class: 'btn', type: 'button', html: svg('rotate-ccw') + _t('重新檢查') });
+    recheck.addEventListener('click', () => renderVersions(true));
+    const upTop = el('div', { class: 'adm-card-head' }, el('h3', { class: 'settings-card-title', text: _t('升級') }), el('span', { class: 'spacer' }), V.server ? recheck : null);
     up.append(upTop);
     if (!V.server) up.append(el('p', { class: 'hint', text: _t('單機版不在這裡升級：連線到伺服器後，會自動從伺服器下載與伺服器相同的版本。') }));
     else if (!V.remote) up.append(el('p', { class: 'hint', text: _t('無法連線到 GitHub 檢查新版（主機需要能連到 github.com）。') }));
@@ -2331,6 +2334,7 @@
       up.append(el('p', {}, _t('GitHub 上有新版 '), el('code', { text: V.remote }), V.new && V.new.length ? _t('，共 {0} 個版本：', V.new.length) : '：'));
       if (V.new && V.new.length) up.append(el('ul', { class: 'upgrade-new' }, ...V.new.map(r => el('li', {}, el('b', { text: r.version }), ' ', vtype(r.type), ' ', el('span', { class: 'hint', text: r.date }), el('br'), r.text))));
       else if (V.new === null) up.append(el('p', { class: 'hint', text: _t('（無法讀取新版的版本紀錄）') }));
+      else up.append(el('p', { class: 'hint', text: _t('（這次的更新沒有新的版本號，例如只改文件）') }));
       if (!V.available) up.append(el('p', { class: 'notice-inline' }, _t('主機尚未安裝升級服務，這次請在主機執行：'), el('code', { class: 'wrap', text: V.cmd }), el('br'), _t('升級到這一版以後，之後都可以直接按這裡的按鈕升級。')));
     }
     up.append(progress,

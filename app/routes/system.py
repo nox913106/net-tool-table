@@ -843,9 +843,9 @@ async def sysinfo_download():
 
 # ---------------------------------------------------------------- 版本紀錄與升級 (app/upgrade.py)
 @router.get("/versions")
-async def versions_page():
+async def versions_page(refresh: bool = False):
     from .. import upgrade
-    return await asyncio.get_running_loop().run_in_executor(None, upgrade.overview)
+    return await asyncio.get_running_loop().run_in_executor(None, upgrade.overview, refresh)
 
 
 @router.get("/upgrade/status")

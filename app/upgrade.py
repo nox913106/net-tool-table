@@ -23,7 +23,7 @@ from .database import DB_DIR
 
 APP_DIR = Path(__file__).resolve().parent.parent
 REPO = "nox913106/net-tool-table"
-CHANGELOG_URL = f"https://raw.githubusercontent.com/{REPO}/main/CHANGELOG.md"
+CHANGELOG_URL = "https://raw.githubusercontent.com/" + REPO + "/{ref}/CHANGELOG.md"  # pinned to the commit: no stale CDN copy
 UPGRADE_CMD = "sudo bash /opt/tool-table/scripts/tool-table.sh upgrade"
 STATE_DIR = Path(os.environ.get("TOOL_TABLE_UPGRADE_STATE") or "/var/lib/tool-table-upgrade")
 REQUEST = DB_DIR / "upgrade_request" / "request.json"
@@ -75,22 +75,32 @@ def remote_head() -> str:
     def get():
         out = _git("ls-remote", "origin", "refs/heads/main", timeout=15)
         return out.split()[0] if out else ""
-    return _cached("head", get)
+    return _cached("head", get, ttl=60)
+
+
+def contains(commit: str) -> bool:
+    """Does the running checkout already include this commit (running at or ahead of GitHub main)?"""
+    try:
+        r = subprocess.run(["git", "-c", f"safe.directory={APP_DIR}", "-C", str(APP_DIR), "merge-base", "--is-ancestor", commit, "HEAD"],
+                           capture_output=True, text=True, timeout=10)
+        return r.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def _ver(v):
     return tuple(int(x) for x in re.findall(r"\d+", v)[:3])
 
 
-def new_versions(cur: str):
+def new_versions(cur: str, ref: str = "main"):
     """Versions on GitHub newer than the running one (newest first); None when GitHub cannot be read."""
     def get():
         try:
-            with urllib.request.urlopen(CHANGELOG_URL, timeout=8) as r:
+            with urllib.request.urlopen(CHANGELOG_URL.format(ref=ref), timeout=8) as r:
                 return r.read().decode("utf-8", "replace")
         except Exception:
             return None
-    text = _cached("changelog", get)
+    text = _cached("changelog:" + ref, get)
     if text is None:
         return None
     return [r for r in parse(text) if _ver(r["version"]) > _ver(cur)]
@@ -139,13 +149,15 @@ def request(user: dict):
     os.replace(tmp, REQUEST)
 
 
-def overview() -> dict:
+def overview(refresh: bool = False) -> dict:
+    if refresh:
+        _cache.clear()
     cur = current()
     head = remote_head()
-    up_to_date = bool(head) and bool(cur["commit"]) and head.startswith(cur["commit"])
-    new = [] if up_to_date or not head else new_versions(cur["version"])
-    if new == []:                       # a different commit but no newer version on GitHub (e.g. running ahead of main)
-        up_to_date = bool(head)
+    # Up to date only when GitHub main is this commit or already contained in it (running ahead of main);
+    # any other commit on main means there is something to upgrade to, even if its CHANGELOG adds no row.
+    up_to_date = bool(head) and bool(cur["commit"]) and (head.startswith(cur["commit"]) or contains(head))
+    new = [] if up_to_date or not head else new_versions(cur["version"], head)
     rows = changelog()
     return {
         "current": cur, "rows": rows, "types": TYPES,
