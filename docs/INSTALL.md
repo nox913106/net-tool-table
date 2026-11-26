@@ -269,7 +269,7 @@ sudo bash /opt/tool-table/scripts/tool-table.sh upgrade
 流程：`git pull` → 備份 → 更新 Python 套件 → 更新 systemd / nginx 設定 → 重啟 → 確認有回應。
 設定檔、資料庫、圖示、憑證都會保留。
 
-**從網頁升級**（v3.2.0 起）：後台「系統設定 → 版本紀錄」列出 GitHub 上比目前新的版本與內容，系統管理員按「升級到最新版」，
+**從網頁升級**（v19.0.0 起）：後台「系統設定 → 版本紀錄」列出 GitHub 上比目前新的版本與內容，系統管理員按「升級到最新版」，
 `tool-table-upgrade.path` 會以 root 執行 `tool-table.sh web-upgrade`，做的事和上面的指令完全相同（先備份），頁面顯示進度與升級記錄
 （`/var/lib/tool-table-upgrade/`），完成後自動重新載入；每次升級都記在「稽核紀錄」。這個服務隨升級安裝，所以**第一次仍要在主機用指令升級一次**。
 

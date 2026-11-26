@@ -494,7 +494,7 @@ window.TT_HELP_EN = [
       { h: 'Notifications', b: 'Microsoft Teams channels: what each gets (card change digests, daily project events, system and hardware alerts, scheduled status reports), scope, thresholds and tests; “Send a status report now”.' },
       { h: 'System info', b: 'Read fresh each time: hardware (CPU, memory, disks), operating system (version, boot time, time zone and time sync), runtime and tools (program version, Python, SQLite, nginx, git…), file systems (which disk holds the program, data, attachments, icons and backups and how full it is), services, system packages and Python packages (checked against requirements.txt). “Download JSON” for problem reports or asset inventories.' },
       { h: 'Versions and upgrading', b: `<ul>
-        <li>The running version vX.Y.Z and commit; numbering as in the daily report system (X core, Y feature, Z fix).</li>
+        <li>The running version vX.Y.Z and commit; counted from the first November commit (v1.0.0): X core architecture and major features, Y changes to existing features, Z fixes of bugs, vulnerabilities and faults.</li>
         <li><b>Upgrade</b>: lists the newer versions on GitHub with what changed; “Upgrade to the latest” has the host's upgrade service do, as root, exactly what <code>tool-table.sh upgrade</code> does (backup → update → packages → restart → health check), with progress and the log on the page and a reload when done. The first time, upgrade once with the command on the host; after that the button works.</li>
         <li><b>All versions</b>: date, commit (links to GitHub), type and changes of every version, with the running one marked.</li>
       </ul>` },

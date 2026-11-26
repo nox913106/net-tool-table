@@ -1702,13 +1702,8 @@
  "修正": "Fix",
  "初版": "Baseline",
  "目前版本：{0}": "Running version: {0}",
- "版號 vX.Y.Z，每個 commit 依類型進一版（merge commit、只改文件的 commit 不計）：": "Versions are vX.Y.Z; every commit bumps one part by its type (merge commits and documentation-only commits do not count):",
- "X 核心架構": "X core",
- "：跳躍式改版，動到核心架構（資料模型、權限、設定、同步），Y、Z 歸零。共 {0} 次。": ": a leap that changes the core (data model, permissions, settings, sync); Y and Z reset. {0} so far.",
  "Y 功能": "Y feature",
- "：現有功能的新增、刪除、變更，Z 歸零。共 {0} 次。": ": features added, removed or changed; Z resets. {0} so far.",
  "Z 修正": "Z fix",
- "：修正 BUG、錯誤、安全補丁。共 {0} 次。": ": bug fixes and security patches. {0} so far.",
  "升級到最新版": "Upgrade to the latest",
  "升級記錄": "Upgrade log",
  "已送出升級要求，等待主機開始…": "Upgrade requested, waiting for the host to start…",
@@ -1746,5 +1741,10 @@
  "全部設定與查詢": "All settings and queries",
  "不增加：依原本的等級": "No extra: as the level",
  "卡片屬於「建立者」與「負責人」所在的部門（AD 的 department）。部門看板管理者預設管理自己的部門，可以在上面勾選其他部門。<br>「系統管理」是附加在等級上的身分：只能操作後台的設定與查詢，看板上看得到、能改什麼仍依原本的等級（例如「使用者＋系統管理」在看板上只看得到自己的卡片）；訪客不能被賦予。至少要保留一位 AD 帳號有系統管理。本機最高管理員（{0}）只在緊急時使用，密碼可在右上角選單修改，或在伺服器執行 <code>tool-table.sh reset-admin</code>。": "A card belongs to the departments of its creator and assignees (AD department). Department managers manage their own department by default; tick others above.<br>“System admin” is an identity added on top of a level: the admin console's settings and queries only — what the person sees and may change on the board still follows their level (a “User + System admin” sees just their own cards). Guests cannot have it. At least one AD account must keep system admin. The local admin ({0}) is for emergencies only; change its password from the account menu, or run <code>tool-table.sh reset-admin</code> on the server.",
- "系統管理": "System admin"
+ "系統管理": "System admin",
+ "版號 vX.Y.Z，從 11 月第一個 commit（v1.0.0）起，每個 commit 依類型進一版（只改文件、網站或 CI 的不計）：": "Versions are vX.Y.Z, counted from the first November commit (v1.0.0); every commit bumps one part by its type (documentation, website and CI-only commits do not count):",
+ "X 核心架構與大型功能": "X core and major features",
+ "：核心架構與大型功能的變動、新增、刪除，Y、Z 歸零。共 {0} 次。": ": core architecture or major features changed, added or removed; Y and Z reset. {0} so far.",
+ "：現有功能的變動、新增、刪除，Z 歸零。共 {0} 次。": ": existing features changed, added or removed; Z resets. {0} so far.",
+ "：現有功能的錯誤、漏洞、故障修正。共 {0} 次。": ": bugs, vulnerabilities and faults in existing features fixed. {0} so far."
 }

@@ -2282,11 +2282,11 @@
     const cur = `v${V.current.version}`;
     const head = el('section', { class: 'panel settings-card' },
       el('h3', { class: 'settings-card-title' }, _t('目前版本：{0}', cur), V.current.commit ? el('span', { class: 'hint' }, ' commit ', el('code', { text: V.current.commit })) : null),
-      el('p', { class: 'hint', text: _t('版號 vX.Y.Z，每個 commit 依類型進一版（merge commit、只改文件的 commit 不計）：') }),
+      el('p', { class: 'hint', text: _t('版號 vX.Y.Z，從 11 月第一個 commit（v1.0.0）起，每個 commit 依類型進一版（只改文件、網站或 CI 的不計）：') }),
       el('ul', { class: 'hint adm-ul' },
-        el('li', {}, el('b', { text: _t('X 核心架構') }), _t('：跳躍式改版，動到核心架構（資料模型、權限、設定、同步），Y、Z 歸零。共 {0} 次。', V.counts.X)),
-        el('li', {}, el('b', { text: _t('Y 功能') }), _t('：現有功能的新增、刪除、變更，Z 歸零。共 {0} 次。', V.counts.Y)),
-        el('li', {}, el('b', { text: _t('Z 修正') }), _t('：修正 BUG、錯誤、安全補丁。共 {0} 次。', V.counts.Z))));
+        el('li', {}, el('b', { text: _t('X 核心架構與大型功能') }), _t('：核心架構與大型功能的變動、新增、刪除，Y、Z 歸零。共 {0} 次。', V.counts.X)),
+        el('li', {}, el('b', { text: _t('Y 功能') }), _t('：現有功能的變動、新增、刪除，Z 歸零。共 {0} 次。', V.counts.Y)),
+        el('li', {}, el('b', { text: _t('Z 修正') }), _t('：現有功能的錯誤、漏洞、故障修正。共 {0} 次。', V.counts.Z))));
     const up = el('section', { class: 'panel settings-card upgrade-card' });
     const upBtn = el('button', { class: 'btn btn-primary', type: 'button', html: svg('download') + _t('升級到最新版') });
     const msg = el('p', { class: 'up-msg' });
