@@ -1948,5 +1948,22 @@
  "AiPM 待處理": "AiPM to do",
  "目前沒有 AiPM 的問題或待確認的建議。在專案頁按「AiPM」開始對話。": "No questions or suggestions from AiPM right now. Press \"AiPM\" on a project page to start a conversation.",
  "{0} 項建議待確認": "{0} suggestions waiting",
- "AiPM：AI 專案經理（截圖、對話、預估、補齊專案內容）": "AiPM: AI project manager (screenshots, chat, forecasts, completing the project)"
+ "AiPM：AI 專案經理（截圖、對話、預估、補齊專案內容）": "AiPM: AI project manager (screenshots, chat, forecasts, completing the project)",
+ "AiPM 會讀整個專案、預估風險、追問、建議補充的工作與截圖紀錄；專案有變動時（每 10 分鐘檢查，同一專案最多每 30 分鐘一次）與每天的巡檢時間會主動檢視。硬性規則：AiPM 不會自己改任何東西，每一項變更都要專案負責人或看板管理人（看板總管理者 RW、該部門的部門看板管理者 RW）核准，已完成或取消的項目不會被變更；通知只送給相關、而且本來就看得到該卡片的帳號。": "AiPM reads the whole project, forecasts risks, asks follow-up questions and suggests missing work and screenshot records. It reviews on its own after a project changes (checked every 10 minutes, at most every 30 minutes per project) and at the daily patrol time. Hard rule: AiPM never changes anything by itself — every change needs approval from the project lead or a board administrator (board administrator RW, or the department board administrator RW of its departments), and items that are complete or canceled are never changed. Notifications go only to the accounts concerned, and only if they can already see the card.",
+ "你可以核准 AiPM 的變更": "You can approve AiPM's changes",
+ "變更由 {0} 核准": "Changes approved by {0}",
+ "專案負責人或看板管理人": "the project lead or a board administrator",
+ "你專心做自己的專業，文件與追蹤交給我。我不會自己改任何東西：每一項變更都要專案負責人或看板管理人核准，已完成或取消的項目不會被變更。": "Focus on your own work and leave the documents and follow-ups to me. I never change anything by myself: every change needs approval from the project lead or a board administrator, and items that are complete or canceled are never changed.",
+ "發生了什麼？例如：廠商報價已收到，比預算高 8%；測試環境部署失敗（可以直接貼上截圖）": "What happened? e.g. The vendor quote came in 8% over budget; the test deployment failed (you can paste screenshots)",
+ "建議的變更（待核准）": "Suggested changes (awaiting approval)",
+ "你是這個專案的核准人：按「核准採用」才會變更。": "You approve changes for this project: nothing changes until you press \"Approve\".",
+ "只有專案負責人或看板管理人可以核准（{0}）。": "Only the project lead or a board administrator can approve ({0}).",
+ "目前沒有待核准的變更。": "No changes awaiting approval.",
+ "已核准的變更（可復原）": "Approved changes (can be undone)",
+ "等 {0} 回答": "Waiting for {0} to answer",
+ "專案負責人": "the project lead",
+ "等待核准": "Awaiting approval",
+ "核准採用": "Approve",
+ "影響較大": "Larger impact",
+ "影響較小": "Smaller impact"
 }

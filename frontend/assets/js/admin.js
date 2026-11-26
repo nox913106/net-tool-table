@@ -2372,7 +2372,6 @@
       system_prompt: el('textarea', { class: 'textarea', rows: '4' }),
       images_to_cloud: switchCtl(S.images_to_cloud, _t('允許把截圖送到雲端服務（預設只送地端）'), () => {}),
       aipm_enabled: switchCtl(S.aipm_enabled, _t('啟用 AiPM（AI 專案經理）'), () => {}),
-      aipm_auto_low: switchCtl(S.aipm_auto_low, _t('低風險的補充（說明、驗收條件、截圖清單）直接套用，可以復原'), () => {}),
       aipm_patrol: input(S.aipm_patrol || '08:30', { type: 'time' }),
     };
     sf.system_prompt.value = S.system_prompt || '';
@@ -2384,7 +2383,7 @@
         await api('/api/ai/settings', { method: 'PUT', body: { enabled: sf.enabled.querySelector('input').checked, allow_cloud: sf.allow_cloud.querySelector('input').checked, mode,
           timeout: Number(sf.timeout.value), max_output_tokens: Number(sf.max_output_tokens.value), temperature: Number(sf.temperature.value), system_prompt: sf.system_prompt.value,
           images_to_cloud: sf.images_to_cloud.querySelector('input').checked, aipm_enabled: sf.aipm_enabled.querySelector('input').checked,
-          aipm_auto_low: sf.aipm_auto_low.querySelector('input').checked, aipm_patrol: sf.aipm_patrol.value || '08:30' } });
+          aipm_patrol: sf.aipm_patrol.value || '08:30' } });
         toast(_t('已儲存')); route();
       } catch (e) { toast(e.message, true); }
     });
@@ -2398,8 +2397,8 @@
       field(_t('系統提示詞（預設）'), sf.system_prompt, _t('功能沒有指定時使用；用來約束語氣、語言與「只根據提供的內容回答」')),
       sf.images_to_cloud,
       el('h4', { class: 'sys-sub', text: 'AiPM' }),
-      el('p', { class: 'hint', text: _t('AiPM 會讀整個專案、預估風險、追問、建議補充的工作與截圖紀錄；專案有變動時（每 10 分鐘檢查，同一專案最多每 30 分鐘一次）與每天的巡檢時間會主動檢視。日期、負責人、狀態與新增工作一律要有人按「採用」。') }),
-      sf.aipm_enabled, sf.aipm_auto_low,
+      el('p', { class: 'hint', text: _t('AiPM 會讀整個專案、預估風險、追問、建議補充的工作與截圖紀錄；專案有變動時（每 10 分鐘檢查，同一專案最多每 30 分鐘一次）與每天的巡檢時間會主動檢視。硬性規則：AiPM 不會自己改任何東西，每一項變更都要專案負責人或看板管理人（看板總管理者 RW、該部門的部門看板管理者 RW）核准，已完成或取消的項目不會被變更；通知只送給相關、而且本來就看得到該卡片的帳號。') }),
+      sf.aipm_enabled,
       el('div', { class: 'sys-form' }, field(_t('每日巡檢時間'), sf.aipm_patrol, _t('進行中的專案每天檢視一次，結果通知專案負責人'))),
       el('div', { class: 'sys-actions' }, saveS));
 

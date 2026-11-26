@@ -1934,3 +1934,5 @@ button.g-tog:focus-visible { outline: 2px solid var(--accent); outline-offset: -
   .aipm-sub span:nth-child(n+3) { display: none; }
   .aipm-msg { max-width: 100%; }
 }
+.aipm-rule { margin: 0 0 4px; }
+.aipm-wait-ok { font-size: 12px; color: var(--warning); font-weight: 700; }

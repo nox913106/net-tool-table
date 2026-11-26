@@ -598,5 +598,8 @@
  "巡檢時間格式是 HH:MM，例如 08:30": "The patrol time format is HH:MM, e.g. 08:30",
  "AiPM 想確認「{0}」：{1}": "AiPM wants to check on “{0}”: {1}",
  "AiPM 每日巡檢「{0}」：{1}": "AiPM daily patrol of “{0}”: {1}",
- "AiPM 檢視變動「{0}」：{1}": "AiPM reviewed changes to “{0}”: {1}"
+ "AiPM 檢視變動「{0}」：{1}": "AiPM reviewed changes to “{0}”: {1}",
+ "AiPM 的變更只有專案負責人或看板管理人可以核准": "Only the project lead or a board administrator can approve AiPM's changes",
+ "這個項目已經完成或取消，AiPM 不能變更": "This item is complete or canceled; AiPM cannot change it",
+ "AiPM「{0}」：{1} 項變更等你核准": "AiPM “{0}”: {1} changes awaiting your approval"
 }

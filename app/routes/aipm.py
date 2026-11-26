@@ -9,7 +9,10 @@ AiPM API (app/aipm.py).
   POST /api/aipm/items/{id}/undo           復原 a change                     POST .../resolve   追蹤事項完成
   POST /api/aipm/items/{id}/answer         answer AiPM's question (kept as a comment; AiPM reviews again)
 
-Every change uses the board's route functions with the caller's request, so the usual permissions apply.
+HARD RULE: AiPM changes nothing by itself. 採用 / 復原 / 略過 of a change: only the project's lead or a board
+administrator with edit rights over it (aipm.can_approve), and never on an item that is complete or canceled.
+Everyone sees only the messages and items about cards they can already see.
+Every change uses the board's route functions with the approver's request, so the usual permissions apply too.
 """
 import json
 from typing import List, Optional
@@ -67,14 +70,18 @@ async def state(root: dict, request: Request) -> dict:
         snap = await aipm.snapshot(request, root["id"])
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    visible = {it["card"] for it in snap["items"]} | {root["id"]}     # the cards this person can see
     db = await get_db()
     try:
-        cur = await db.execute("SELECT * FROM aipm_messages WHERE card_id = ? ORDER BY id DESC LIMIT 60", (root["id"],))
-        msgs = [dict(r) for r in await cur.fetchall()][::-1]
+        cur = await db.execute("SELECT * FROM aipm_messages WHERE card_id = ? ORDER BY id DESC LIMIT 120", (root["id"],))
+        msgs = [m for m in (dict(r) for r in await cur.fetchall())
+                if set(json.loads(m["cards"]) if m.get("cards") else [root["id"]]) <= visible][:60][::-1]
         cur = await db.execute("""SELECT * FROM aipm_items WHERE card_id = ? AND (status = 'pending' OR id IN
-                                      (SELECT id FROM aipm_items WHERE card_id = ? AND status != 'pending' ORDER BY id DESC LIMIT 40))
+                                      (SELECT id FROM aipm_items WHERE card_id = ? AND status != 'pending' ORDER BY id DESC LIMIT 80))
                                   ORDER BY id DESC""", (root["id"], root["id"]))
-        items = [_item(dict(r)) for r in await cur.fetchall()]
+        items = [_item(dict(r)) for r in await cur.fetchall() if (r["target_card"] or root["id"]) in visible]
+        approve = await aipm.can_approve(db, root["id"], user)
+        who_approves = await aipm.approvers(db, root["id"])
         cur = await db.execute("SELECT * FROM aipm_runs WHERE card_id = ?", (root["id"],))
         run = await cur.fetchone()
         uids = {m["user_id"] for m in msgs if m["user_id"]} | {i["assignee_id"] for i in items if i.get("assignee_id")} \
@@ -96,7 +103,8 @@ async def state(root: dict, request: Request) -> dict:
     pool = ai.usable() if s["enabled"] else []
     return {"root": {k: root[k] for k in ("id", "title", "kind", "status")}, "history": root.get("history", False),
             "enabled": aipm.enabled() and bool(pool), "me": user.get("id"),
-            "vision": any(ai.sees_images(p, s) for p in pool), "auto_low": bool(s.get("aipm_auto_low", True)),
+            "vision": any(ai.sees_images(p, s) for p in pool),
+            "can_approve": approve, "approvers": [a["name"] for a in who_approves],
             "patrol": s.get("aipm_patrol") or "08:30",
             "run": dict(run) if run else None, "messages": msgs, "items": items, "signals": snap["signals"],
             "targets": [{"code": it["code"], "title": it["title"], "kind": it["kind"], "card": it["card"],
@@ -121,10 +129,13 @@ async def inbox(request: Request):
                                   WHERE i.kind = 'question' AND i.status = 'pending' AND i.assignee_id IS ? ORDER BY i.id DESC LIMIT 30""", (me,))
         questions = [dict(r) for r in await cur.fetchall()]
         cur = await db.execute("""SELECT i.card_id, t.title, COUNT(*) AS n FROM aipm_items i JOIN tasks t ON t.id = i.card_id
-                                  WHERE i.kind = 'proposal' AND i.status = 'pending' AND (t.owner_id IS ?
-                                     OR t.id IN (SELECT task_id FROM task_members WHERE user_id IS ? AND role = 'assignee'))
-                                  GROUP BY i.card_id ORDER BY MAX(i.id) DESC LIMIT 20""", (me, me))
-        projects = [dict(r) for r in await cur.fetchall()]
+                                  WHERE i.kind = 'proposal' AND i.status = 'pending'
+                                  GROUP BY i.card_id ORDER BY MAX(i.id) DESC LIMIT 200""")
+        projects = []
+        for r in await cur.fetchall():               # only where I am the one who approves, and can see it
+            if len(projects) < 20 and await aipm.can_approve(db, r["card_id"], user) and await aipm.sees(db, me, [r["card_id"]]):
+                projects.append(dict(r))
+        questions = [q for q in questions if await aipm.sees(db, me, [q["card_id"]])]
     finally:
         await db.close()
     for q in questions:
@@ -187,7 +198,8 @@ async def chat(card_id: int, body: ChatIn, request: Request):
         pics = await aipm.load_images(db, target, body.images, user)
     finally:
         await db.close()
-    msg = {"text": body.text, "code": body.code, "images": len(pics), "image_ids": [{"id": i, "task": target} for i in body.images]}
+    msg = {"text": body.text, "code": body.code, "images": len(pics), "card": target,
+           "image_ids": [{"id": i, "task": target} for i in body.images]}
     try:
         res = await aipm.review(root["id"], request, "chat", msg, pics)
     except (ValueError, RuntimeError) as e:
@@ -223,7 +235,19 @@ async def _load_item(item_id: int, user: dict):
     if not r:
         raise HTTPException(status_code=404, detail="找不到這個項目")
     root = await _visible_root(r["card_id"], user)
+    if r["target_card"] and r["target_card"] != root["id"]:
+        await _visible_root(r["target_card"], user)          # the item's own card too
     return dict(r), root
+
+
+async def _approver(root: dict, user: dict):
+    db = await get_db()
+    try:
+        ok = await aipm.can_approve(db, root["id"], user)
+    finally:
+        await db.close()
+    if not ok:
+        raise HTTPException(status_code=403, detail="AiPM 的變更只有專案負責人或看板管理人可以核准")
 
 
 @router.post("/items/{item_id}/apply")
@@ -233,6 +257,7 @@ async def apply_item(item_id: int, request: Request):
     it, root = await _load_item(item_id, user)
     if it["kind"] != "proposal" or it["status"] != "pending":
         raise HTTPException(status_code=400, detail="這個建議已經處理過了")
+    await _approver(root, user)
     try:
         undo = await aipm.apply_action(json.loads(it["action"]), request)
     except (ValueError, HTTPException) as e:
@@ -249,6 +274,7 @@ async def undo_item(item_id: int, request: Request):
     it, root = await _load_item(item_id, user)
     if it["kind"] != "proposal" or it["status"] not in ("applied", "auto") or not it.get("undo"):
         raise HTTPException(status_code=400, detail="這個變更不能復原")
+    await _approver(root, user)
     try:
         await aipm.undo_action(json.loads(it["action"]), json.loads(it["undo"]), request)
     except (ValueError, HTTPException) as e:
@@ -264,6 +290,10 @@ async def dismiss_item(item_id: int, request: Request):
     it, root = await _load_item(item_id, user)
     if it["status"] != "pending":
         raise HTTPException(status_code=400, detail="這個項目已經處理過了")
+    if it["kind"] == "proposal":
+        await _approver(root, user)
+    elif it["kind"] == "question" and it["assignee_id"] != user.get("id"):
+        await _approver(root, user)
     await aipm._set(item_id, status="dismissed", done_by=user.get("id"))
     return await state(root, request)
 
@@ -299,6 +329,8 @@ async def answer_item(item_id: int, body: AnswerIn, request: Request):
     it, root = await _load_item(item_id, user)
     if it["kind"] != "question" or it["status"] != "pending":
         raise HTTPException(status_code=400, detail="這個問題已經回答過了")
+    if it["assignee_id"] != user.get("id"):
+        await _approver(root, user)
     await aipm._set(item_id, status="answered", answer=body.text, done_by=user.get("id"))
     text = f"回覆 AiPM 的問題「{it['title']}」：{body.text}"
     if not root["history"]:

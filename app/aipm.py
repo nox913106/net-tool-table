@@ -1,25 +1,34 @@
 """
 AiPM: a proactive AI project manager on top of the AI 接入點 (app/ai.py).
 
-The engineer pastes screenshots and writes a line about what happened; AiPM reads the whole project (every
+For every department (administration, management, PM, infrastructure, R&D …), not only engineers.
+A member pastes screenshots and writes a line about what happened; AiPM reads the whole project (every
 level, dates, owners, notes, attachments), what the system computes on its own (overdue, blocked, stale,
 milestones coming up, no owner / no date / no estimate, done without any record, schedule behind plan) and
 its own open items, and answers with
 
-  reply        to the engineer, short
+  reply        to the member, short
   forecast     what is likely to happen next (risks, knock-on effects) — marked as an estimate
   questions    up to 3 precise follow-up questions with clickable options, sent to the right person
-  proposals    changes to the project: append_note (acceptance criteria, screenshot checklist, notes) — low risk,
-               applied at once with 復原 (undo); add_subtask / set_dates / set_status / set_assignee /
-               set_priority / set_blocked — high risk, wait for someone to press 採用
+  proposals    changes to the project: append_note (acceptance criteria, screenshot checklist, notes) — low risk;
+               add_subtask / set_dates / set_status / set_assignee / set_priority / set_blocked — high risk.
+               HARD RULE: AiPM never changes anything by itself. Every change waits until the project's lead
+               (負責人, the owner of the project card) or a board administrator with edit rights over it
+               (看板總管理者 RW, or the 部門看板管理者 RW of its departments) approves it; items that are complete
+               or canceled are never changed by AiPM.
   tracking     things to follow up (a vendor reply, a change window, a check after go-live …)
 
 It also works without being asked: after the project changes (checked every 10 minutes, at most every 30
-minutes per project) and once a day at the 巡檢 time (default 08:30) it runs the same review, applies the
-low-risk notes, leaves the rest for confirmation and tells the people concerned.
+minutes per project) and once a day at the 巡檢 time (default 08:30) it runs the same review, leaves its
+suggestions for approval and tells only the people concerned.
 
-Every change goes through the board's own route functions with the person's request (so the usual
-permissions apply); the background review acts as 「AiPM」 (a system account that can see every card).
+Targeted, without exception: a notification goes only to the person it is for (the one asked; the project's
+approvers) and only if that person can already see the card it is about. In the panel everyone sees only the
+messages and items about cards they can see (each message keeps the cards its context covered).
+
+An approved change goes through the board's own route functions with the approver's request (the usual
+permissions apply too); the background review reads as 「AiPM」 (a system account that can see every card) but
+changes nothing.
 Screenshots are sent only to services marked 「可看圖片」 that are on-premises, unless cloud images are
 allowed (ai.sees_images). Tables are local to each copy and never synced.
 """
@@ -62,6 +71,9 @@ async def ensure(db):
                             user_id INTEGER, text TEXT, images TEXT, payload TEXT, source TEXT,
                             at TIMESTAMP NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S', 'now', 'localtime')))""")
     await db.execute("CREATE INDEX IF NOT EXISTS idx_aipm_msg ON aipm_messages(card_id, id)")
+    cur = await db.execute("PRAGMA table_info(aipm_messages)")
+    if "cards" not in {r[1] for r in await cur.fetchall()}:     # the cards a message's context covered (who may read it)
+        await db.execute("ALTER TABLE aipm_messages ADD COLUMN cards TEXT")
     await db.execute("""CREATE TABLE IF NOT EXISTS aipm_items (
                             id INTEGER PRIMARY KEY AUTOINCREMENT, card_id INTEGER NOT NULL, message_id INTEGER,
                             kind TEXT NOT NULL, risk TEXT, status TEXT NOT NULL DEFAULT 'pending',
@@ -198,14 +210,16 @@ def signals(items: List[Dict], today: date) -> List[Dict]:
 
 
 # ---------------------------------------------------------------- prompt
-SYSTEM_PROMPT = """你是 AiPM：一位資深的技術專案經理，熟悉資料中心、網路、伺服器、儲存、資安與系統維運專案，也懂變更管理、停機窗口、供應商與驗收。
-你主動、比工程師多想一步：預判接下來可能發生的事與連鎖影響（相依工作、停機窗口、採購交期、人力負荷），指出該補的工作項目、驗收條件、該留的截圖與紀錄、要協調的人。
-工程師應該專注在技術工作，你負責把專案內容與追蹤做完整：寫好的補充要能直接放進文件；問題要具體、一次最多 3 個，並附上可以直接點選的選項。
+SYSTEM_PROMPT = """你是 AiPM：一位資深的專案經理，協助全公司各部門的專案——行政、管理、PM、基礎架構（Infra）、研發（RD）、採購、人資、財務、業務等。
+先從專案內容判斷它屬於哪個領域，用那個領域的專業來看：例如 Infra 的變更管理與停機窗口、RD 的需求、測試與發佈、行政與採購的簽核、合約與交期、活動的場地與人員。
+你主動、比負責的人多想一步：預判接下來可能發生的事與連鎖影響（相依工作、時程、簽核、採購交期、人力負荷），指出該補的工作項目、完成或驗收條件、該留的截圖與紀錄、要協調的人。
+成員應該專注在自己的專業，你負責把專案內容與追蹤做完整：寫好的補充要能直接放進文件；問題要具體、一次最多 3 個，並附上可以直接點選的選項。
+你提出的變更都要等專案負責人或看板管理人核准才會生效，所以每一項都要寫清楚理由。
 只根據提供的資料判斷；已發生的事不能編造，推測要寫明是「預估」。用繁體中文，精簡、專業。"""
 
 SCHEMA = """請只輸出一個 JSON 物件（不要 Markdown 圍欄、不要其他文字），格式：
 {
- "reply": "給工程師的回覆，Markdown，3–8 行：先回應他剛說的或附的截圖，再講你的判斷與接下來要注意的事（巡檢時寫巡檢摘要）",
+ "reply": "給成員的回覆，Markdown，3–8 行：先回應他剛說的或附的截圖，再講你的判斷與接下來要注意的事（巡檢時寫巡檢摘要）",
  "understanding": "你從描述與截圖理解到的目前狀況，1–3 句；沒有新訊息時留空",
  "forecast": [{"code": "項目編號", "severity": "high|medium|low", "text": "預估會發生什麼、為什麼、影響到哪些項目"}],
  "questions": [{"code": "項目編號", "q": "要問的問題", "why": "為什麼需要知道", "options": ["選項1", "選項2"], "ask": "該回答的人的帳號（從人員清單挑，不確定就留空）"}],
@@ -219,6 +233,7 @@ SCHEMA = """請只輸出一個 JSON 物件（不要 Markdown 圍欄、不要其�
 }
 規則：
 - 項目編號只能用清單裡的編號；不要重複「待追蹤事項」與「尚未回答的問題」已有的內容。
+- 狀態是完成或取消的項目不能提出任何變更。
 - append_note 用來補充說明（不會覆蓋原本的內容）；缺少的工作用 add_subtask；日期、狀態、負責人、優先度的變更只在有根據時提出。
 - 有父項目的工作，日期由子項目自動計算，不要直接改父項目的日期。
 - proposals 最多 6 項、questions 最多 3 個、tracking 最多 5 項、forecast 最多 5 項；沒有就給空陣列。"""
@@ -253,10 +268,10 @@ def build_prompt(snap: Dict, open_items: List[Dict], history: List[Dict], messag
     asked = "\n".join(f"- {x['code'] or ''} {x['title']}" for x in open_items if x["kind"] == "question") or "（無）"
     pend = "\n".join(f"- {x['code'] or ''} {ACTION_ZH.get((json.loads(x['action'] or '{}')).get('action'), '')}：{x['title']}"
                      for x in open_items if x["kind"] == "proposal") or "（無）"
-    chat = "\n".join(f"{'工程師' if m['role'] == 'user' else 'AiPM'}（{m['at'][5:16]}）：{(m['text'] or '')[:400]}" for m in history[-8:]) or "（無）"
+    chat = "\n".join(f"{'成員' if m['role'] == 'user' else 'AiPM'}（{m['at'][5:16]}）：{(m['text'] or '')[:400]}" for m in history[-8:]) or "（無）"
     head = f"今天 {today.isoformat()}（週{'一二三四五六日'[today.weekday()]}）。{'專案' if snap['root']['kind'] == 'project' else '卡片'}：{snap['root']['title']}"
     if message:
-        ask = (f"工程師剛剛{'針對 ' + message['code'] + ' ' if message.get('code') else ''}說："
+        ask = (f"成員剛剛{'針對 ' + message['code'] + ' ' if message.get('code') else ''}說："
                f"{message['text'] or '（沒有文字）'}" + (f"\n並附了 {message['images']} 張截圖（如果你看得到圖，先描述你從圖中看到的重點）。" if message.get("images") else ""))
     elif source == "patrol":
         ask = "這是每日例行巡檢：沒有人留言。請主動檢視整個專案，指出今天最該注意的事、預估接下來的風險，並補上缺漏的內容。"
@@ -310,6 +325,8 @@ def normalize(raw: Dict, snap: Dict) -> Dict:
         if not c:
             continue
         it = codes[c]
+        if it["status"] in A.CLOSED:                             # hard rule: closed items are never changed by AiPM
+            continue
         act = {"action": pr["action"], "card": it["card"], "sub": it["id"] if it["kind"] == "sub" else None, "code": c}
         a = pr["action"]
         if a == "append_note":
@@ -369,6 +386,17 @@ async def apply_action(act: Dict, request) -> Dict:
     """Make the change with the board's own route functions (their permissions). Returns the undo record."""
     from .routes import tasks as T
     a, card, sub = act["action"], act["card"], act.get("sub")
+    db = await get_db()
+    try:                                     # hard rule: AiPM never changes an item that is complete or canceled
+        cur = await db.execute("SELECT status FROM task_comments WHERE id = ? AND task_id = ?", (sub, card)) if sub else \
+            await db.execute("SELECT status FROM tasks WHERE id = ?", (card,))
+        r = await cur.fetchone()
+    finally:
+        await db.close()
+    if not r:
+        raise ValueError("這個項目已經不存在")
+    if r[0] in A.CLOSED:
+        raise ValueError("這個項目已經完成或取消，AiPM 不能變更")
     if a == "append_note":
         db = await get_db()
         try:
@@ -498,8 +526,10 @@ async def review(card_id: int, request, source: str = "chat", message: Optional[
         recent = await _rows(db, "SELECT kind, title FROM aipm_items WHERE card_id = ? ORDER BY id DESC LIMIT 150", (root,))
         history.reverse()
         if message:
-            cur = await db.execute("INSERT INTO aipm_messages (card_id, role, user_id, text, images, source) VALUES (?, 'user', ?, ?, ?, ?)",
-                                   (root, user.get("id"), message.get("text") or "", json.dumps(message.get("image_ids") or []), source))
+            cur = await db.execute("""INSERT INTO aipm_messages (card_id, role, user_id, text, images, source, cards)
+                                      VALUES (?, 'user', ?, ?, ?, ?, ?)""",
+                                   (root, user.get("id"), message.get("text") or "", json.dumps(message.get("image_ids") or []), source,
+                                    json.dumps(sorted({root, message.get("card") or root}))))
             await db.commit()
     finally:
         await db.close()
@@ -518,9 +548,7 @@ async def review(card_id: int, request, source: str = "chat", message: Optional[
                 "tracking": [], "resolve": []}
     plan["model"] = f"{ans['name']} · {ans['model']}"
     plan["images_seen"] = res.get("images_seen", False)
-    s = ai.settings()
-    auto = bool(s.get("aipm_auto_low", True))
-    notes = {"applied": 0, "pending": 0, "questions": 0}
+    notes = {"pending": 0, "questions": 0}
     same = lambda t: " ".join(str(t or "").split()).lower()
     seen = {(x["kind"], same(x["title"])) for x in recent}          # not again what is open, answered or dismissed
     plan["questions"] = [q for q in plan["questions"] if ("question", same(q["q"])) not in seen]
@@ -528,9 +556,10 @@ async def review(card_id: int, request, source: str = "chat", message: Optional[
     plan["proposals"] = [p for p in plan["proposals"] if ("proposal", same(p["title"])) not in seen]
     db = await get_db()
     try:
-        cur = await db.execute("INSERT INTO aipm_messages (card_id, role, user_id, text, payload, source) VALUES (?, 'aipm', NULL, ?, ?, ?)",
+        cur = await db.execute("""INSERT INTO aipm_messages (card_id, role, user_id, text, payload, source, cards)
+                                  VALUES (?, 'aipm', NULL, ?, ?, ?, ?)""",
                                (root, plan["reply"], json.dumps({k: plan[k] for k in ("understanding", "forecast", "model", "images_seen")},
-                                                                ensure_ascii=False), source))
+                                                                ensure_ascii=False), source, json.dumps(sorted({it["card"] for it in snap["items"]}))))
         mid = cur.lastrowid
         if plan["resolve"]:
             await db.execute(f"""UPDATE aipm_items SET status = 'resolved', done_at = CURRENT_TIMESTAMP WHERE card_id = ? AND kind = 'tracking'
@@ -558,18 +587,8 @@ async def review(card_id: int, request, source: str = "chat", message: Optional[
         await db.commit()
     finally:
         await db.close()
-    # low risk: applied now (with 復原); a person who may not edit the item leaves it as a suggestion
-    for pid, p in prop_ids:
-        if p["risk"] == "low" and auto:
-            try:
-                undo = await apply_action(p["action"], request)
-                await _set(pid, status="auto", undo=json.dumps(undo, ensure_ascii=False), done_by=user.get("id"))
-                notes["applied"] += 1
-            except Exception as e:  # noqa: BLE001
-                await _set(pid, error=_err(e)[:300])
-                notes["pending"] += 1
-        else:
-            notes["pending"] += 1
+    # hard rule: nothing is applied here — every change waits for the project's lead or a board administrator
+    notes["pending"] = len(prop_ids)
     notes["questions"] = len(q_ids)
     await _tell(root, snap, q_ids, notes, source, user)
     db = await get_db()
@@ -596,23 +615,103 @@ async def _set(item_id: int, **kw):
         await db.close()
 
 
+# ---------------------------------------------------------------- who may approve, who may be told
+async def _user(db, uid: int) -> Optional[dict]:
+    from .auth import full_user
+    cur = await db.execute("SELECT * FROM users WHERE id = ? AND active = 1", (uid,))
+    r = await cur.fetchone()
+    return await full_user(db, r) if r else None
+
+
+async def sees(db, uid: Optional[int], card_ids) -> bool:
+    """Whether this account can already see every one of these cards (the board's own visibility rules)."""
+    from .routes.tasks import _visible_sql
+    if not uid:
+        return False
+    u = await _user(db, uid)
+    if not u or u.get("role") == "guest":
+        return False
+    ids = sorted({int(c) for c in card_ids if c})
+    if not ids:
+        return True
+    where, args = _visible_sql(u)
+    cur = await db.execute(f"SELECT COUNT(*) FROM tasks t WHERE t.id IN ({','.join('?' * len(ids))}) AND {where}", (*ids, *args))
+    return (await cur.fetchone())[0] == len(ids)
+
+
+async def _root_people(db, root: int):
+    """The project card's lead (owner) and the departments it belongs to (lead's and assignees')."""
+    cur = await db.execute("SELECT owner_id FROM tasks WHERE id = ?", (root,))
+    r = await cur.fetchone()
+    owner = r["owner_id"] if r else None
+    cur = await db.execute("""SELECT DISTINCT u.department FROM users u WHERE u.department IS NOT NULL AND u.department != ''
+                              AND (u.id IS ? OR u.id IN (SELECT user_id FROM task_members WHERE task_id = ? AND role = 'assignee'))""",
+                           (owner, root))
+    return owner, {x["department"] for x in await cur.fetchall()}
+
+
+def _admin_over(u: dict, depts) -> bool:
+    from .roles import board_access
+    acc = board_access(u)
+    return acc["edit"] == "all" or (acc["edit"] == "dept" and bool(set(acc["depts"]) & set(depts)))
+
+
+async def can_approve(db, root: int, user: dict) -> bool:
+    """HARD RULE: only the project's lead or a board administrator with edit rights over it (看板總管理者 RW,
+    or a 部門看板管理者 RW of its departments) may let AiPM change anything. AiPM itself never may."""
+    from . import config as C
+    if user is SYSTEM or user.get("role") == "guest":                 # AiPM itself never approves
+        return False
+    uid = user.get("id")
+    if uid is None:                     # a standalone copy not linked to a server: its one person leads everything
+        return not C.AUTH
+    owner, depts = await _root_people(db, root)
+    if uid == owner:
+        return True
+    return _admin_over(user, depts)
+
+
+async def approvers(db, root: int) -> List[dict]:
+    """Who is told about changes waiting: the lead; else the department board administrators; else the board
+    administrators. Only accounts that can see the project card."""
+    owner, depts = await _root_people(db, root)
+    out = []
+    if owner and await sees(db, owner, [root]):
+        out = [owner]
+    if not out:
+        rows = await _rows(db, "SELECT id FROM users WHERE active = 1 AND role = 'dept_admin'")
+        for r in rows:
+            u = await _user(db, r["id"])
+            if u and _admin_over(u, depts) and await sees(db, r["id"], [root]):
+                out.append(r["id"])
+    if not out:
+        rows = await _rows(db, "SELECT id FROM users WHERE active = 1 AND role IN ('board_admin', 'superadmin')")
+        out = [r["id"] for r in rows if await sees(db, r["id"], [root])]
+    names = {}
+    if out:
+        rows = await _rows(db, f"SELECT id, username, display_name FROM users WHERE id IN ({','.join('?' * len(out))})", out)
+        names = {r["id"]: r["display_name"] or r["username"] for r in rows}
+    return [{"id": i, "name": names.get(i, "")} for i in out]
+
+
 async def _tell(root: int, snap: Dict, q_ids, notes, source, user):
-    """Questions go to who should answer; a background review also tells the project's owner what is waiting."""
+    """Targeted, no exceptions: a question goes only to the person asked, a summary of changes waiting only to the
+    project's approvers — and each only if that account can already see the project card and the item's card."""
     from .routes.tasks import notify
     title = snap["root"]["title"]
+    actor = SYSTEM if source in ("patrol", "event") else user
     db = await get_db()
     try:
         for _, q in q_ids:
-            if q["assignee_id"]:
-                await notify(db, {q["assignee_id"]}, root, SYSTEM if source != "chat" else user, "aipm", f"AiPM 想確認「{title}」：{q['q']}")
-        if source != "chat" and (notes["pending"] or notes["applied"] or notes["questions"]):
-            cur = await db.execute("SELECT owner_id FROM tasks WHERE id = ?", (root,))
-            r = await cur.fetchone()
-            people = {r["owner_id"]} if r else set()
-            people |= {m["user_id"] for m in await _rows(db, "SELECT user_id FROM task_members WHERE task_id = ? AND role = 'assignee'", (root,))}
-            parts = [f"{notes['pending']} 項建議待確認" if notes["pending"] else "", f"已補充 {notes['applied']} 處說明" if notes["applied"] else "",
-                     f"{notes['questions']} 個問題" if notes["questions"] else ""]
-            await notify(db, people, root, SYSTEM, "aipm", f"AiPM {'每日巡檢' if source == 'patrol' else '檢視變動'}「{title}」：" + "、".join(x for x in parts if x))
+            it = next((x for x in snap["items"] if x["code"] == q["code"]), None) if q["code"] else None
+            if q["assignee_id"] and await sees(db, q["assignee_id"], [root, it["card"] if it else root]):
+                await notify(db, {q["assignee_id"]}, root, actor, "aipm", f"AiPM 想確認「{title}」：{q['q']}")
+        if notes["pending"]:
+            to = {a["id"] for a in await approvers(db, root)}
+            # a background review covers every card of the project: only approvers who can see all of them
+            if source in ("patrol", "event"):
+                to = {u for u in to if await sees(db, u, {it["card"] for it in snap["items"]})}
+            await notify(db, to, root, actor, "aipm", f"AiPM「{title}」：{notes['pending']} 項變更等你核准")
         await db.commit()
     finally:
         await db.close()

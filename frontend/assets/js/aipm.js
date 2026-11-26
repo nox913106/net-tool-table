@@ -1,7 +1,8 @@
-/* IPMS — AiPM: the AI project manager panel (app/aipm.py, /api/aipm).
+/* IPMS — AiPM: the AI project manager panel (app/aipm.py, /api/aipm), for every department.
    Left: the conversation — paste screenshots, say what happened, pick the item it is about; AiPM answers,
-   forecasts and asks. Right: what is waiting — questions (answer with one click), suggested changes
-   (採用 / 略過; the notes AiPM already added can be undone), things to follow up, and what the system sees.
+   forecasts and asks. Right: what is waiting — questions (answered by the person asked), suggested changes
+   (核准採用 / 略過 / 復原 only by the project's lead or a board administrator — AiPM changes nothing by itself),
+   things to follow up, and what the system sees. Everyone sees only what is about cards they can see.
    Opened from the project page, the card / subtask editors, a notification, or the AI 助理 page. */
 (() => {
   const { el, svg, api, toast, esc } = TT;
@@ -47,7 +48,7 @@
     x.addEventListener('click', close);
     const meta = st ? el('div', { class: 'aipm-sub' },
       el('span', { text: st.root.kind === 'project' ? _t('專案') : _t('卡片') }),
-      el('span', { text: st.auto_low ? _t('補充說明自動套用（可復原）') : _t('所有變更都要確認') }),
+      el('span', { text: st.can_approve ? _t('你可以核准 AiPM 的變更') : _t('變更由 {0} 核准', st.approvers.join('、') || _t('專案負責人或看板管理人')) }),
       el('span', { text: st.vision ? _t('可以看截圖') : _t('看不到截圖（只依文字）') }),
       el('span', { text: _t('每日巡檢 {0}', st.patrol) }),
       st.run?.last_at ? el('span', { text: _t('上次檢視 {0}', st.run.last_at.slice(5, 16)) }) : null,
@@ -104,7 +105,7 @@
       msgs.append(el('div', { class: 'aipm-intro' },
         el('h3', { html: svg('sparkles') + esc(_t('我是 AiPM，這個專案的 AI 專案經理')) }),
         el('p', { text: _t('貼上截圖、用一兩句話說發生了什麼（完成了什麼、遇到什麼、下一步），選它屬於哪個項目。我會整理成紀錄、預估接下來的風險、問你需要補的資訊，並建議該補的工作與該留的截圖。') }),
-        el('p', { class: 'hint', text: _t('你不用寫文件：我負責補齊說明、驗收條件與追蹤事項，重要的變更（日期、負責人、狀態、新增工作）會先問過你。') })));
+        el('p', { class: 'hint', text: _t('你專心做自己的專業，文件與追蹤交給我。我不會自己改任何東西：每一項變更都要專案負責人或看板管理人核准，已完成或取消的項目不會被變更。') })));
     }
     for (const m of st.messages) msgs.append(m.role === 'user' ? userMsg(m) : aipmMsg(m));
     msgs.append(el('div', { class: 'aipm-thinking', hidden: true }, el('i', { html: svg('sparkles') }), el('span', { text: _t('AiPM 正在思考…') })));
@@ -139,7 +140,7 @@
       if ([...sel.options].some(o => o.value === k)) sel.value = k;
     }
     sel.addEventListener('change', () => { const [c, s] = sel.value.split(':'); panel.target = { card: Number(c), sub: s ? Number(s) : null }; });
-    const text = el('textarea', { class: 'textarea', rows: '3', placeholder: _t('發生了什麼？例如：新交換器已上架，設定匯入時 VLAN 200 報錯（可以直接貼上截圖）') });
+    const text = el('textarea', { class: 'textarea', rows: '3', placeholder: _t('發生了什麼？例如：廠商報價已收到，比預算高 8%；測試環境部署失敗（可以直接貼上截圖）') });
     text.value = panel.draft || '';
     text.addEventListener('input', () => { panel.draft = text.value; });
     const record = el('input', { type: 'checkbox', checked: true });
@@ -209,8 +210,8 @@
   function boardPane(st) {
     const pend = st.items.filter(i => i.status === 'pending');
     const qs = pend.filter(i => i.kind === 'question'), props = pend.filter(i => i.kind === 'proposal'), track = pend.filter(i => i.kind === 'tracking');
-    const auto = st.items.filter(i => i.kind === 'proposal' && i.status === 'auto');
-    const done = st.items.filter(i => i.status !== 'pending' && !(i.kind === 'proposal' && i.status === 'auto'));
+    const applied = st.items.filter(i => i.kind === 'proposal' && ['applied', 'auto'].includes(i.status) && i.undo);
+    const done = st.items.filter(i => i.status !== 'pending');
     const c = st.counts || {};
     const sec = (icon, title, n, body, open = true) => el('details', { class: 'aipm-sec', open },
       el('summary', {}, el('i', { html: svg(icon) }), el('b', { text: title }), n != null ? el('span', { class: 'aipm-n', text: String(n) }) : null), body);
@@ -219,8 +220,10 @@
       el('div', { class: 'ai-chips aipm-chips' }, ...[[_t('項目'), c.items], [_t('完成'), `${c.done ?? 0}（${c.pct ?? 0}%）`], [_t('逾期'), c.overdue], [_t('卡住'), c.blocked]]
         .map(([k, v]) => el('span', { class: 'ai-chip' }, el('small', { text: k }), el('b', { text: String(v ?? 0) })))),
       sec('message', _t('AiPM 的問題'), qs.length, qs.length ? el('div', {}, ...qs.map(question)) : empty(_t('目前沒有問題。'))),
-      sec('edit', _t('建議的變更'), props.length, props.length ? el('div', {}, ...props.map(proposal)) : empty(_t('目前沒有待確認的變更。'))),
-      auto.length ? sec('check', _t('已自動補充（可復原）'), auto.length, el('div', {}, ...auto.slice(0, 12).map(proposal)), false) : null,
+      sec('edit', _t('建議的變更（待核准）'), props.length, el('div', {},
+        el('p', { class: 'hint aipm-rule', text: st.can_approve ? _t('你是這個專案的核准人：按「核准採用」才會變更。') : _t('只有專案負責人或看板管理人可以核准（{0}）。', st.approvers.join('、') || '—') }),
+        ...(props.length ? props.map(proposal) : [empty(_t('目前沒有待核准的變更。'))]))),
+      applied.length && st.can_approve ? sec('check', _t('已核准的變更（可復原）'), applied.length, el('div', {}, ...applied.slice(0, 12).map(proposal)), false) : null,
       sec('flag', _t('待追蹤事項'), track.length, track.length ? el('div', {}, ...track.map(tracking)) : empty(_t('目前沒有要追蹤的事。'))),
       sec('zap', _t('系統偵測到的狀況'), st.signals.length, st.signals.length ? el('ul', { class: 'aipm-sig' }, ...st.signals.slice(0, 40).map(s =>
         el('li', { class: 'sev-' + s.severity }, el('code', { text: s.code }), el('span', { text: `${s.title}：${s.text}` })))) : empty(_t('沒有偵測到問題。')), st.signals.some(s => s.severity === 'high')),
@@ -233,6 +236,12 @@
   const itemApi = (id, what, body) => api(`/api/aipm/items/${id}/${what}`, { method: 'POST', body });
 
   function question(i) {
+    const st = panel.st;
+    if (i.assignee_id !== st.me && !st.can_approve) {
+      return el('div', { class: 'aipm-item q' },
+        el('div', { class: 'aipm-it-head' }, i.code ? el('code', { text: i.code }) : null, el('b', { text: i.title })),
+        el('small', { class: 'hint', text: _t('等 {0} 回答', i.assignee || _t('專案負責人')) }));
+    }
     const input = el('input', { class: 'input', maxlength: '2000', placeholder: _t('或自己回答…') });
     const answer = v => run(null, () => itemApi(i.id, 'answer', { text: v }), _t('AiPM 正在依你的回答調整…'));
     const ok = el('button', { class: 'btn btn-sm', type: 'button', text: _t('回答') });
@@ -257,8 +266,10 @@
     const preview = a.text && ['append_note', 'add_subtask', 'set_blocked'].includes(a.action) ? el('pre', { class: 'aipm-pre', text: a.text }) : null;
     const facts = [a.start && _t('開始 {0}', a.start), a.due && _t('到期 {0}', a.due), a.assignee && a.action === 'add_subtask' && _t('負責 {0}', a.assignee)].filter(Boolean);
     const btns = [];
-    if (i.status === 'pending') {
-      const ok = el('button', { class: 'btn btn-sm btn-primary', type: 'button', html: svg('check') + _t('採用') });
+    if (!panel.st.can_approve) {
+      if (i.status === 'pending') btns.push(el('small', { class: 'aipm-wait-ok', text: _t('等待核准') }));
+    } else if (i.status === 'pending') {
+      const ok = el('button', { class: 'btn btn-sm btn-primary', type: 'button', html: svg('check') + _t('核准採用') });
       ok.addEventListener('click', () => run(ok, () => itemApi(i.id, 'apply')));
       const no = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: _t('略過') });
       no.addEventListener('click', () => run(no, () => itemApi(i.id, 'dismiss')));
@@ -270,7 +281,7 @@
     }
     return el('div', { class: `aipm-item p risk-${i.risk}` },
       el('div', { class: 'aipm-it-head' }, el('span', { class: 'aipm-tag', text: ACT[a.action] || '' }), el('b', { text: i.title }),
-        el('span', { class: 'aipm-risk', text: i.risk === 'high' ? _t('需確認') : _t('低風險') })),
+        el('span', { class: 'aipm-risk', text: i.risk === 'high' ? _t('影響較大') : _t('影響較小') })),
       i.detail ? el('p', { class: 'hint', text: i.detail }) : null,
       facts.length ? el('small', { class: 'hint', text: facts.join(' · ') }) : null,
       preview,
