@@ -121,7 +121,10 @@
         built.push([a ?? Infinity, card]);
       });
       // scheduled cards by start date, then the rest in board order
-      built.sort((x, y) => x[0] - y[0]).forEach(([, card]) => {
+      built.sort((x, y) => x[0] - y[0]).forEach(([, card], n) => {
+        // outline numbers (the same as the Excel report and the card outline): the card A, B …; its work A1, A1-1, A1-1.1
+        const number = (x, code, sd) => { x.code = code; x.kids.forEach((k, i) => number(k, TT.wbs.child(code, sd + 1, i + 1), sd + 1)); };
+        number(card, TT.wbs.card(n + 1), 0);
         const walk = (x, depth, path) => {
           x.depth = depth; x.path = path;
           out.push(x);
@@ -208,7 +211,7 @@
         const sa = dayNum(x.started_at);
         const started = sa != null ? _t("<span class=\"g-start\" style=\"left:{0}px\" title=\"實際開始 {1}\"></span>", (sa - lo) * dw, md(x.started_at)) : '';
         // the whole left part (indent, arrow, level) is one large target for folding
-        const lv = `<span class="g-caret" aria-hidden="true">${x.kids.length ? (open.has(x.key) ? '▾' : '▸') : ''}</span><span class="g-lv">L${x.depth}</span>`;
+        const lv = `<span class="g-caret" aria-hidden="true">${x.kids.length ? (open.has(x.key) ? '▾' : '▸') : ''}</span><span class="g-lv" title="${esc(_t('第 {0} 層', x.depth))}">${esc(x.code || '')}</span>`;
         const caret = x.kids.length
           ? `<button class="g-tog" type="button" data-toggle="${x.key}" aria-expanded="${open.has(x.key)}" title="${open.has(x.key) ? _t('收合') : _t('展開')}" aria-label="${open.has(x.key) ? _t('收合') : _t('展開')}">${lv}</button>`
           : `<span class="g-tog">${lv}</span>`;

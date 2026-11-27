@@ -2230,6 +2230,8 @@ const TTBoard = window.TTBoard = (() => {
         return b;
       };
 
+      /** a subtask's outline number in this card (A1, A1-1, A1-1.1 …) */
+      const subCode = id => TT.wbs.codes(allThreads.filter(x => x.task).sort(byOrder), x => x.task_parent_id).get(id) || '';
       function subtaskBox(c, level = 2) {
         const s = c.task;
         const st = STATUS[s.status] || STATUS.new;
@@ -2247,7 +2249,7 @@ const TTBoard = window.TTBoard = (() => {
         const dueChip = tm.due && tm.due !== 'later' ? el('span', { class: `kb-chip due-${tm.due}`, html: svg('clock') + `<span>${tm.dueText}</span>` }) : null;
         const editBtn = el('button', { class: 'kb-link-btn kb-sub-edit', type: 'button', title: edit ? _t('編輯子任務（說明、附件、時間、提醒…）') : _t('檢視子任務'), html: svg(edit ? 'edit' : 'external') + `<span>${edit ? _t('編輯') : _t('檢視')}</span>` });
         editBtn.addEventListener('click', () => openSubtaskEditor(task, c, async () => { await loadComments(); load(true); }));
-        box.append(el('div', { class: 'kb-sub-row' }, el('span', { class: 'kb-lv', title: _t("第 {0} 層（主卡為 L1）", level), text: `L${level}` }), stSel,
+        box.append(el('div', { class: 'kb-sub-row' }, el('span', { class: 'kb-lv', title: _t('第 {0} 層', level), text: subCode(c.id) }), stSel,
           s.priority === 'high' ? el('span', { class: 'kb-flag', title: _t('高優先'), html: svg('flag') }) : null, titleIn,
           s.due_at && s.remind != null && !CLOSED.has(s.status) ? el('span', { class: 'kb-chip remind', title: _t("提醒：{0}", fmtMoment(remindMoment(s))), html: svg('bell') }) : null,
           dueChip, editBtn));
@@ -2415,10 +2417,10 @@ const TTBoard = window.TTBoard = (() => {
         const canAdd =  (task.can_edit !== false || c.task.can_edit);
         if (!kids.length && !canAdd) return null;
         const box = el('div', { class: 'kb-subtree' });
-        if (kids.length) box.append(el('div', { class: 'kb-subtree-head', text: _t("下層子任務（L{0}）· {1}", level + 1, kids.length) }), ...kids.map(k => commentNode(k, null, level + 1)));
+        if (kids.length) box.append(el('div', { class: 'kb-subtree-head', text: _t("{0} 的下層子任務 · {1}", subCode(c.id), kids.length) }), ...kids.map(k => commentNode(k, null, level + 1)));
         if (canAdd) {
           if (addBelow === c.id) {
-            const input = el('input', { class: 'input input-sm', maxlength: '200', placeholder: _t("新增 L{0} 子任務名稱（Enter 新增，Esc 取消）", level + 1) });
+            const input = el('input', { class: 'input input-sm', maxlength: '200', placeholder: _t("新增 {0} 的下層子任務名稱（Enter 新增，Esc 取消）", subCode(c.id)) });
             input.addEventListener('keydown', async e => {
               if (e.key === 'Escape') { e.stopPropagation(); addBelow = null; paint(); return; }
               if (e.key !== 'Enter' || e.isComposing || !input.value.trim()) return;
@@ -2429,7 +2431,7 @@ const TTBoard = window.TTBoard = (() => {
             });
             setTimeout(() => input.isConnected && input.focus(), 0);
             box.append(input);
-          } else box.append(linkBtn(_t("新增 L{0} 子任務", level + 1), 'plus', () => { addBelow = c.id; paint(); }));
+          } else box.append(linkBtn(_t("新增 {0} 的下層子任務", subCode(c.id)), 'plus', () => { addBelow = c.id; paint(); }));
         }
         return box;
       }
@@ -2528,7 +2530,7 @@ const TTBoard = window.TTBoard = (() => {
             const ks = k.task;
             const no = TT.wbs.child(prefix, depth + 1, j + 1);
             const r = el('li', { class: `kb-outline-row is-nested st-${ks.status}`, style: { '--st': (STATUS[ks.status] || STATUS.new).color, '--depth': depth },
-              tabindex: '0', dataset: { id: k.id }, title: _t("L{0}：點一下跳到子任務", depth + 2) },
+              tabindex: '0', dataset: { id: k.id }, title: _t('第 {0} 層：點一下跳到子任務', depth + 2) },
               el('span', { class: 'kb-outline-no', text: no }), el('span', { class: 'kb-sub-dot' }),
               el('span', { class: 'kb-outline-title', text: ks.title }),
               meInfo.people && ks.assignee ? TT.avatar(ks.assignee, 18) : null,
@@ -2972,6 +2974,14 @@ const TTBoard = window.TTBoard = (() => {
     const byId = id => threads.find(c => c.id === id);
     const kids = pid => subs().filter(c => (c.task_parent_id || null) === pid)
       .sort((a, b) => (a.task.sort_order ?? a.id) - (b.task.sort_order ?? b.id) || a.id - b.id);
+    /** outline number of a subtask in this card */
+    const codeOf = c => {
+      const chain = [];
+      for (let x = c, n = 0; x && n < 50; x = x.task_parent_id ? byId(x.task_parent_id) : null, n++) chain.unshift(x);
+      let code = 'A';
+      chain.forEach((x, i) => { code = TT.wbs.child(code, i + 1, kids(x.task_parent_id || null).findIndex(y => y.id === x.id) + 1); });
+      return code;
+    };
     const treeMinutes = id => { const c = byId(id); return (c ? c.task.spent_minutes || 0 : 0) + kids(id).reduce((n, k) => n + treeMinutes(k.id), 0); };
     const cardNow = () => find(card.id) || card;
     async function reload(board = true) {
@@ -3013,7 +3023,7 @@ const TTBoard = window.TTBoard = (() => {
       const canAdd = (pid == null ? cardNow().can_edit !== false
         : (cardNow().can_edit !== false || !!byId(pid)?.task.can_edit));
       if (canAdd) {
-        const input = el('input', { class: 'input input-sm', maxlength: '200', placeholder: pid == null ? _t('＋ 新增 L2 子任務（Enter）') : _t("＋ 新增 L{0} 子任務（Enter）", level + 1) });
+        const input = el('input', { class: 'input input-sm', maxlength: '200', placeholder: pid == null ? _t('＋ 新增子任務（Enter）') : _t("＋ 新增 {0} 的下層子任務（Enter）", byId(pid) ? codeOf(byId(pid)) : '') });
         input.addEventListener('keydown', async e => {
           if (e.key !== 'Enter' || e.isComposing || !input.value.trim()) return;
           e.preventDefault(); input.disabled = true;
@@ -3030,7 +3040,7 @@ const TTBoard = window.TTBoard = (() => {
       const sub = t.subtasks;
       const pr = sub && sub.total ? Math.round(sub.done / Math.max(1, sub.total - (sub.canceled || 0)) * 100) : null;
       return el('section', { class: 'kb-nav-col is-card' },
-        el('div', { class: 'kb-nav-kicker', text: _t('L1 // 主卡') }),
+        el('div', { class: 'kb-nav-kicker', text: _t('A // 主卡') }),
         el('div', { class: 'kb-nav-head' }, stChip(t.status), el('h4', { class: 'kb-nav-title', text: t.title })),
         t.tags?.length ? el('div', { class: 'kb-tags' }, t.tags.map(x => tagChip(x))) : null,
         el('div', { class: 'kb-nav-meta' },
@@ -3039,7 +3049,7 @@ const TTBoard = window.TTBoard = (() => {
           el('span', { text: _t("工時 {0}", fmtMin(subs().reduce((n, c) => n + (c.task.spent_minutes || 0), 0))) })),
         pr != null ? el('div', { class: 'kb-progress' }, el('span', { class: 'kb-progress-bar' }, el('span', { style: { width: pr + '%' } })), el('span', { class: 'kb-progress-text', text: `${pr}%` })) : null,
         t.description ? el('p', { class: 'kb-nav-desc' }, TT.mentionText(t.description, [t.owner, ...(t.assignees || []), ...(t.mentions || [])])) : null,
-        el('div', { class: 'kb-nav-sec', text: _t('子任務（L2）') }),
+        el('div', { class: 'kb-nav-sec', text: _t('子任務') }),
         childList(null, 1, 0),
         el('div', { class: 'kb-nav-sec', text: _t("卡片留言（{0}）", threads.filter(c => !c.task).length) }),
         cardComments());
@@ -3270,7 +3280,7 @@ const TTBoard = window.TTBoard = (() => {
       const more = el('button', { class: 'kb-link-btn', type: 'button', title: _t('附件、時間、提醒等完整設定'), html: svg(s.can_edit ? 'edit' : 'external') + `<span>${s.can_edit ? _t('更多設定') : _t('檢視')}</span>` });
       more.addEventListener('click', () => openSubtaskEditor(cardNow(), c, () => reload()));
       return el('section', { class: 'kb-nav-col', style: { '--c': (STATUS[s.status] || STATUS.new).color } },
-        el('div', { class: 'kb-nav-kicker' }, el('span', { text: _t("L{0} // 子任務", level) }), el('span', { class: 'spacer' }), more, del),
+        el('div', { class: 'kb-nav-kicker' }, el('span', { text: _t("{0} // 子任務", codeOf(c)), title: _t('第 {0} 層', level) }), el('span', { class: 'spacer' }), more, del),
         title,
         el('div', { class: 'kb-nav-strow' }, stSel,
           tm.due && tm.due !== 'later' ? el('span', { class: `kb-nav-due due-${tm.due}`, text: tm.dueText }) : null),
@@ -3278,7 +3288,7 @@ const TTBoard = window.TTBoard = (() => {
         el('div', { class: 'kb-nav-sec', text: _t('說明') }), descBlock(c),
         el('div', { class: 'kb-nav-sec', text: _t('工時紀錄') }), timeBlock(c),
         el('div', { class: 'kb-nav-sec', text: _t("留言（{0}）", (c.replies || []).length) }), comments(c),
-        el('div', { class: 'kb-nav-sec', text: _t("下層子任務（L{0}）", level + 1) }),
+        el('div', { class: 'kb-nav-sec', text: _t("{0} 的下層子任務", codeOf(c)) }),
         childList(c.id, level, colIndex));
     }
 

@@ -106,6 +106,11 @@
     const out = [];
     const pathOf = (r, byId) => { const p = []; for (let c = r, n = 0; c && n < 1000; c = c.parent ? byId.get(c.parent) : null, n++) p.unshift(c.id); return p; };
     const byId = new Map(rows.map(r => [r.id, r]));
+    const codeIn = new Map();                           // card id → (subtask id → outline number)
+    const codeOf = r => {
+      if (!codeIn.has(r.card)) codeIn.set(r.card, TT.wbs.codes(rows.filter(x => x.card === r.card)));
+      return codeIn.get(r.card).get(r.id) || '';
+    };
     rows.forEach(r => {
       if (CLOSED.has(r.status) || r.milestone || !(id == null || r.assignee?.id === id)) return;
       if (id == null && !r.assignee) return;
@@ -113,7 +118,7 @@
       if (!card) return;
       const proj = isProject(card) ? card : card.project_id ? cards.get(card.project_id) : null;
       out.push({ kind: proj ? 'proj' : 'ops', title: r.title, due: r.due_at, status: r.status,
-        src: proj ? `${proj.title}${card.id !== proj.id ? ` › ${card.title}` : ''} › L${pathOf(r, byId).length + 1}` : _t("一般卡「{0}」› 子任務", card.title),
+        src: proj ? `${proj.title}${card.id !== proj.id ? ` › ${card.title}` : ''} › ${codeOf(r)}` : _t("一般卡「{0}」› 子任務", card.title),
         open: () => TTBoard.openNavigator(card, pathOf(r, byId)) });
     });
     TTBoard.tasks.forEach(t => {
@@ -390,7 +395,9 @@
       const phaseOf = r => { let c = r; while (c?.parent && byId.get(c.parent)) c = byId.get(c.parent); return c?.card === id ? c.title : (TTBoard.find(c?.card)?.title || ''); };
       const T = todayN();
       if (tab === 'board') {
-        const items = rows.filter(r => !r.milestone).map(r => ({ r, lv: pathOf(r).length + 1, phase: phaseOf(r), card: TTBoard.find(r.card) }));
+        const codes = new Map();
+        const codeOf = r => { if (!codes.has(r.card)) codes.set(r.card, TT.wbs.codes(rows.filter(x => x.card === r.card))); return codes.get(r.card).get(r.id) || ''; };
+        const items = rows.filter(r => !r.milestone).map(r => ({ r, lv: pathOf(r).length + 1, code: codeOf(r), phase: phaseOf(r), card: TTBoard.find(r.card) }));
         const ops = attached().filter(t => !rows.some(r => r.card === t.id));
         const cols = ['new', 'ongoing', 'pending', 'onhold', 'complete'];
         const ph = el('div', { class: 'kb-placeholder' }, el('span', { text: _t('放在這裡') }));
@@ -407,7 +414,7 @@
             const late = x.r.due_at && day(x.r.due_at) < T && !CLOSED.has(x.r.status);
             const c = el('article', { class: 'kb-card pj-item', draggable: String(!archived), tabindex: '0', dataset: { sid: x.r.id } },
               el('div', { class: 'kb-card-title' }, el('span', { text: x.r.title })),
-              el('div', { class: 'kb-chips' }, el('span', { class: 'kb-chip', text: `L${x.lv}` }), x.phase && x.lv > 2 ? el('span', { class: 'kb-chip pj-phase', text: x.phase }) : null,
+              el('div', { class: 'kb-chips' }, el('span', { class: 'kb-chip', text: x.code, title: _t('第 {0} 層', x.lv) }), x.phase && x.lv > 2 ? el('span', { class: 'kb-chip pj-phase', text: x.phase }) : null,
                 x.r.due_at ? el('span', { class: 'kb-chip' + (late ? ' due-overdue' : ''), text: late ? _t("逾期 {0} 天", T - day(x.r.due_at)) : _t("{0} 到期", md(x.r.due_at)) }) : null),
               x.r.assignee ? el('div', { class: 'hint', text: x.r.assignee.name }) : null);
             c.addEventListener('click', () => TTBoard.openNavigator(x.card, pathOf(x.r)));
@@ -441,7 +448,7 @@
           });
           return col;
         }));
-        pane.replaceChildren(el('p', { class: 'hint', text: archived ? _t('這個專案結案時各層工作（L2 以下）與歸屬的一般卡的狀態（歷史案件，只能檢視）。') : _t('這個專案的各層工作（L2 以下）與歸屬的一般卡，依狀態分欄；拖到其他欄改狀態，上層狀態會自動彙總。') }), board);
+        pane.replaceChildren(el('p', { class: 'hint', text: archived ? _t('這個專案結案時各層工作（A1 以下）與歸屬的一般卡的狀態（歷史案件，只能檢視）。') : _t('這個專案的各層工作（A1 以下）與歸屬的一般卡，依狀態分欄；拖到其他欄改狀態，上層狀態會自動彙總。') }), board);
       } else {
         // list with WBS numbers (the same numbering as the Excel report)
         const kids = new Map();

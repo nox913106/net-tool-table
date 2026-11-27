@@ -328,12 +328,12 @@ window.TT_HELP_EN = [
     items: [
       { h: 'Opening it', b: '“Subtasks x/y ⧉” on a card, “Task window” at the bottom of the editor, “Task tree (N)” on a subtask, or a row in the project page list.' },
       { h: 'Top: path and buttons', b: 'The path (card › subtask › …) jumps back to any level; “Full edit” opens the card editor; × closes (<kbd>Esc</kbd> too).' },
-      { h: 'First column: the card (L1 // main card)', b: `<ul>
+      { h: 'First column: the card (A // main card)', b: `<ul>
         <li>The card's status, start, due, hours and progress.</li>
-        <li>“Subtasks (L2)”: each subtask's status and name — click to open it on the right; “+ New L2 subtask (Enter)” below.</li>
+        <li>“Subtasks”: each subtask's (A1, A2 …) status and name — click to open it on the right; “+ Add a subtask (Enter)” below.</li>
         <li>“Card comments (N)”: the card's own comments — comment, reply, edit, delete (<kbd>Ctrl</kbd>+<kbd>Enter</kbd> sends).</li>
       </ul>` },
-      { h: 'Subtask columns (L2 // subtask …)', b: `<ul>
+      { h: 'Subtask columns (A1 // subtask …)', b: `<ul>
         <li>Top: “More settings” opens the full subtask window (files, times, reminder); 🗑 deletes it with everything below (asks first and says how many go with it).</li>
         <li><b>Name</b> (<kbd>Enter</kbd> saves), <b>status</b> (asks first if you set Complete while items below are open), <b>assignee</b> (assign / reassign / unassign), <b>priority</b>, <b>start</b> / <b>due</b> (worked out from below when it has subtasks), <b>estimate (h)</b>, <b>schedule</b> (milestone, predecessors …).</li>
         <li><b>Description</b>: “Add description / Edit description” edits it in place.</li>

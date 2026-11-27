@@ -2049,5 +2049,17 @@
  "寫下回答…": "Write your answer…",
  "不回答這題（AiPM 不會再問）": "Don't answer this one (AiPM won't ask again)",
  "已填": "Filled in",
- "開始日自動開工：巡檢時，開始日是今天、還是「新建」的工作自動改為「進行中」（可復原，通知負責人；硬性規則唯一的例外）": "Start work on its start date: at the patrol, work whose start date is today and is still “New” moves to “Ongoing” (undoable, owners notified; the only exception to the hard rule)"
+ "開始日自動開工：巡檢時，開始日是今天、還是「新建」的工作自動改為「進行中」（可復原，通知負責人；硬性規則唯一的例外）": "Start work on its start date: at the patrol, work whose start date is today and is still “New” moves to “Ongoing” (undoable, owners notified; the only exception to the hard rule)",
+ "第 {0} 層": "Level {0}",
+ "{0} 的下層子任務 · {1}": "Subtasks under {0} · {1}",
+ "新增 {0} 的下層子任務名稱（Enter 新增，Esc 取消）": "Name of a new subtask under {0} (Enter adds, Esc cancels)",
+ "新增 {0} 的下層子任務": "Add a subtask under {0}",
+ "第 {0} 層：點一下跳到子任務": "Level {0}: click to jump to the subtask",
+ "＋ 新增子任務（Enter）": "+ Add a subtask (Enter)",
+ "＋ 新增 {0} 的下層子任務（Enter）": "+ Add a subtask under {0} (Enter)",
+ "{0} // 子任務": "{0} // Subtask",
+ "{0} 的下層子任務": "Subtasks under {0}",
+ "這個專案結案時各層工作（A1 以下）與歸屬的一般卡的狀態（歷史案件，只能檢視）。": "The status of every level of this project's work (A1 and below) and its attached cards when it closed (history: view only).",
+ "這個專案的各層工作（A1 以下）與歸屬的一般卡，依狀態分欄；拖到其他欄改狀態，上層狀態會自動彙總。": "This project's work at every level (A1 and below) and its attached cards, by status; drag to another column to change the status — the levels above roll up automatically.",
+ "A // 主卡": "A // Main card"
 }
