@@ -15,7 +15,8 @@ GANTT_COLS = (("milestone", "INTEGER NOT NULL DEFAULT 0"), ("deps", "TEXT"), ("b
 # Cards only: kind (ops = everyday work, project = a project with its own pages), the project an ops card
 # belongs to, and the projects' order of importance set by the managers
 PROJECT_COLS = (("kind", "TEXT NOT NULL DEFAULT 'ops'"), ("project_id", "INTEGER REFERENCES tasks(id) ON DELETE SET NULL"),
-                ("rank", "INTEGER"))
+                ("rank", "INTEGER"),
+                ("outline_style", "TEXT"))   # the level prefix shown before titles (alpha / num / zh / pts / none); a project's applies to its cards
 
 # Database path (TOOL_TABLE_DATA_DIR, default ./data)
 DB_DIR = DATA_DIR
@@ -31,7 +32,7 @@ ACTOR = contextvars.ContextVar("tt_actor", default=None)
 CAPTURE = {"on": False}             # change capture for Teams digests (app/teams.py turns it on when a channel wants changes)
 
 # Fields whose changes go into Teams change digests. Values are logged raw; app/teams.py formats them.
-TASK_FIELDS = ("title", "status", "priority", "start_at", "due_at", "milestone", "blocked_reason", "kind", "project_id", "description", "deps", "win")
+TASK_FIELDS = ("title", "status", "priority", "start_at", "due_at", "milestone", "blocked_reason", "kind", "project_id", "description", "deps", "win", "outline_style")
 SUB_FIELDS = ("title", "status", "assignee_id", "start_at", "due_at", "milestone", "body", "deps", "win")
 
 

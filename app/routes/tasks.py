@@ -103,7 +103,7 @@ DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$")
 REPEAT_RE = re.compile(r"^(daily|weekdays|weekly(:[1-7](,[1-7]){0,6})?|monthly(:\d{1,2})?|yearly)$")
 COLUMNS = ("id, title, description, status, priority, start_at, due_at, remind, repeat, repeat_every, next_id, "
            "overdue_from, overdue_ack, owner_id, sort_order, created_at, updated_at, completed_at, closed_at, "
-           "blocked_at, blocked_reason, blocked_by, tags, milestone, deps, base_start, base_due, started_at, win, kind, project_id, rank")
+           "blocked_at, blocked_reason, blocked_by, tags, milestone, deps, base_start, base_due, started_at, win, kind, project_id, rank, outline_style")
 
 
 def _repeat(v):
@@ -347,6 +347,7 @@ class TaskIn(BaseModel):
     deps: Optional[List[DepIn]] = None             # predecessors
     started_at: Optional[str] = None               # actual start (set automatically; can be corrected)
     win: Optional[str] = None                      # the shared window it needs ("" = none)
+    outline_style: Optional[str] = None            # level prefix before titles: alpha | num | zh | pts | none ("" = default)
     kind: Optional[str] = None                     # ops | project
     project_id: Optional[int] = None               # the project an ops card belongs to (0 / null = none)
 
@@ -413,6 +414,9 @@ class TaskIn(BaseModel):
         return _remind(v)
 
 
+OUTLINE_STYLES = ("alpha", "num", "zh", "pts", "none")
+
+
 class TaskUpdate(BaseModel):
     """Partial update: only the fields that were sent are changed."""
     title: Optional[str] = None
@@ -430,6 +434,7 @@ class TaskUpdate(BaseModel):
     deps: Optional[List[DepIn]] = None             # predecessors
     started_at: Optional[str] = None               # actual start (set automatically; can be corrected)
     win: Optional[str] = None                      # the shared window it needs ("" = none)
+    outline_style: Optional[str] = None            # level prefix before titles: alpha | num | zh | pts | none ("" = default)
     kind: Optional[str] = None                     # ops | project
     project_id: Optional[int] = None               # the project an ops card belongs to (0 / null = none)
 
@@ -1943,6 +1948,8 @@ async def create_task(t: TaskIn, request: Request):
             extra["started_at"] = t.started_at
         if t.win:
             extra["win"] = t.win
+        if t.outline_style in OUTLINE_STYLES:
+            extra["outline_style"] = t.outline_style
         if t.kind or t.project_id:
             pj = {k: v for k, v in (("kind", t.kind), ("project_id", t.project_id)) if v is not None}
             await _project_fields(db, task_id, {"id": task_id, "kind": "ops", "project_id": None, "rank": None}, pj, user)
@@ -1981,6 +1988,8 @@ async def update_task(task_id: int, t: TaskUpdate, request: Request):
             changes["milestone"] = 1 if changes["milestone"] else 0
         if "win" in changes:
             changes["win"] = changes["win"] or None
+        if "outline_style" in changes:
+            changes["outline_style"] = changes["outline_style"] if changes["outline_style"] in OUTLINE_STYLES else None
         await _project_fields(db, task_id, cur_task, changes, user)
         if changes.get("milestone") or (cur_task.get("milestone") and "start_at" in changes):
             changes["start_at"] = None                 # a milestone is one date: its due date

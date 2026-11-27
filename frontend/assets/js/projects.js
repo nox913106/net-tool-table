@@ -108,8 +108,8 @@
     const byId = new Map(rows.map(r => [r.id, r]));
     const codeIn = new Map();                           // card id → (subtask id → outline number)
     const codeOf = r => {
-      if (!codeIn.has(r.card)) codeIn.set(r.card, TT.wbs.codes(rows.filter(x => x.card === r.card)));
-      return codeIn.get(r.card).get(r.id) || '';
+      if (!codeIn.has(r.card)) codeIn.set(r.card, TT.wbs.paths(rows.filter(x => x.card === r.card)));
+      return TT.wbs.label(TT.wbs.styleOf(cards.get(r.card)), codeIn.get(r.card).get(r.id)) || '';
     };
     rows.forEach(r => {
       if (CLOSED.has(r.status) || r.milestone || !(id == null || r.assignee?.id === id)) return;
@@ -396,7 +396,7 @@
       const T = todayN();
       if (tab === 'board') {
         const codes = new Map();
-        const codeOf = r => { if (!codes.has(r.card)) codes.set(r.card, TT.wbs.codes(rows.filter(x => x.card === r.card))); return codes.get(r.card).get(r.id) || ''; };
+        const codeOf = r => { if (!codes.has(r.card)) codes.set(r.card, TT.wbs.paths(rows.filter(x => x.card === r.card))); return TT.wbs.label(TT.wbs.styleOf(TTBoard.find(r.card)), codes.get(r.card).get(r.id)) || ''; };
         const items = rows.filter(r => !r.milestone).map(r => ({ r, lv: pathOf(r).length + 1, code: codeOf(r), phase: phaseOf(r), card: TTBoard.find(r.card) }));
         const ops = attached().filter(t => !rows.some(r => r.card === t.id));
         const cols = ['new', 'ongoing', 'pending', 'onhold', 'complete'];
@@ -450,26 +450,31 @@
         }));
         pane.replaceChildren(el('p', { class: 'hint', text: archived ? _t('這個專案結案時各層工作（階段 A、B… 與底下的工作）與歸屬的一般卡的狀態（歷史案件，只能檢視）。') : _t('這個專案的各層工作（階段 A、B… 與底下的工作）與歸屬的一般卡，依狀態分欄；拖到其他欄改狀態，上層狀態會自動彙總。') }), board);
       } else {
-        // list with WBS numbers (the same numbering as the Excel report)
+        // list: 編號 runs 1, 2, 3 … down the list (the project itself is 0); the chosen level prefix before each title
         const kids = new Map();
         rows.filter(r => r.card === id).forEach(r => { const k = r.parent || 0; if (!kids.has(k)) kids.set(k, []); kids.get(k).push(r); });
         const out = [];
-        const walk = (pid, prefix, depth) => (kids.get(pid) || []).forEach((r, i) => { const n = TT.wbs.child(prefix, depth, i + 1); out.push({ r, n, depth }); walk(r.id, n, depth + 1); });
-        walk(0, '', 1);    // the project card heads the numbering (no number); its phases are A, B …
-        attached().forEach(t => out.push({ r: { id: 't' + t.id, title: t.title, status: t.status, start_at: t.start_at, due_at: t.due_at, assignee: (t.assignees || [])[0] ? { id: t.assignees[0].id, name: TT.nameOf(t.assignees[0]) } : null, estimate: null, ops: t }, n: '↳', depth: 1 }));
+        const style = TT.wbs.styleOf(card());
+        const walk = (pid, lvl, depth) => (kids.get(pid) || []).forEach((r, i) => {
+          const p = [...lvl, i + 1];
+          out.push({ r, n: String(out.length + 1), pfx: TT.wbs.label(style, p), depth });
+          walk(r.id, p, depth + 1);
+        });
+        walk(0, [], 1);
+        attached().forEach(t => out.push({ n: String(out.length + 1), pfx: '', r: { id: 't' + t.id, title: t.title, status: t.status, start_at: t.start_at, due_at: t.due_at, assignee: (t.assignees || [])[0] ? { id: t.assignees[0].id, name: TT.nameOf(t.assignees[0]) } : null, estimate: null, ops: t }, depth: 1 }));
         const myId = me();
         pane.replaceChildren(el('div', { class: 'pj-tw' }, el('table', { class: 'pj-table' },
-          el('thead', {}, el('tr', {}, ...['WBS', _t('項目'), _t('負責'), _t('開始'), _t('到期'), _t('預估'), _t('狀態')].map(h => el('th', { text: h })))),
-          el('tbody', {}, ...out.map(({ r, n, depth }) => {
+          el('thead', {}, el('tr', {}, ...[_t('編號'), _t('項目'), _t('負責'), _t('開始'), _t('到期'), _t('預估'), _t('狀態')].map(h => el('th', { text: h })))),
+          el('tbody', {}, ...out.map(({ r, n, pfx, depth }) => {
             const late = r.due_at && day(r.due_at) < T && !CLOSED.has(r.status);
             const tr = el('tr', { class: 'pj-row' + (r.assignee && r.assignee.id === myId ? ' mine' : ''), tabindex: '0' },
               el('td', { class: 'n', text: n }),
-              el('td', {}, el('span', { style: { paddingLeft: `${(depth - 1) * 16}px` } }, r.milestone ? '◆ ' : '', depth === 1 ? el('b', { text: r.title }) : r.title, r.ops ? el('span', { class: 'hint', text: _t('（一般卡）') }) : null)),
+              el('td', {}, el('span', { style: { paddingLeft: `${(depth - 1) * 16}px` } }, pfx ? el('span', { class: 'g-pfx', text: pfx }) : null, r.milestone ? '◆ ' : '', depth === 1 ? el('b', { text: r.title }) : r.title, r.ops ? el('span', { class: 'hint', text: _t('（一般卡）') }) : null)),
               el('td', { text: r.assignee?.name || '—' }), el('td', { class: 'n', text: r.milestone ? '' : md(r.start_at) }), el('td', { class: 'n', text: md(r.due_at) }),
               el('td', { class: 'n', text: r.estimate ? `${+(r.estimate / 60).toFixed(1)}h` : '—' }), el('td', {}, stChip(r.status, late)));
             tr.addEventListener('click', () => r.ops ? TTBoard.openEditor(r.ops) : TTBoard.openNavigator(card(), pathOf(r)));
             return tr;
-          })))), el('p', { class: 'hint', text: _t('底色標出指派給你的項目；編號規則同 Excel 報告：專案本身是 A，底下 A1、A1-1、A1-1.1…') }));
+          })))), el('p', { class: 'hint', text: _t('底色標出指派給你的項目。編號：專案本身是 0，往下依序 1、2、3…；標題前的階層前綴可在專案卡的「階層前綴」選擇。') }));
       }
     }
     paintHead(); paintTabs(); paintPane();

@@ -2091,3 +2091,8 @@ body.nav-collapsed .sidebar:not(.peek) .nav-empty, body.nav-collapsed .sidebar:n
 .g-pct-c { position: relative; display: flex !important; align-items: center; height: 16px; background: var(--surface-2); border-radius: 3px; padding: 0 !important; margin: 0 6px; }
 .g-pct-c i { position: absolute; inset: 0 auto 0 0; background: color-mix(in srgb, var(--g-task) 45%, transparent); border-radius: 3px; }
 .g-pct-c b { position: relative; font: 600 10.5px var(--mono, monospace); padding-left: 5px; color: var(--text); }
+.g-pfx { font: 600 11.5px var(--mono, monospace); color: var(--accent-text); margin-right: 6px; }
+.gs-title .g-pfx { font-size: 13px; margin-right: 0; }
+.gcm-grip { color: var(--text-3); cursor: grab; font-size: 12px; letter-spacing: -2px; user-select: none; }
+.gcm-row.is-drag { opacity: .45; outline: 1px dashed var(--accent); }
+.gcm-list { display: flex; flex-direction: column; gap: 1px; }

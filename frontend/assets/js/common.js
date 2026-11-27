@@ -732,7 +732,47 @@ const TT = (() => {
       walk(null, '', 1);
       return out;
     },
+    /** id → its path in the card ([2, 1, 3] = 2nd phase › its 1st item › its 3rd), same order as codes(). */
+    paths(rows, parentOf = r => r.parent || null) {
+      const kids = new Map();
+      rows.forEach(r => { const p = parentOf(r) || null; if (!kids.has(p)) kids.set(p, []); kids.get(p).push(r); });
+      const out = new Map();
+      const walk = (pid, path) => (kids.get(pid) || []).forEach((r, i) => { const p = [...path, i + 1]; out.set(r.id, p); walk(r.id, p); });
+      walk(null, []);
+      return out;
+    },
+    /**
+     * The level prefix shown before titles (a card / project chooses one; the cards of a project follow it):
+     *   alpha  A / A1 / A1-1 / A1-1.1          num  1 / 1.1 / 1.1.1 / 1.1.1.1
+     *   zh     一、/（一）/ 1. / (1) / a.       pts  P1 / T1.2 / S1.2.3 / D1.2.3.4 (phase, task, sub-task, detail)
+     *   none   no prefix
+     */
+    STYLES: [['alpha', 'A / A1 / A1-1 / A1-1.1'], ['num', '1 / 1.1 / 1.1.1 / 1.1.1.1'], ['zh', '一、/（一）/ 1. / (1)'], ['pts', 'P1 / T1.2 / S1.2.3 / D1.2.3.4'], ['none', '']],
+    label(style, path) {
+      if (!path || !path.length) return '';
+      const d = path.length, k = path[d - 1];
+      switch (style) {
+        case 'none': return '';
+        case 'num': return path.join('.');
+        case 'zh': return d === 1 ? `${zhNum(k)}、` : d === 2 ? `（${zhNum(k)}）` : d === 3 ? `${k}.` : d === 4 ? `(${k})` : `${wbs.card(k).toLowerCase()}.`;
+        case 'pts': return `${'PTSD'[Math.min(d, 4) - 1]}${path.join('.')}`;
+        default: { let c = ''; path.forEach((n, i) => { c = wbs.child(c, i + 1, n); }); return c; }
+      }
+    },
+    /** the prefix style that applies to a card: its own, else its project's, else A / A1 … */
+    styleOf(card) {
+      if (card?.outline_style) return card.outline_style;
+      const p = card?.project_id && window.TTBoard?.find?.(card.project_id);
+      return p?.outline_style || 'alpha';
+    },
   };
+  function zhNum(n) {
+    const D = '〇一二三四五六七八九';
+    if (n < 10) return D[n];
+    if (n < 20) return '十' + (n % 10 ? D[n % 10] : '');
+    if (n < 100) return D[Math.floor(n / 10)] + '十' + (n % 10 ? D[n % 10] : '');
+    return String(n);
+  }
 
   return {
     wbs, me, userMenu, avatar, nameOf, mentionInput, mentionText, dragGhost, ROLE,

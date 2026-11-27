@@ -2119,11 +2119,29 @@ const TTBoard = window.TTBoard = (() => {
       ...tasks.filter(x => isProject(x) && x.id !== task?.id).map(x => el('option', { value: x.id, text: x.title, selected: x.id === t.project_id })));
     const projField = el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('layout') + _t('歸屬專案') }), projSel,
       el('span', { class: 'hint', text: _t('這張卡片也會出現在該專案的甘特圖與專案看板') }));
+    // 階層前綴: chosen once on a project (or a card on its own); everything under it shows that prefix before its title
+    const STYLE_NAMES = { alpha: _t('英數階層'), num: _t('數字大綱'), zh: _t('中文公文'), pts: _t('階段／工作'), none: _t('不加前綴') };
+    const styleSel = el('select', { class: 'select', disabled: readOnly, 'aria-label': _t('階層前綴') });
+    const styleHint = el('span', { class: 'hint' });
+    const paintStyle = () => {
+      const pid = kind === 'project' ? null : (Number(projSel.value) || null);
+      const proj = pid && tasks.find(x => x.id === pid);
+      const cur = styleSel.value || t.outline_style || '';
+      styleSel.replaceChildren(
+        ...(proj ? [el('option', { value: '', text: _t('跟隨專案（{0}）', `${STYLE_NAMES[TT.wbs.styleOf(proj)]}：${(TT.wbs.STYLES.find(s => s[0] === TT.wbs.styleOf(proj)) || [])[1] || '—'}`) })] : []),
+        ...TT.wbs.STYLES.map(([k, ex]) => el('option', { value: k, text: `${STYLE_NAMES[k]}${ex ? '：' + ex : ''}` })));
+      styleSel.value = proj ? (cur && cur !== '' ? cur : '') : (cur || 'alpha');
+      if (styleSel.selectedIndex < 0) styleSel.value = proj ? '' : 'alpha';
+      styleHint.textContent = kind === 'project' ? _t('選一次，整個專案（含歸屬的卡片）的每一層都套用這個前綴') : proj ? _t('預設跟隨專案；也可以只讓這張卡片用別的前綴') : _t('這張卡片底下每一層顯示的前綴');
+    };
+    const styleField = el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('list') + _t('階層前綴') }), styleSel, styleHint);
+    projSel.addEventListener('change', paintStyle);
     const kindHint = el('span', { class: 'hint' });
     const paintKind = () => {
       kindSeg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === kind)));
       projField.hidden = kind === 'project';
       kindHint.textContent = kind === 'project' ? _t('專案有自己的專案頁（甘特圖、專案看板、清單），在待辦看板上以一張專案卡出現') : '';
+      paintStyle();
     };
     paintKind();
     const ok = el('button', { class: 'btn btn-primary', type: 'button', html: svg('check') + (task ? _t('儲存') : _t('新增')) });
@@ -2231,7 +2249,7 @@ const TTBoard = window.TTBoard = (() => {
       };
 
       /** a subtask's outline number in this card (A1, A1-1, A1-1.1 …) */
-      const subCode = id => TT.wbs.codes(allThreads.filter(x => x.task).sort(byOrder), x => x.task_parent_id).get(id) || '';
+      const subCode = id => TT.wbs.label(TT.wbs.styleOf(task), TT.wbs.paths(allThreads.filter(x => x.task).sort(byOrder), x => x.task_parent_id).get(id)) || '';
       function subtaskBox(c, level = 2) {
         const s = c.task;
         const st = STATUS[s.status] || STATUS.new;
@@ -2479,7 +2497,7 @@ const TTBoard = window.TTBoard = (() => {
           const row = el('li', { class: `kb-outline-row st-${s.status}`, style: { '--st': st.color }, tabindex: '0', draggable: editable ? 'true' : 'false',
             dataset: { id: c.id }, title: editable ? _t('點一下跳到子任務；拖曳或 Alt+↑/↓ 調整順序') : _t('點一下跳到子任務') },
             editable ? el('span', { class: 'kb-outline-grip', html: svg('grip') }) : null,
-            el('span', { class: 'kb-outline-no', text: TT.wbs.child('A', 1, i + 1) }),
+            el('span', { class: 'kb-outline-no', text: subCode(c.id) }),
             el('span', { class: 'kb-sub-dot' }),
             el('span', { class: 'kb-outline-title', text: s.title }),
             meInfo.people && s.assignee ? TT.avatar(s.assignee, 18) : null,
@@ -2523,12 +2541,12 @@ const TTBoard = window.TTBoard = (() => {
             });
           }
           list.append(row);
-          nested(c.id, TT.wbs.child('A', 1, i + 1), 1);
+          nested(c.id, '', 1);
         });
         function nested(pid, prefix, depth) {
           allThreads.filter(x => x.task_parent_id === pid).sort(byOrder).forEach((k, j) => {
             const ks = k.task;
-            const no = TT.wbs.child(prefix, depth + 1, j + 1);
+            const no = subCode(k.id);
             const r = el('li', { class: `kb-outline-row is-nested st-${ks.status}`, style: { '--st': (STATUS[ks.status] || STATUS.new).color, '--depth': depth },
               tabindex: '0', dataset: { id: k.id }, title: _t('第 {0} 層：點一下跳到子任務', depth + 2) },
               el('span', { class: 'kb-outline-no', text: no }), el('span', { class: 'kb-sub-dot' }),
@@ -2679,6 +2697,7 @@ const TTBoard = window.TTBoard = (() => {
           el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('標籤') }), tagBox, tagSug, tagData),
           el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('類型') }), kindSeg, kindHint),
           projField,
+          styleField,
           el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('paperclip') + _t('附件') }), imgBox),
           meInfo.people ? el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('users') + _t('負責人') }), assignBox) : null,
           el('div', { class: 'kb-row' }, el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('狀態') }), status,
@@ -2769,6 +2788,8 @@ const TTBoard = window.TTBoard = (() => {
         if (!task || kind !== (t.kind || 'ops')) body.kind = kind;
         const pid = kind === 'project' ? null : (Number(projSel.value) || null);
         if (!task ? pid : pid !== (t.project_id || null)) body.project_id = pid || 0;
+        const sv = styleSel.value || '';
+        if (sv !== (t.outline_style || '') && !(!t.outline_style && !pid && sv === 'alpha')) body.outline_style = sv;
       }
       if (body.milestone ?? t.milestone) { body.start_at = null; if (!body.due_at) { toast(_t('里程碑需要到期日'), true); dueD.focus(); return; } }
       if (canAssign) body.assignees = assignees.map(p => p.username);
@@ -2978,9 +2999,8 @@ const TTBoard = window.TTBoard = (() => {
     const codeOf = c => {
       const chain = [];
       for (let x = c, n = 0; x && n < 50; x = x.task_parent_id ? byId(x.task_parent_id) : null, n++) chain.unshift(x);
-      let code = 'A';
-      chain.forEach((x, i) => { code = TT.wbs.child(code, i + 1, kids(x.task_parent_id || null).findIndex(y => y.id === x.id) + 1); });
-      return code;
+      const path = chain.map(x => kids(x.task_parent_id || null).findIndex(y => y.id === x.id) + 1);
+      return TT.wbs.label(TT.wbs.styleOf(cardNow()), path) || '—';
     };
     const treeMinutes = id => { const c = byId(id); return (c ? c.task.spent_minutes || 0 : 0) + kids(id).reduce((n, k) => n + treeMinutes(k.id), 0); };
     const cardNow = () => find(card.id) || card;

@@ -2096,5 +2096,17 @@
  "名稱（固定）": "Name (always shown)",
  "全選": "Select all",
  "恢復預設": "Reset to default",
- "表格太窄時，次要的欄位會先收起來；拖曳表格與時間軸之間的分隔線可以加寬。": "When the table is too narrow the less important columns are folded away first; drag the divider between the table and the time line to widen it."
+ "表格太窄時，次要的欄位會先收起來；拖曳表格與時間軸之間的分隔線可以加寬。": "When the table is too narrow the less important columns are folded away first; drag the divider between the table and the time line to widen it.",
+ "英數階層": "Letters & numbers",
+ "數字大綱": "Numbered outline",
+ "中文公文": "Chinese document style",
+ "階段／工作": "Phase / task",
+ "不加前綴": "No prefix",
+ "階層前綴": "Level prefix",
+ "跟隨專案（{0}）": "Follow the project ({0})",
+ "選一次，整個專案（含歸屬的卡片）的每一層都套用這個前綴": "Choose once: every level of the whole project (its cards included) uses this prefix",
+ "預設跟隨專案；也可以只讓這張卡片用別的前綴": "Follows the project by default; you can give just this card another prefix",
+ "這張卡片底下每一層顯示的前綴": "The prefix shown at every level under this card",
+ "表格欄位（拖曳 ⋮⋮ 調整順序）": "Table columns (drag ⋮⋮ to reorder)",
+ "底色標出指派給你的項目。編號：專案本身是 0，往下依序 1、2、3…；標題前的階層前綴可在專案卡的「階層前綴」選擇。": "Items assigned to you are highlighted. Numbers: the project itself is 0, then 1, 2, 3 … down the list; the level prefix before titles is chosen on the project card (“Level prefix”)."
 }

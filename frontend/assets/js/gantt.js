@@ -124,12 +124,19 @@
         built.push([a ?? Infinity, card]);
       });
       // scheduled cards by start date, then the rest in board order
-      built.sort((x, y) => x[0] - y[0]).forEach(([, card], n) => {
-        // outline numbers (the same as the Excel report and the card outline): the card has none; its phases A, B …;
-        // then A1, A1-1, A1-1.1 — restarting in every card
-        const number = (x, code, sd) => { x.code = code; x.kids.forEach((k, i) => number(k, TT.wbs.child(code, sd + 1, i + 1), sd + 1)); };
-        number(card, '', 0);
-        void n;
+      // 編號: the project (or card) is 0 and everything below it is numbered 1, 2, 3 … top to bottom (folded rows
+      // included, so a number never changes when rows open or close). On a project's page the project and the cards
+      // attached to it form one run; on the board every card starts again at 0. The level prefix before each title
+      // follows the style chosen on the card or its project (A / A1 …, 1 / 1.1 …, 一、/（一）…, P1 / T1.2 …).
+      let serial = 0;
+      built.sort((x, y) => (opts.project ? (y[1].id === opts.project) - (x[1].id === opts.project) : 0) || x[0] - y[0]).forEach(([, card]) => {
+        if (!opts.project) serial = 0;
+        const style = TT.wbs.styleOf(card.card);
+        const number = (x, lvl) => {
+          x.code = String(serial++); x.lvl = lvl; x.prefix = TT.wbs.label(style, lvl);
+          x.kids.forEach((k, i) => number(k, [...lvl, i + 1]));
+        };
+        number(card, []);
         const walk = (x, depth, path) => {
           x.depth = depth; x.path = path;
           out.push(x);
@@ -162,7 +169,13 @@
       ['name', _t('名稱'), 200], ['code', _t('編號'), 58], ['status', _t('狀態'), 100], ['type', _t('類型'), 78],
       ['due', _t('完成日期'), 92], ['start', _t('起始日期'), 92], ['dur', _t('時長'), 58], ['who', _t('負責'), 92],
       ['prio', _t('優先'), 60], ['pct', _t('完成度'), 66]];
-    const ORDER = ['code', 'type', 'name', 'status', 'who', 'prio', 'start', 'due', 'dur', 'pct'];       // left to right
+    const DEFAULT_ORDER = ['code', 'type', 'name', 'status', 'who', 'prio', 'start', 'due', 'dur', 'pct'];   // left to right
+    // the order this person dragged the columns into (kept with their profile); new columns join at the end
+    let ORDER = (() => {
+      const saved = TT.store.get('gantt-col-order', null);
+      const ok = Array.isArray(saved) ? saved.filter(k => DEFAULT_ORDER.includes(k)) : [];
+      return [...ok, ...DEFAULT_ORDER.filter(k => !ok.includes(k))];
+    })();
     const DEFAULT_COLS = ['code', 'type', 'status', 'start', 'due', 'dur', 'who'];
     // the columns this person chose (名稱 is always there); kept with their profile
     let chosen = new Set(Array.isArray(TT.store.get('gantt-cols', null)) ? TT.store.get('gantt-cols') : DEFAULT_COLS);
@@ -188,19 +201,41 @@
         TT.store.set('gantt-lw', leftW);
         paint(true);
       };
+      // drag the rows (⋮⋮) to change the order of the columns, left to right = top to bottom
+      let dragKey = null;
+      const rowOf = k => {
+        const box = el('input', { type: 'checkbox', checked: k === 'name' || chosen.has(k), disabled: k === 'name' });
+        box.addEventListener('change', () => { if (box.checked) chosen.add(k); else chosen.delete(k); apply(); });
+        const r = el('label', { class: 'gcm-row' + (k === 'name' ? ' is-fixed' : ''), draggable: 'true', dataset: { k } },
+          el('span', { class: 'gcm-grip', 'aria-hidden': 'true', text: '⋮⋮' }), box,
+          el('span', { text: k === 'name' ? _t('名稱（固定）') : COLS.find(c => c[0] === k)[1] }));
+        r.addEventListener('dragstart', e => { dragKey = k; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', k); requestAnimationFrame(() => r.classList.add('is-drag')); });
+        r.addEventListener('dragend', () => { dragKey = null; paintMenu(); });
+        r.addEventListener('dragover', e => {
+          if (!dragKey || dragKey === k) return;
+          e.preventDefault();
+          const b = r.getBoundingClientRect(), after = e.clientY > b.top + b.height / 2;
+          const next = ORDER.filter(x => x !== dragKey);
+          next.splice(next.indexOf(k) + (after ? 1 : 0), 0, dragKey);
+          if (next.join() !== ORDER.join()) {
+            ORDER = next;
+            TT.store.set('gantt-col-order', ORDER);
+            list.replaceChildren(...ORDER.map(rowOf));
+            list.querySelector(`[data-k="${dragKey}"]`)?.classList.add('is-drag');
+            paint(true);
+          }
+        });
+        return r;
+      };
+      const list = el('div', { class: 'gcm-list' });
       const paintMenu = () => pop.replaceChildren(
-        el('div', { class: 'gcm-head', text: _t('表格欄位') }),
-        el('label', { class: 'gcm-row is-fixed' }, el('input', { type: 'checkbox', checked: true, disabled: true }), el('span', { text: _t('名稱（固定）') })),
-        ...ORDER.filter(k => k !== 'name').map(k => {
-          const box = el('input', { type: 'checkbox', checked: chosen.has(k) });
-          box.addEventListener('change', () => { if (box.checked) chosen.add(k); else chosen.delete(k); apply(); });
-          return el('label', { class: 'gcm-row' }, box, el('span', { text: COLS.find(c => c[0] === k)[1] }));
-        }),
+        el('div', { class: 'gcm-head', text: _t('表格欄位（拖曳 ⋮⋮ 調整順序）') }),
+        (list.replaceChildren(...ORDER.map(rowOf)), list),
         (() => {
           const all = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: _t('全選') });
           all.addEventListener('click', () => { chosen = new Set(ORDER.filter(k => k !== 'name')); apply(); paintMenu(); });
           const reset = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: _t('恢復預設') });
-          reset.addEventListener('click', () => { chosen = new Set(DEFAULT_COLS); apply(); paintMenu(); });
+          reset.addEventListener('click', () => { chosen = new Set(DEFAULT_COLS); ORDER = [...DEFAULT_ORDER]; TT.store.set('gantt-col-order', ORDER); apply(); paintMenu(); });
           return el('div', { class: 'gcm-foot' }, all, reset);
         })(),
         el('p', { class: 'hint', text: _t('表格太窄時，次要的欄位會先收起來；拖曳表格與時間軸之間的分隔線可以加寬。') }));
@@ -292,9 +327,9 @@
           ? `<button class="g-tog" type="button" data-toggle="${x.key}" aria-expanded="${open.has(x.key)}" aria-label="${open.has(x.key) ? _t('收合') : _t('展開')}">${open.has(x.key) ? '⌄' : '›'}</button>`
           : '<span class="g-tog"></span>';
         const cell = {
-          code: `<span class="g-c-code" title="${esc(_t('第 {0} 層', x.depth))}">${esc(x.code || '')}</span>`,
+          code: `<span class="g-c-code" title="${esc(_t('第 {0} 層', x.depth))}">${esc(x.code ?? '')}</span>`,
           type: `<span class="g-type ty-${ty}">${TYPE_LABEL[ty]}</span>`,
-          name: `<span class="g-c-name" style="--ind:${x.depth - 1}">${caret}<button class="g-name" type="button" data-open="${x.key}" title="${esc(x.title)}">${x.milestone ? '◆ ' : ''}${esc(x.title)}</button></span>`,
+          name: `<span class="g-c-name" style="--ind:${x.depth - 1}">${caret}<button class="g-name" type="button" data-open="${x.key}" title="${esc((x.prefix ? x.prefix + ' ' : '') + x.title)}">${x.prefix ? `<span class="g-pfx">${esc(x.prefix)}</span>` : ''}${x.milestone ? '◆ ' : ''}${esc(x.title)}</button></span>`,
           status: `<span class="g-st" style="--c:${st.color}"><i></i>${esc(st.zh || '')}</span>`,
           who: `<span class="g-who">${esc(x.who || '')}</span>`,
           start: `<span class="g-date${derived ? ' is-derived' : ''}">${x.milestone ? '' : a != null ? ymd(isoOf(a)) : ''}</span>`,
@@ -392,7 +427,7 @@
       close.addEventListener('click', () => { sel = null; paintSide(); well.querySelectorAll('.g-row.is-sel').forEach(r => r.classList.remove('is-sel')); });
       const openBtn = el('button', { class: 'btn btn-sm', type: 'button', html: svg('external') + _t('開啟完整編輯') });
       openBtn.addEventListener('click', () => openItem(x));
-      const upBtn = up ? el('button', { class: 'gs-up', type: 'button', text: (up.code ? up.code + ' ' : '') + up.title }) : null;
+      const upBtn = up ? el('button', { class: 'gs-up', type: 'button', text: (up.prefix ? up.prefix + ' ' : '') + up.title }) : null;
       upBtn?.addEventListener('click', () => { sel = up.key; paint(); });
       const deps = (x.deps || []).map(d => d.title + (d.lag ? _t("（+{0} 天）", d.lag) : ''));
 
@@ -483,7 +518,7 @@
 
       side.replaceChildren(...[
         el('div', { class: 'gs-head' }, up ? el('div', { class: 'gs-parent' }, el('span', { text: _t('上層：') }), upBtn) : el('span', { class: 'hint', text: x.kind === 't' ? _t('主卡') : '' }), el('span', { class: 'spacer' }), close),
-        el('div', { class: 'gs-title' }, el('span', { class: `g-type ty-${ty}`, text: TYPE_LABEL[ty] }), x.code ? el('code', { text: x.code }) : null, title),
+        el('div', { class: 'gs-title' }, el('span', { class: `g-type ty-${ty}`, text: TYPE_LABEL[ty] }), el('code', { text: `#${x.code}` }), x.prefix ? el('span', { class: 'g-pfx', text: x.prefix }) : null, title),
         el('div', { class: 'gs-status' }, status, lt ? el('span', { class: 'g-d is-late', text: _t('逾期') }) : null),
         el('h4', { text: _t('人員') }), row(_t('負責'), who),
         el('h4', { text: _t('日期與進度') }),

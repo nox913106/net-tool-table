@@ -38,7 +38,7 @@ TABLES: Dict[str, dict] = {
     "tasks": {
         "fields": ("title", "description", "status", "priority", "start_at", "due_at", "remind", "repeat", "repeat_every",
                    "next_id", "overdue_from", "overdue_ack", "owner_id", "sort_order", "created_at", "updated_at",
-                   "completed_at", "closed_at", "blocked_at", "blocked_reason", "blocked_by", "tags", "milestone", "deps", "base_start", "base_due", "started_at", "win", "kind", "project_id", "rank"),
+                   "completed_at", "closed_at", "blocked_at", "blocked_reason", "blocked_by", "tags", "milestone", "deps", "base_start", "base_due", "started_at", "win", "kind", "project_id", "rank", "outline_style"),
         "refs": {"next_id": "tasks", "project_id": "tasks"}, "people": ("owner_id", "blocked_by"), "card": "id",
     },
     "task_comments": {
