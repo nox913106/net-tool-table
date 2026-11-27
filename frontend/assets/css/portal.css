@@ -2062,3 +2062,16 @@ body.nav-collapsed .sidebar:not(.peek) .nav-empty, body.nav-collapsed .sidebar:n
 .aipm-item.q.is-filled .aipm-q-ok { display: inline-block; }
 .aipm-qbar { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; gap: 8px; padding: 10px 0 2px; background: var(--surface-solid, var(--surface)); border-top: 1px solid var(--border); }
 .aipm-qcount { font-size: 12.5px; color: var(--text-2); font-weight: 650; }
+/* Gantt side panel: fields edited in place */
+.gs-title-in { flex: 1 1 100%; font-size: 16px; font-weight: 700; height: 38px; }
+.gantt-side .gs-in { height: 32px; font-size: 13px; padding: 4px 8px; min-width: 0; }
+.gantt-side select.gs-in { width: auto; max-width: 100%; }
+.gs-f { align-items: center; }
+.gs-dates { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.gs-dates .gs-date { width: 138px; }
+.gs-who { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.gs-who .gs-in { flex: 1 1 140px; }
+.gs-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); padding-left: 92px; }
+.gs-desc-in { min-height: 90px; font-size: 13px; }
+.gs-actions-inline { display: flex; justify-content: flex-end; padding-top: 6px; }
+.gs-actions { flex-wrap: wrap; align-items: center; }

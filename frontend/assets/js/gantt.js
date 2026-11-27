@@ -273,7 +273,7 @@
       tools.append(el('span', { class: 'hint gantt-count', text: _t("{0} 張卡片{1}", list.filter(x => x.kind === 't').length, unscheduled ? _t("，{0} 項未排日期", unscheduled) : '') }));
       drawDeps(list, at);
       if (center != null) well.scrollLeft = (center - lo) * dw - well.clientWidth / 2 + lw();
-      if (sel) paintSide();
+      if (sel && !side.contains(document.activeElement)) paintSide();    // not while a field there is being edited
     }
     const lw = () => parseFloat(getComputedStyle(well.querySelector('.gantt') || well).getPropertyValue('--g-lw')) || 0;
     const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -320,37 +320,139 @@
     const find = key => { let hit = null; items().forEach(x => { const rec = y => { if (y.key === key) hit = y; y.kids.forEach(rec); }; rec(x); }); return hit; };
     const parentOfKey = key => { let hit = null; items().forEach(x => { const rec = y => { y.kids.forEach(k => { if (k.key === key) hit = y; rec(k); }); }; rec(x); }); return hit; };
 
-    /** The details of one item on the right (as OpenProject's split view): click a row; double-click opens the editor. */
+    /** The details of one item on the right (as OpenProject's split view), edited in place: each field is saved as
+     *  soon as it changes (the same permissions as the card / subtask editor). Double-click a row for the full editor. */
+    const subBodies = new Map();                           // card id → Promise of its subtasks' text (loaded when needed)
+    const subBody = cardId => {
+      if (!subBodies.has(cardId)) subBodies.set(cardId, api(`/api/tasks/${cardId}/comments`).then(cs => new Map(cs.map(c => [c.id, c]))).catch(() => new Map()));
+      return subBodies.get(cardId);
+    };
+    async function saveItem(x, body, what) {
+      try {
+        if (x.kind === 't') await TTBoard.save(x.id, body);
+        else await api(`/api/tasks/${x.cardId}/comments/${x.id}/task`, { method: 'PUT', body });
+        toast(_t('已儲存：{0}', what));
+      } catch (e) { toast(e.message, true); }
+      if (side.contains(document.activeElement)) document.activeElement.blur();   // so the panel shows what was saved
+      await refresh(true);
+    }
     function paintSide() {
       const x = sel && find(sel);
       if (!x) { side.hidden = true; host.classList.remove('has-side'); return; }
       const [a, b, derived] = span(x);
       const st = statusOf(x.status), ty = typeOf(x), up = parentOfKey(x.key);
       const lt = late(x, b);
+      const edit = x.canEdit && !(opts.project && TTBoard.find(opts.project)?.history);
       const row = (k, v) => v == null || v === '' ? null : el('div', { class: 'gs-f' }, el('span', { text: k }), typeof v === 'string' ? el('b', { text: v }) : v);
       const close = el('button', { class: 'icon-btn', type: 'button', 'aria-label': _t('關閉'), html: svg('x') });
       close.addEventListener('click', () => { sel = null; paintSide(); well.querySelectorAll('.g-row.is-sel').forEach(r => r.classList.remove('is-sel')); });
-      const openBtn = el('button', { class: 'btn btn-sm btn-primary', type: 'button', html: svg('edit') + _t('開啟完整編輯') });
+      const openBtn = el('button', { class: 'btn btn-sm', type: 'button', html: svg('external') + _t('開啟完整編輯') });
       openBtn.addEventListener('click', () => openItem(x));
       const upBtn = up ? el('button', { class: 'gs-up', type: 'button', text: (up.code ? up.code + ' ' : '') + up.title }) : null;
       upBtn?.addEventListener('click', () => { sel = up.key; paint(); });
-      const desc = x.kind === 't' ? (x.card?.description || '') : (x.raw?.body && x.raw.body.trim() !== (x.title || '').trim() ? x.raw.body : '');
       const deps = (x.deps || []).map(d => d.title + (d.lag ? _t("（+{0} 天）", d.lag) : ''));
+
+      // ---- title
+      let title;
+      if (edit) {
+        title = el('input', { class: 'input gs-title-in', value: x.title, maxlength: '200', 'aria-label': _t('名稱') });
+        title.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); title.blur(); } if (e.key === 'Escape') { title.value = x.title; title.blur(); } });
+        title.addEventListener('change', () => { const v = title.value.trim(); if (v && v !== x.title) saveItem(x, { title: v }, _t('名稱')); else title.value = x.title; });
+      } else title = el('h3', { text: x.title });
+      // ---- status (an item with items below follows them)
+      let status;
+      if (edit && !x.kids.length) {
+        status = el('select', { class: 'select gs-in', 'aria-label': _t('狀態') },
+          ...(TTBoard.STATUSES || []).filter(s => s.key !== 'recurring' && (s.key !== 'overdue' || x.status === 'overdue'))
+            .map(s => el('option', { value: s.key, text: s.zh || s.label, selected: s.key === x.status })));
+        status.addEventListener('change', () => saveItem(x, { status: status.value }, _t('狀態')));
+      } else status = el('span', { class: 'g-st', style: { '--c': st.color }, title: x.kids.length ? _t('由下層彙總') : '' }, el('i'), st.zh || x.status);
+      // ---- owner
+      const owners = x.kind === 't' ? (x.card?.assignees || []) : (x.raw?.assignee ? [x.raw.assignee] : []);
+      let who = el('b', { text: owners.map(TT.nameOf).join('、') || x.who || '—' });
+      if (edit && (x.kind !== 't' || x.card?.can_assign !== false)) {
+        const pick = TT.mentionInput(el('input', { class: 'input gs-in', placeholder: owners.length ? _t('改派給…') : _t('輸入姓名或帳號指派…') }),
+          { onPick: p => saveItem(x, x.kind === 't' ? { assignees: [p.username] } : { assignee: p.username }, _t('負責')) });
+        const clear = owners.length ? el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: _t('取消指派') }) : null;
+        clear?.addEventListener('click', () => saveItem(x, x.kind === 't' ? { assignees: [] } : { assignee: '' }, _t('負責')));
+        who = el('div', { class: 'gs-who' }, owners.length ? el('b', { text: owners.map(TT.nameOf).join('、') }) : null, pick, clear);
+      }
+      // ---- priority
+      const pr = x.priority || 'normal';
+      const PR = { low: _t('低'), normal: _t('一般'), high: _t('高') };
+      let prio = el('b', { text: PR[pr] || pr });
+      if (edit) {
+        prio = el('select', { class: 'select gs-in', 'aria-label': _t('優先') }, ...Object.entries(PR).map(([k, l]) => el('option', { value: k, text: l, selected: k === pr })));
+        prio.addEventListener('change', () => saveItem(x, { priority: prio.value }, _t('優先')));
+      }
+      // ---- dates (an item with items below spans them: not set by hand here)
+      const clearVal = x.kind === 't' ? null : '';
+      const dateIn = (v, field, label) => {
+        const inp = el('input', { class: 'input gs-in gs-date', type: 'date', value: v ? v.slice(0, 10) : '', 'aria-label': label });
+        inp.addEventListener('change', () => {
+          const orig = field === 'start_at' ? x.start : x.due;
+          saveItem(x, { [field]: inp.value ? withDay(orig, dayNum(inp.value)) : clearVal }, label);
+        });
+        return inp;
+      };
+      let dates;
+      if (edit && !x.kids.length) {
+        dates = x.milestone ? dateIn(x.due, 'due_at', _t('日期'))
+          : el('div', { class: 'gs-dates' }, dateIn(x.start, 'start_at', _t('起始日期')), el('span', { text: '–' }), dateIn(x.due, 'due_at', _t('完成日期')),
+            a != null ? el('small', { class: 'hint', text: _t('{0} 天', b - a + 1) }) : null);
+      } else {
+        dates = a == null ? _t('未排日期') : x.milestone ? ymd(isoOf(b)) : `${ymd(isoOf(a))} – ${ymd(isoOf(b))}（${_t('{0} 天', b - a + 1)}）${derived || x.kids.length ? _t('，由下層推算') : ''}`;
+      }
+      let ms = null;
+      if (edit && !x.kids.length) {
+        ms = el('label', { class: 'gs-check' }, el('input', { type: 'checkbox', checked: !!x.milestone }), el('span', { text: _t('里程碑（只有一個日期）') }));
+        ms.querySelector('input').addEventListener('change', e => saveItem(x, { milestone: e.target.checked }, _t('里程碑')));
+      }
+      // ---- description
+      const descBox = el('div', { class: 'gs-descbox' });
+      const paintDesc = (text, canEdit, save) => {
+        if (!canEdit) { descBox.replaceChildren(text ? el('div', { class: 'gs-desc' }, TT.mentionText(text)) : el('p', { class: 'hint', text: _t('沒有說明') })); return; }
+        const ta = el('textarea', { class: 'textarea gs-desc-in', rows: '4', placeholder: _t('細節、步驟、注意事項…（輸入 @ 提到同事）') });
+        ta.value = text || '';
+        TT.mentionInput(ta);
+        const ok = el('button', { class: 'btn btn-sm btn-primary', type: 'button', html: svg('check') + _t('儲存說明'), hidden: true });
+        ta.addEventListener('input', () => { ok.hidden = ta.value === (text || ''); });
+        ok.addEventListener('click', () => save(ta.value));
+        descBox.replaceChildren(ta, el('div', { class: 'gs-actions-inline' }, ok));
+      };
+      if (x.kind === 't') {
+        paintDesc(x.card?.description || '', edit && x.card?.can_edit_body !== false, v => saveItem(x, { description: v }, _t('說明')));
+      } else {
+        descBox.append(el('p', { class: 'hint', text: _t('讀取中…') }));
+        subBody(x.cardId).then(m => {
+          const c = m.get(x.id);
+          const body = c && c.body && c.body.trim() !== (x.title || '').trim() ? c.body : '';
+          paintDesc(body, edit && c?.can_edit_body, async v => {
+            try { await api(`/api/tasks/${x.cardId}/comments/${x.id}`, { method: 'PUT', body: { body: v } }); toast(_t('已儲存：{0}', _t('說明'))); }
+            catch (e) { toast(e.message, true); }
+            subBodies.delete(x.cardId);
+            if (side.contains(document.activeElement)) document.activeElement.blur();
+            await refresh(true);
+          });
+        });
+      }
+
       side.replaceChildren(...[
         el('div', { class: 'gs-head' }, up ? el('div', { class: 'gs-parent' }, el('span', { text: _t('上層：') }), upBtn) : el('span', { class: 'hint', text: x.kind === 't' ? _t('主卡') : '' }), el('span', { class: 'spacer' }), close),
-        el('div', { class: 'gs-title' }, el('span', { class: `g-type ty-${ty}`, text: TYPE_LABEL[ty] }), x.code ? el('code', { text: x.code }) : null, el('h3', { text: x.title })),
-        el('div', { class: 'gs-status' }, el('span', { class: 'g-st', style: { '--c': st.color } }, el('i'), st.zh || x.status), lt ? el('span', { class: 'g-d is-late', text: _t('逾期') }) : null),
-        el('h4', { text: _t('人員') }), row(_t('負責'), x.who || '—'),
+        el('div', { class: 'gs-title' }, el('span', { class: `g-type ty-${ty}`, text: TYPE_LABEL[ty] }), x.code ? el('code', { text: x.code }) : null, title),
+        el('div', { class: 'gs-status' }, status, lt ? el('span', { class: 'g-d is-late', text: _t('逾期') }) : null),
+        el('h4', { text: _t('人員') }), row(_t('負責'), who),
         el('h4', { text: _t('日期與進度') }),
-        row(x.milestone ? _t('日期') : _t('期間'), a == null ? _t('未排日期') : x.milestone ? ymd(isoOf(b)) : `${ymd(isoOf(a))} – ${ymd(isoOf(b))}（${_t('{0} 天', b - a + 1)}）${derived ? _t('，由下層推算') : ''}`),
+        row(x.milestone ? _t('日期') : _t('期間'), dates), ms,
+        row(_t('優先'), prio),
         row(_t('完成度'), `${pct(x)}%`),
         x.started_at ? row(_t('實際開始'), ymd(x.started_at)) : null,
         x.base_due || x.base_start ? row(_t('基準線'), TTBoard.baselineText({ ...x, due_at: x.due })) : null,
         deps.length ? row(_t('前置'), deps.join('、')) : null,
         x.kids.length ? row(_t('下層'), _t('{0} 項', x.kids.length)) : null,
-        desc ? el('h4', { text: _t('說明') }) : null,
-        desc ? el('div', { class: 'gs-desc' }, TT.mentionText(desc)) : null,
-        el('div', { class: 'gs-actions' }, openBtn)].filter(Boolean));
+        el('h4', { text: _t('說明') }), descBox,
+        el('div', { class: 'gs-actions' }, openBtn,
+          edit ? el('span', { class: 'hint', text: _t('改了就存；前置、附件、提醒等請開完整編輯') }) : el('span', { class: 'hint', text: _t('你只能檢視這個項目') }))].filter(Boolean));
       side.hidden = false;
       host.classList.add('has-side');
     }
@@ -504,6 +606,7 @@
     // ---------------------------------------------------------------- refresh
     let pending = null;
     async function refresh(force = false) {
+      if (force) subBodies.clear();
       // a history project (歷史區) is not on the board: its own subtasks, history included
       const archived = opts.project && !TTBoard.tasks.some(t => t.id === opts.project);
       try { subs = archived ? await TT.api(`/api/tasks/gantt?project=${opts.project}`) : await TTBoard.ganttRows(force); } catch (e) { subs = []; }

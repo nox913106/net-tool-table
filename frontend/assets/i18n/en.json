@@ -2081,5 +2081,13 @@
  "項目詳情": "Item details",
  "<div class=\"hint\">期間由下層推算 · 點一下看詳情，雙擊開啟</div>": "<div class=\"hint\">Period worked out from the items below · click for details, double-click to open</div>",
  "<div class=\"hint\">拖曳改日期 · 點一下看詳情，雙擊開啟</div>": "<div class=\"hint\">Drag to change dates · click for details, double-click to open</div>",
- "<div class=\"hint\">點一下看詳情，雙擊開啟</div>": "<div class=\"hint\">Click for details, double-click to open</div>"
+ "<div class=\"hint\">點一下看詳情，雙擊開啟</div>": "<div class=\"hint\">Click for details, double-click to open</div>",
+ "已儲存：{0}": "Saved: {0}",
+ "由下層彙總": "Rolled up from the items below",
+ "輸入姓名或帳號指派…": "Type a name or account to assign…",
+ "里程碑（只有一個日期）": "Milestone (a single date)",
+ "細節、步驟、注意事項…（輸入 @ 提到同事）": "Details, steps, notes… (type @ to mention someone)",
+ "儲存說明": "Save description",
+ "改了就存；前置、附件、提醒等請開完整編輯": "Changes save at once; for predecessors, files, reminders and more, open the full editor",
+ "你只能檢視這個項目": "You can only view this item"
 }
