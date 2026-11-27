@@ -513,7 +513,7 @@ kbd {
 .user-btn:hover { background: var(--surface-2); border-color: var(--border-strong); }
 .user-btn-name { max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .user-pop {
-  position: fixed; z-index: 96; width: 260px; padding: 8px;
+  position: fixed; z-index: 96; width: 260px; max-width: calc(100vw - 16px); padding: 8px; overflow-y: auto;
   border-radius: var(--r-xl); background: var(--surface-solid); border: 1px solid var(--border-strong); box-shadow: var(--shadow-lg);
   display: flex; flex-direction: column; gap: 2px; animation: pop-in var(--t) var(--ease);
 }

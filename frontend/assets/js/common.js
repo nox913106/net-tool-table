@@ -467,9 +467,13 @@ const TT = (() => {
         u.source === 'local' ? item('edit', _t('修改密碼'), () => changePassword()) : null,
         item('logout', _t('登出'), async () => { try { await api('/api/auth/logout', { method: 'POST' }); } finally { location.href = '/login'; } }));
       document.body.append(pop);
-      const r = btn.getBoundingClientRect();
-      pop.style.top = `${r.bottom + 8}px`;
-      pop.style.right = `${Math.max(8, innerWidth - r.right)}px`;
+      // below the button when it fits, otherwise above it (the admin sidebar has it at the bottom of the
+      // screen); kept inside the window both ways
+      const r = btn.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+      const below = r.bottom + 8 + h <= innerHeight - 8;
+      pop.style.top = `${Math.max(8, below ? r.bottom + 8 : r.top - 8 - h)}px`;
+      pop.style.left = `${Math.min(Math.max(8, r.right - w), innerWidth - w - 8)}px`;
+      pop.style.maxHeight = `${innerHeight - 16}px`;
       setTimeout(() => document.addEventListener('mousedown', outside), 0);
     });
     return info;
