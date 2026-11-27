@@ -2048,5 +2048,6 @@
  "或自己寫回答…": "or write your own answer…",
  "寫下回答…": "Write your answer…",
  "不回答這題（AiPM 不會再問）": "Don't answer this one (AiPM won't ask again)",
- "已填": "Filled in"
+ "已填": "Filled in",
+ "開始日自動開工：巡檢時，開始日是今天、還是「新建」的工作自動改為「進行中」（可復原，通知負責人；硬性規則唯一的例外）": "Start work on its start date: at the patrol, work whose start date is today and is still “New” moves to “Ongoing” (undoable, owners notified; the only exception to the hard rule)"
 }

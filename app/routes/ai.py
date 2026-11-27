@@ -33,6 +33,7 @@ class SettingsIn(BaseModel):
     aipm_enabled: Optional[bool] = None
     aipm_patrol: Optional[str] = None
     aipm_daily: Optional[bool] = None
+    aipm_autostart: Optional[bool] = None
 
 
 class ProviderIn(BaseModel):

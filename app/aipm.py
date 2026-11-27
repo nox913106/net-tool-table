@@ -15,7 +15,8 @@ its own open items, and answers with
                HARD RULE: AiPM never changes anything by itself. Every change waits until the project's lead
                (負責人, the owner of the project card) or a board administrator with edit rights over it
                (看板總管理者 RW, or the 部門看板管理者 RW of its departments) approves it; items that are complete
-               or canceled are never changed by AiPM.
+               or canceled are never changed by AiPM. The one exception (a setting, on by default): autostart()
+               moves work still 「新建」 on its start date to 「進行中」 at the morning 巡檢 — undoable, owners told.
   tracking     things to follow up (a vendor reply, a change window, a check after go-live …)
 
 It also works without being asked: after the project changes (checked every 10 minutes, at most every 30
@@ -733,6 +734,68 @@ async def _tell(root: int, snap: Dict, q_ids, notes, source, user):
 _running = None
 
 
+AUTOSTART_KEY = "_aipm_autostart"
+
+
+async def autostart(today: date) -> int:
+    """At the morning 巡檢: work whose start date has come and is still 「新建」 moves to 「進行中」, so nothing sits
+    unstarted because nobody moved it. This is the one change AiPM makes on its own (a setting, on by default):
+    only 新建 → 進行中, only on the start date (or a start date missed since the last run), only items that hold
+    no subtasks of their own (a summary item follows its subtasks), never projects or closed work. Each change
+    is kept as an applied AiPM item that can be undone, and the people on that item are told."""
+    from . import sysconfig
+    from .routes import tasks as T
+    if not ai.settings().get("aipm_autostart", True):
+        return 0
+    t = today.isoformat()
+    last = (sysconfig._read(AUTOSTART_KEY) or {}).get("day")
+    if last == t:
+        return 0
+    since = max(last or "", (today - timedelta(days=7)).isoformat()) if last else (today - timedelta(days=1)).isoformat()
+    db = await get_db()
+    try:
+        cards = await _rows(db, """SELECT t.id, t.title, t.owner_id FROM tasks t
+                                   WHERE t.status = 'new' AND t.kind != 'project' AND t.start_at IS NOT NULL
+                                     AND substr(t.start_at, 1, 10) > ? AND substr(t.start_at, 1, 10) <= ?
+                                     AND NOT EXISTS (SELECT 1 FROM task_comments c WHERE c.task_id = t.id AND c.is_task = 1)""", (since, t))
+        subs = await _rows(db, """SELECT c.id, c.task_id, c.title, c.assignee_id, p.owner_id FROM task_comments c JOIN tasks p ON p.id = c.task_id
+                                  WHERE c.is_task = 1 AND c.status = 'new' AND c.start_at IS NOT NULL
+                                    AND substr(c.start_at, 1, 10) > ? AND substr(c.start_at, 1, 10) <= ?
+                                    AND p.status NOT IN ('complete', 'canceled')
+                                    AND NOT EXISTS (SELECT 1 FROM task_comments k WHERE k.task_parent_id = c.id AND k.is_task = 1)""", (since, t))
+    finally:
+        await db.close()
+    req, done = sys_request(), 0
+    for x, sub in [*((c, None) for c in cards), *((s, s["id"]) for s in subs)]:
+        card = x["task_id"] if sub else x["id"]
+        act = {"action": "set_status", "card": card, "sub": sub, "status": "ongoing", "old": "new"}
+        try:
+            undo = await apply_action(act, req)
+        except Exception as e:  # noqa: BLE001
+            log.warning("AiPM autostart %s/%s: %s", card, sub, _err(e))
+            continue
+        db = await get_db()
+        try:
+            root = (await _root(db, card))["id"]
+            title = f"「{x['title']}」今天開始：新建 → 進行中"
+            await db.execute("""INSERT INTO aipm_items (card_id, kind, risk, status, title, detail, target_card, target_sub, action, undo,
+                                source, done_at) VALUES (?, 'proposal', 'low', 'auto', ?, ?, ?, ?, ?, ?, 'autostart',
+                                strftime('%Y-%m-%d %H:%M:%S', 'now', 'localtime'))""",
+                             (root, title, "開始日到了還是「新建」：AiPM 依設定自動改為「進行中」，避免沒有人開工。不對的話可以復原。",
+                              card, sub, json.dumps(act, ensure_ascii=False), json.dumps(undo, ensure_ascii=False)))
+            if sub:
+                people = {x["assignee_id"] or x["owner_id"]}
+            else:
+                people = await T._members(db, card, "assignee") | {x["owner_id"]}
+            await T.notify(db, people, root, SYSTEM, "aipm", f"AiPM：{title}（不對可以在 AiPM 復原）")
+            await db.commit()
+        finally:
+            await db.close()
+        done += 1
+    sysconfig._write(AUTOSTART_KEY, {"day": t, "moved": done})
+    return done
+
+
 def start_tick():
     """Run tick() in the background (a review can take a minute per project); one at a time."""
     global _running
@@ -759,6 +822,7 @@ async def tick():
     try:
         await aipm_my.closures()
         if patrol_due:
+            await autostart(now.date())
             await aipm_my.daily()
     except Exception:  # noqa: BLE001
         log.exception("aipm personal")

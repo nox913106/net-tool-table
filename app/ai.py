@@ -85,7 +85,7 @@ GROUPS = {"cloud_token": "雲端：按量計費", "cloud_monthly": "雲端：包
 
 DEFAULTS = {"enabled": False, "allow_cloud": False, "mode": "fallback", "timeout": 120, "max_output_tokens": 16000,
             "temperature": 0.2, "images_to_cloud": False,
-            "aipm_enabled": True, "aipm_patrol": "08:30", "aipm_daily": True, "system_prompt": "你是 IPMS（基礎建設專案管理系統）的助理。用繁體中文，簡潔、條列，只根據提供的內容回答，不要編造。"}
+            "aipm_enabled": True, "aipm_patrol": "08:30", "aipm_daily": True, "aipm_autostart": True, "system_prompt": "你是 IPMS（基礎建設專案管理系統）的助理。用繁體中文，簡潔、條列，只根據提供的內容回答，不要編造。"}
 FIELDS = {  # column: (type, default)
     "name": (str, ""), "preset": (str, ""), "kind": (str, "openai"), "location": (str, "cloud"), "billing": (str, "token"),
     "base_url": (str, ""), "model": (str, ""), "deployment": (str, ""), "api_version": (str, ""), "region": (str, ""),
