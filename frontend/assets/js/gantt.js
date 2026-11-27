@@ -61,9 +61,10 @@
     undatedSw.querySelector('input').addEventListener('change', e => { hideUndated = e.target.checked; TT.store.set('gantt-hide-undated', hideUndated); paint(); });
     const tools = el('div', { class: 'gantt-tools' }, linkSw, soloTools, undatedSw, el('span', { class: 'spacer' }), expand, collapse, todayBtn, zoomSeg, exportBtn);
     const well = el('div', { class: 'gantt-well', tabindex: '-1' });
+    const side = el('aside', { class: 'gantt-side', hidden: true, 'aria-label': _t('項目詳情') });
     const tip = el('div', { class: 'gantt-tip', hidden: true });
     host.classList.add('gantt-host');
-    host.replaceChildren(tools, legend, well, tip);
+    host.replaceChildren(tools, legend, el('div', { class: 'gantt-main' }, well, side), tip);
 
     linkSw?.querySelector('input').addEventListener('change', e => { linked = e.target.checked; TT.store.set('gantt-linked', linked); paintTools(); paint(); opts.onLinked?.(linked); });
     search.addEventListener('input', () => { solo.q = search.value.trim().toLowerCase(); paint(); });
@@ -150,86 +151,129 @@
     }
     const late = (x, end) => !CLOSED.has(x.status) && end != null && end < todayNum();
 
-    // ---------------------------------------------------------------- paint
+    // ---------------------------------------------------------------- paint (laid out like OpenProject's Gantt)
+    // Left: a table — number, type, name (tree), status, owner, start, finish, duration; the columns that fit
+    // the table's width are shown (drag the divider to widen it). Right: the time line — year, month and week
+    // rows, today as a red dashed line, bars coloured by type with the start date on their left and the finish
+    // date (red when late) and the name on their right.
+    const COLS = [                                        // [key, label, width] in the order they are added
+      ['name', _t('名稱'), 200], ['code', _t('編號'), 58], ['status', _t('狀態'), 100], ['type', _t('類型'), 78],
+      ['due', _t('完成日期'), 92], ['start', _t('起始日期'), 92], ['dur', _t('時長'), 58], ['who', _t('負責'), 92]];
+    const ORDER = ['code', 'type', 'name', 'status', 'who', 'start', 'due', 'dur'];
+    let leftW = Math.max(260, Math.min(1100, Number(TT.store.get('gantt-lw', 0)) || (fixed ? 760 : 620)));
+    const colsFor = w => {
+      let used = 24;
+      const keep = new Set();
+      for (const [k, , cw] of COLS) {                     // by priority: stop at the first that no longer fits
+        if (k !== 'name' && used + cw > w) break;
+        keep.add(k); used += cw;
+      }
+      return ORDER.filter(k => keep.has(k));
+    };
+    const ymd = v => v ? v.slice(0, 10).replaceAll('-', '/') : '';
+    const typeOf = x => x.kind === 't' && (x.card?.kind === 'project') ? 'project' : x.milestone ? 'milestone' : x.kids.length ? 'summary' : 'task';
+    const TYPE_LABEL = { project: _t('專案'), summary: _t('摘要任務'), task: _t('工作'), milestone: _t('里程碑') };
+
     let range = null;
+    let sel = null;                                        // the item shown in the side panel
     function paint(keepCenter = false) {
       const list = items();
       const dw = ZOOM[zoom] || 26;
       const T = todayNum();
       // range: everything shown (and their baselines), today, a margin
       let lo = T - 14, hi = T + 45;
-      list.forEach(x => { const [a, b] = span(x); [a, b, dayNum(x.base_start), dayNum(x.base_due), dayNum(x.started_at)].forEach(n => { if (n != null) { lo = Math.min(lo, n - 7); hi = Math.max(hi, n + 14); } }); });
+      list.forEach(x => { const [a, b] = span(x); [a, b, dayNum(x.base_start), dayNum(x.base_due), dayNum(x.started_at)].forEach(n => { if (n != null) { lo = Math.min(lo, n - 10); hi = Math.max(hi, n + 30); } }); });
       if (zoom !== 'day') { lo -= (new Date(lo * 864e5).getUTCDay() + 6) % 7; }
       const center = keepCenter && range ? range.lo + (well.scrollLeft + well.clientWidth / 2 - lw()) / range.dw : null;
       range = { lo, hi, dw };
       const days = hi - lo + 1, W = days * dw;
+      const fit = well.clientWidth ? Math.max(240, Math.round(well.clientWidth * .62)) : leftW;   // leave room for the time line
+      const lwNow = Math.min(leftW, fit);
+      const cols = colsFor(lwNow);
 
-      // scale
-      const months = [], weeks = [], dcells = [];
+      // time scale: year / month / ISO week (/ day)
+      const years = [], months = [], weeks = [], dcells = [];
       for (let n = lo; n <= hi; n++) {
         const d = new Date(n * 864e5), s = isoOf(n), dow = d.getUTCDay();
-        if (!months.length || s.endsWith('-01')) months.push({ n: 0, label: zoom === 'month' ? _t("{0} 月", +s.slice(5, 7)) : _t("{0} 年 {1} 月", s.slice(0, 4), +s.slice(5, 7)) });
+        if (!years.length || s.endsWith('-01-01')) years.push({ n: 0, label: s.slice(0, 4) });
+        years[years.length - 1].n++;
+        if (!months.length || s.endsWith('-01')) months.push({ n: 0, label: _t('{0}月', +s.slice(5, 7)) });
         months[months.length - 1].n++;
         if (!weeks.length || dow === 1) {
           const t = new Date(d); t.setUTCDate(t.getUTCDate() + 3 - ((dow + 6) % 7));
           const y0 = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
-          weeks.push({ n: 0, label: zoom === 'month' ? '' : `W${Math.ceil(((t - y0) / 864e5 + 1) / 7)}${zoom === 'day' ? ' · ' + md(s) : ''}` });
+          weeks.push({ n: 0, label: String(Math.ceil(((t - y0) / 864e5 + 1) / 7)).padStart(2, '0') });
         }
         weeks[weeks.length - 1].n++;
         if (zoom === 'day') dcells.push(`<div class="${dow === 0 || dow === 6 ? 'we' : ''}${n === T ? ' now' : ''}" style="width:${dw}px">${+s.slice(8)}</div>`);
       }
       const scale = `<div class="gantt-scale" style="width:${W}px">
+        <div class="gs-row gs-y">${years.map(m => `<div style="width:${m.n * dw}px">${m.label}</div>`).join('')}</div>
         <div class="gs-row gs-m">${months.map(m => `<div style="width:${m.n * dw}px">${m.label}</div>`).join('')}</div>
-        ${zoom !== 'month' ? `<div class="gs-row">${weeks.map(w => `<div style="width:${w.n * dw}px">${w.label}</div>`).join('')}</div>` : ''}
+        ${zoom !== 'month' ? `<div class="gs-row gs-w">${weeks.map(w => `<div style="width:${w.n * dw}px">${w.n * dw >= 16 ? w.label : ''}</div>`).join('')}</div>` : ''}
         ${zoom === 'day' ? `<div class="gs-row gs-d">${dcells.join('')}</div>` : ''}</div>`;
-      // weekend shading + week lines as one background
+      // week lines (and weekends at the day scale) as one background
       const bg = zoom === 'month'
         ? `repeating-linear-gradient(90deg, transparent 0 ${7 * dw - 1}px, var(--g-grid) ${7 * dw - 1}px ${7 * dw}px)`
         : `repeating-linear-gradient(90deg, transparent 0 ${5 * dw}px, var(--g-weekend) ${5 * dw}px ${7 * dw - 1}px, var(--g-grid) ${7 * dw - 1}px ${7 * dw}px)`;
       const bgOffset = ((lo - (lo - ((new Date(lo * 864e5).getUTCDay() + 6) % 7))) * -dw);   // align to Monday
 
       const at = new Map(list.map((x, i) => [x.key, i]));
+      const head = cols.map(k => `<div class="g-h-${k}">${COLS.find(c => c[0] === k)[1]}</div>`).join('');
+      const tmpl = cols.map(k => k === 'name' ? 'minmax(0, 1fr)' : `${COLS.find(c => c[0] === k)[2]}px`).join(' ');
       const rows = list.map(x => {
         const [a, b, derived] = span(x);
         const st = statusOf(x.status);
         const lt = late(x, b);
+        const ty = typeOf(x);
         let bar = '';
         if (a != null) {
           const left = (a - lo) * dw, width = (b - a + 1) * dw;
+          const endTxt = `<span class="g-d${lt ? ' is-late' : ''}">${ymd(isoOf(b))}</span>`;
           if (x.milestone) {
-            bar = `<span class="g-ms${lt ? ' is-late' : ''}${x.canEdit ? ' can-drag' : ''}" data-drag="move" style="left:${left + dw / 2 - 8}px;--c:${st.color}"></span>
-                   <span class="g-ms-lbl" style="left:${left + dw + 6}px">${esc(x.title)} ${md(x.due)}</span>`;
+            bar = `<span class="g-ms${lt ? ' is-late' : ''}${x.canEdit ? ' can-drag' : ''}" data-drag="move" style="left:${left + dw / 2 - 7}px"></span>
+                   <span class="g-lbl g-lbl-r" style="left:${left + dw / 2 + 12}px">${endTxt}<i>◆ ${esc(x.title)}</i></span>`;
           } else {
-            const p = pct(x);
             const drag = x.canEdit && !derived && !x.kids.length;
-            bar = `<span class="g-bar${x.kids.length ? ' is-parent' : ''}${derived ? ' is-derived' : ''}${lt ? ' is-late' : ''}${drag ? ' can-drag' : ''}"
-                     data-drag="move" style="left:${left}px;width:${width}px;--c:${st.color}">
-                     <span class="g-fill" style="width:${p}%"></span>${width > 46 ? `<span class="g-pct">${p}%</span>` : ''}
-                     ${drag ? '<span class="g-h g-h-l" data-drag="start"></span><span class="g-h g-h-r" data-drag="end"></span>' : ''}</span>`;
+            bar = `<span class="g-lbl g-lbl-l" style="right:${W - left + 6}px">${ymd(isoOf(a))}</span>
+                   <span class="g-bar t-${ty}${CLOSED.has(x.status) ? ' is-closed' : ''}${x.status === 'canceled' ? ' is-canceled' : ''}${derived ? ' is-derived' : ''}${drag ? ' can-drag' : ''}"
+                     data-drag="move" style="left:${left}px;width:${width}px">
+                     ${drag ? '<span class="g-h g-h-l" data-drag="start"></span><span class="g-h g-h-r" data-drag="end"></span>' : ''}</span>
+                   <span class="g-lbl g-lbl-r" style="left:${left + width + 6}px">${endTxt}<i>${esc(x.title)}</i></span>`;
           }
         }
         const bs = dayNum(x.base_start || x.base_due), be = dayNum(x.base_due || x.base_start);
         const base = bs != null ? `<span class="g-base" style="left:${(bs - lo) * dw}px;width:${(be - bs + 1) * dw}px"></span>` : '';
         const sa = dayNum(x.started_at);
         const started = sa != null ? _t("<span class=\"g-start\" style=\"left:{0}px\" title=\"實際開始 {1}\"></span>", (sa - lo) * dw, md(x.started_at)) : '';
-        // the whole left part (indent, arrow, level) is one large target for folding
-        const lv = `<span class="g-caret" aria-hidden="true">${x.kids.length ? (open.has(x.key) ? '▾' : '▸') : ''}</span>${x.code ? `<span class="g-lv" title="${esc(_t('第 {0} 層', x.depth))}">${esc(x.code)}</span>` : ''}`;
         const caret = x.kids.length
-          ? `<button class="g-tog" type="button" data-toggle="${x.key}" aria-expanded="${open.has(x.key)}" title="${open.has(x.key) ? _t('收合') : _t('展開')}" aria-label="${open.has(x.key) ? _t('收合') : _t('展開')}">${lv}</button>`
-          : `<span class="g-tog">${lv}</span>`;
-        return `<div class="g-row g-l${x.depth}${hot && (hot === x.key) ? ' is-hot' : ''}" data-key="${x.key}">
-          <div class="g-cell" style="--ind:${x.depth - 1}">${caret}
-            <button class="g-name" type="button" data-open="${x.key}" title="${esc(x.title)}">${x.milestone ? '◆ ' : ''}${esc(x.title)}</button>
-            <span class="g-who">${esc(x.who || '')}</span>
-            <span class="g-st" style="--c:${lt ? 'var(--danger)' : st.color}">${lt ? _t('逾期') : x.milestone ? _t('里程碑') : esc(st.zh || '')}</span></div>
+          ? `<button class="g-tog" type="button" data-toggle="${x.key}" aria-expanded="${open.has(x.key)}" aria-label="${open.has(x.key) ? _t('收合') : _t('展開')}">${open.has(x.key) ? '⌄' : '›'}</button>`
+          : '<span class="g-tog"></span>';
+        const cell = {
+          code: `<span class="g-c-code" title="${esc(_t('第 {0} 層', x.depth))}">${esc(x.code || '')}</span>`,
+          type: `<span class="g-type ty-${ty}">${TYPE_LABEL[ty]}</span>`,
+          name: `<span class="g-c-name" style="--ind:${x.depth - 1}">${caret}<button class="g-name" type="button" data-open="${x.key}" title="${esc(x.title)}">${x.milestone ? '◆ ' : ''}${esc(x.title)}</button></span>`,
+          status: `<span class="g-st" style="--c:${st.color}"><i></i>${esc(st.zh || '')}</span>`,
+          who: `<span class="g-who">${esc(x.who || '')}</span>`,
+          start: `<span class="g-date${derived ? ' is-derived' : ''}">${x.milestone ? '' : a != null ? ymd(isoOf(a)) : ''}</span>`,
+          due: `<span class="g-date${lt ? ' is-late' : ''}${derived ? ' is-derived' : ''}">${b != null ? ymd(isoOf(b)) : ''}</span>`,
+          dur: `<span class="g-dur">${a != null && !x.milestone ? _t('{0} 天', b - a + 1) : ''}</span>`,
+        };
+        return `<div class="g-row g-l${x.depth}${hot && (hot === x.key) ? ' is-hot' : ''}${sel === x.key ? ' is-sel' : ''}" data-key="${x.key}">
+          <div class="g-cell">${cols.map(k => cell[k]).join('')}</div>
           <div class="g-track" style="width:${W}px">${base}${started}${bar}</div></div>`;
       }).join('');
       const unscheduled = list.filter(x => span(x)[0] == null).length;
-      well.innerHTML = _t("<div class=\"gantt\" style=\"--dw:{0}px;--g-bg:{1};--g-bgx:{2}px\">\n        <div class=\"g-head\"><div class=\"g-corner\"><span>工作項目</span><span class=\"g-who\">負責</span><span>狀態</span></div>{3}</div>\n        <div class=\"g-body\">{4}\n          <span class=\"g-today\" style=\"left:calc(var(--g-lw) + {5}px)\"></span>\n          <svg class=\"g-deps\" width=\"{6}\" height=\"{7}\"></svg></div></div>", dw, bg, bgOffset, scale, rows || _t('<p class="hint g-empty">沒有可顯示的卡片</p>'), (T - lo) * dw + dw / 2 - 1, W, list.length * RH);
+      well.innerHTML = `<div class="gantt" style="--dw:${dw}px;--g-bg:${bg};--g-bgx:${bgOffset}px;--g-lw:${lwNow}px;--g-cols:${tmpl}">
+        <div class="g-head"><div class="g-corner">${head}<span class="g-split" title="${esc(_t('拖曳調整表格寬度'))}"></span></div>${scale}</div>
+        <div class="g-body">${rows || `<p class="hint g-empty">${esc(_t('沒有可顯示的卡片'))}</p>`}
+          <span class="g-today" style="left:calc(var(--g-lw) + ${(T - lo) * dw + dw / 2}px)"></span>
+          <svg class="g-deps" width="${W}" height="${list.length * RH}"></svg></div></div>`;
       host.querySelector('.gantt-count')?.remove();
       tools.append(el('span', { class: 'hint gantt-count', text: _t("{0} 張卡片{1}", list.filter(x => x.kind === 't').length, unscheduled ? _t("，{0} 項未排日期", unscheduled) : '') }));
       drawDeps(list, at);
       if (center != null) well.scrollLeft = (center - lo) * dw - well.clientWidth / 2 + lw();
+      if (sel) paintSide();
     }
     const lw = () => parseFloat(getComputedStyle(well.querySelector('.gantt') || well).getPropertyValue('--g-lw')) || 0;
     const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -274,6 +318,60 @@
 
     // ---------------------------------------------------------------- interaction
     const find = key => { let hit = null; items().forEach(x => { const rec = y => { if (y.key === key) hit = y; y.kids.forEach(rec); }; rec(x); }); return hit; };
+    const parentOfKey = key => { let hit = null; items().forEach(x => { const rec = y => { y.kids.forEach(k => { if (k.key === key) hit = y; rec(k); }); }; rec(x); }); return hit; };
+
+    /** The details of one item on the right (as OpenProject's split view): click a row; double-click opens the editor. */
+    function paintSide() {
+      const x = sel && find(sel);
+      if (!x) { side.hidden = true; host.classList.remove('has-side'); return; }
+      const [a, b, derived] = span(x);
+      const st = statusOf(x.status), ty = typeOf(x), up = parentOfKey(x.key);
+      const lt = late(x, b);
+      const row = (k, v) => v == null || v === '' ? null : el('div', { class: 'gs-f' }, el('span', { text: k }), typeof v === 'string' ? el('b', { text: v }) : v);
+      const close = el('button', { class: 'icon-btn', type: 'button', 'aria-label': _t('關閉'), html: svg('x') });
+      close.addEventListener('click', () => { sel = null; paintSide(); well.querySelectorAll('.g-row.is-sel').forEach(r => r.classList.remove('is-sel')); });
+      const openBtn = el('button', { class: 'btn btn-sm btn-primary', type: 'button', html: svg('edit') + _t('開啟完整編輯') });
+      openBtn.addEventListener('click', () => openItem(x));
+      const upBtn = up ? el('button', { class: 'gs-up', type: 'button', text: (up.code ? up.code + ' ' : '') + up.title }) : null;
+      upBtn?.addEventListener('click', () => { sel = up.key; paint(); });
+      const desc = x.kind === 't' ? (x.card?.description || '') : (x.raw?.body && x.raw.body.trim() !== (x.title || '').trim() ? x.raw.body : '');
+      const deps = (x.deps || []).map(d => d.title + (d.lag ? _t("（+{0} 天）", d.lag) : ''));
+      side.replaceChildren(...[
+        el('div', { class: 'gs-head' }, up ? el('div', { class: 'gs-parent' }, el('span', { text: _t('上層：') }), upBtn) : el('span', { class: 'hint', text: x.kind === 't' ? _t('主卡') : '' }), el('span', { class: 'spacer' }), close),
+        el('div', { class: 'gs-title' }, el('span', { class: `g-type ty-${ty}`, text: TYPE_LABEL[ty] }), x.code ? el('code', { text: x.code }) : null, el('h3', { text: x.title })),
+        el('div', { class: 'gs-status' }, el('span', { class: 'g-st', style: { '--c': st.color } }, el('i'), st.zh || x.status), lt ? el('span', { class: 'g-d is-late', text: _t('逾期') }) : null),
+        el('h4', { text: _t('人員') }), row(_t('負責'), x.who || '—'),
+        el('h4', { text: _t('日期與進度') }),
+        row(x.milestone ? _t('日期') : _t('期間'), a == null ? _t('未排日期') : x.milestone ? ymd(isoOf(b)) : `${ymd(isoOf(a))} – ${ymd(isoOf(b))}（${_t('{0} 天', b - a + 1)}）${derived ? _t('，由下層推算') : ''}`),
+        row(_t('完成度'), `${pct(x)}%`),
+        x.started_at ? row(_t('實際開始'), ymd(x.started_at)) : null,
+        x.base_due || x.base_start ? row(_t('基準線'), TTBoard.baselineText({ ...x, due_at: x.due })) : null,
+        deps.length ? row(_t('前置'), deps.join('、')) : null,
+        x.kids.length ? row(_t('下層'), _t('{0} 項', x.kids.length)) : null,
+        desc ? el('h4', { text: _t('說明') }) : null,
+        desc ? el('div', { class: 'gs-desc' }, TT.mentionText(desc)) : null,
+        el('div', { class: 'gs-actions' }, openBtn)].filter(Boolean));
+      side.hidden = false;
+      host.classList.add('has-side');
+    }
+    function select(key) {
+      sel = key;
+      well.querySelectorAll('.g-row.is-sel').forEach(r => r.classList.remove('is-sel'));
+      well.querySelector(`.g-row[data-key="${CSS.escape(key)}"]`)?.classList.add('is-sel');
+      paintSide();
+    }
+    // the divider between the table and the time line: drag to widen the table (more columns appear)
+    well.addEventListener('pointerdown', e => {
+      const h = e.target.closest('.g-split');
+      if (!h || e.button !== 0) return;
+      e.preventDefault(); e.stopPropagation();
+      const x0 = e.clientX, w0 = lw(), g = well.querySelector('.gantt');
+      h.setPointerCapture(e.pointerId);
+      const move = ev => { leftW = Math.max(260, Math.min(1100, w0 + ev.clientX - x0)); g.style.setProperty('--g-lw', leftW + 'px'); };
+      const up = () => { h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); TT.store.set('gantt-lw', leftW); paint(true); };
+      h.addEventListener('pointermove', move);
+      h.addEventListener('pointerup', up);
+    }, true);
     function openItem(x) {
       if (linked && board) board.flash(x.cardId);
       if (x.kind === 't') TTBoard.openEditor(TTBoard.find(x.id) || x.card);
@@ -283,10 +381,14 @@
       if (drag?.moved) return;
       const t = e.target.closest('[data-toggle]');
       if (t) { const k = t.dataset.toggle; open.has(k) ? open.delete(k) : open.add(k); saveOpen(); paint(); return; }
-      const o = e.target.closest('[data-open], .g-bar, .g-ms');
-      if (!o) return;
-      const key = o.dataset.open || o.closest('.g-row')?.dataset.key;
-      const x = key && find(key);
+      const o = e.target.closest('.g-row');
+      if (!o || e.target.closest('.g-split')) return;
+      if (linked && board) { const x = find(o.dataset.key); if (x) board.flash(x.cardId); }
+      select(o.dataset.key);
+    });
+    well.addEventListener('dblclick', e => {
+      const o = e.target.closest('.g-row');
+      const x = o && find(o.dataset.key);
       if (x) openItem(x);
     });
     well.addEventListener('mousemove', e => {
@@ -315,7 +417,7 @@
         ${x.base_due || x.base_start ? `<div>${esc(TTBoard.baselineText({ ...x, due_at: x.due }))}</div>` : ''}
         ${x.started_at ? _t("<div>實際開始 {0}</div>", md(x.started_at)) : ''}
         ${deps.length ? _t("<div>前置：{0}</div>", esc(deps.join('、'))) : ''}
-        ${x.kids.length ? _t('<div class="hint">期間由下層推算 · 點一下開啟</div>') : x.canEdit && !span(x)[2] ? _t('<div class="hint">拖曳改日期 · 點一下開啟</div>') : _t('<div class="hint">點一下開啟</div>')}`;
+        ${x.kids.length ? _t('<div class="hint">期間由下層推算 · 點一下看詳情，雙擊開啟</div>') : x.canEdit && !span(x)[2] ? _t('<div class="hint">拖曳改日期 · 點一下看詳情，雙擊開啟</div>') : _t('<div class="hint">點一下看詳情，雙擊開啟</div>')}`;
       tip.hidden = false;
       const r = tip.getBoundingClientRect();
       tip.style.left = Math.min(innerWidth - r.width - 8, e.clientX + 14) + 'px';
@@ -424,6 +526,14 @@
       if (c) well.querySelectorAll(`.g-row[data-key="t:${c.dataset.id}"]`).forEach(r => r.classList.add('is-linked'));
     });
 
+    // the columns that fit depend on the width: lay out again when it changes (window, split view, side panel)
+    let lastW = 0;
+    new ResizeObserver(() => {
+      const w = well.clientWidth;
+      if (!host.isConnected || Math.abs(w - lastW) < 40) return;
+      lastW = w;
+      if (range) paint(true);
+    }).observe(well);
     TTBoard.load().catch(() => {}).then(async () => { await refresh(false); scrollToday(false); });
     return {
       refresh: () => refresh(true),
