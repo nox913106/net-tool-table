@@ -611,6 +611,7 @@ body.link-dragging .drop-overlay { display: grid; }
 
 .kb {
   --kb-col-min: 162px;
+  position: relative;                 /* the columns' offsetLeft is measured from here (board.js colAt) */
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(var(--kb-col-min), 1fr);
@@ -631,7 +632,7 @@ body.link-dragging .drop-overlay { display: grid; }
 }
 .kb-col.drop-over { border-color: var(--st); background: color-mix(in srgb, var(--st) 7%, var(--surface)); }
 /* while a card is dragged: the column under it stands out, the others step back */
-body.kb-is-dragging .kb { --kb-fold-w: 96px; }               /* folded columns open up so they are easy to hit */
+body.kb-is-dragging .kb-col.kb-col-empty:not(.drop-over) { outline: 1px dashed var(--st); outline-offset: -4px; }   /* folded strips are targets too */
 body.kb-is-dragging .kb-col { transition: opacity var(--t-fast), box-shadow var(--t-fast), background var(--t-fast), transform var(--t-fast); }
 body.kb-is-dragging .kb-col:not(.drop-over) { opacity: .45; filter: saturate(.6); }
 body.kb-is-dragging .kb-col.drop-over { opacity: 1; filter: none; position: relative; z-index: 3; transform: scale(1.035); transform-origin: 50% 0;
@@ -641,7 +642,7 @@ body.kb-is-dragging .kb-col.drop-over .kb-col-head { background: var(--st); }
 body.kb-is-dragging .kb-col.drop-over .kb-col-head :is(strong, .kb-zh, .kb-name) { color: #fff; }
 body.kb-is-dragging .kb-col.kb-col-empty.drop-over::after { content: "⬇"; display: block; text-align: center; font-size: 22px; color: var(--st); margin-top: 8px; }
 .kb-lane-cell.drop-over { box-shadow: inset 0 0 0 2px var(--st, var(--accent)); }
-.kb-drag-ghost { position: fixed; top: -1000px; left: -1000px; width: 220px; display: flex; flex-direction: column; gap: 3px; padding: 10px 14px;
+.kb-drag-ghost { position: fixed; top: -1000px; left: -1000px; width: 180px; display: flex; flex-direction: column; gap: 3px; padding: 10px 14px;
   border-radius: 12px; background: var(--surface-solid, var(--surface)); color: var(--text); border: 2px solid var(--st, var(--accent));
   border-left-width: 6px; box-shadow: var(--shadow-lg); font-size: 13.5px; pointer-events: none; }
 .kb-drag-ghost strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

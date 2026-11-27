@@ -936,6 +936,57 @@ const TTBoard = window.TTBoard = (() => {
     // created on first paint: on a direct page load the board can render before /me has answered
     let peopleBar = null;
     const placeholder = el('div', { class: 'kb-placeholder' }, el('span', { text: _t('放在這裡') }));
+    // One drop target for the whole board (status columns): the column is the one under the pointer's x —
+    // the gaps between columns count for the nearer one — so the card always lands where the highlight
+    // and "放在這裡" are, and both follow the pointer (nothing is left behind in the column it came from).
+    const colAt = x => {
+      // layout positions (offsetLeft ignores the highlighted column's zoom, so a zoomed column never
+      // covers its neighbour); the highlighted one keeps a few pixels of extra margin so it doesn't flicker
+      const base = root.getBoundingClientRect().left + root.clientLeft - root.scrollLeft;
+      let best = null, bd = Infinity;
+      for (const c of root.querySelectorAll(':scope > .kb-col')) {
+        const l = base + c.offsetLeft, r = l + c.offsetWidth;
+        const d = (x < l ? l - x : x > r ? x - r : 0) - (c.classList.contains('drop-over') ? 6 : 0);
+        if (d < bd) { bd = d; best = c; }
+      }
+      return bd <= 40 ? best : null;
+    };
+    const setOver = c => {
+      root.querySelectorAll(':scope > .kb-col.drop-over').forEach(x => { if (x !== c) x.classList.remove('drop-over'); });
+      if (c) c.classList.add('drop-over');
+    };
+    root.addEventListener('dragover', e => {
+      if (!drag || lanes) return;
+      const c = colAt(e.clientX);
+      if (!c) { setOver(null); placeholder.remove(); return; }
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      setOver(c);
+      const list = c.querySelector('.kb-list');
+      if (!list || c.classList.contains('kb-col-empty')) { placeholder.remove(); return; }
+      const after = [...list.querySelectorAll('.kb-card:not(.dragging)')].find(k => { const r = k.getBoundingClientRect(); return e.clientY < r.top + r.height / 2; });
+      if (after) { if (placeholder.nextElementSibling !== after) list.insertBefore(placeholder, after); }
+      else if (list.lastElementChild !== placeholder) list.append(placeholder);
+      list.querySelectorAll('.kb-empty').forEach(x => { x.hidden = true; });
+    });
+    root.addEventListener('dragleave', e => {
+      if (drag && !lanes && !root.contains(e.relatedTarget)) { setOver(null); placeholder.remove(); }
+    });
+    root.addEventListener('drop', e => {
+      if (!drag || lanes) return;
+      const c = colAt(e.clientX);
+      if (!c) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const list = c.querySelector('.kb-list');
+      const index = list && placeholder.parentElement === list
+        ? [...list.children].filter(k => (k.classList.contains('kb-card') && !k.classList.contains('dragging')) || k === placeholder).indexOf(placeholder) : 0;
+      const id = drag.id;
+      drag = null;
+      placeholder.remove();
+      setOver(null);
+      moveTo(id, c.dataset.status, Math.max(0, index));
+    });
 
     const render = () => {
       // a board that was on the page and has been taken off stops listening; one not yet placed on the
@@ -950,7 +1001,7 @@ const TTBoard = window.TTBoard = (() => {
       // (it stays unfolded until the page is reloaded; in focus mode empty columns always fold)
       const empty = s => !lanes && !colItems(s.key).length && (focusId != null || !opened.has(s.key));
       const anyEmpty = !lanes && cols.some(empty);
-      root.style.gridTemplateColumns = anyEmpty ? cols.map(s => empty(s) ? 'var(--kb-fold-w, 52px)' : 'minmax(var(--kb-col-min), 1fr)').join(' ') : '';
+      root.style.gridTemplateColumns = anyEmpty ? cols.map(s => empty(s) ? '52px' : 'minmax(var(--kb-col-min), 1fr)').join(' ') : '';
       root.classList.toggle('kb-has-folded', anyEmpty);
       if (lanes) renderLanes(cols);
       else root.replaceChildren(...cols.map(s => {
@@ -962,10 +1013,6 @@ const TTBoard = window.TTBoard = (() => {
           const unfold = () => { opened.add(s.key); render(); };
           c.addEventListener('click', unfold);
           c.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); unfold(); } });
-          // a card can still be dropped on the folded strip
-          c.addEventListener('dragover', e => { if (!drag) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; c.classList.add('drop-over'); });
-          c.addEventListener('dragleave', e => { if (!c.contains(e.relatedTarget)) c.classList.remove('drop-over'); });
-          c.addEventListener('drop', e => { if (!drag) return; e.preventDefault(); const id = drag.id; drag = null; moveTo(id, s.key, 0); });
         } else if (opened.has(s.key) && !colItems(s.key).length && focusId == null) {
           const fold = el('button', { class: 'kb-col-fold', type: 'button', title: _t('收合這一欄'), 'aria-label': _t('收合這一欄'), html: svg('chevron-left') });
           fold.addEventListener('click', e => { e.stopPropagation(); opened.delete(s.key); render(); });
@@ -1004,29 +1051,6 @@ const TTBoard = window.TTBoard = (() => {
           el('span', { class: 'kb-count', text: items.length })),
         list,
         CLOSED.has(s.key) || s.key === 'overdue' ? null : add);
-      list.addEventListener('dragover', e => {
-        if (!drag) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        const after = [...list.querySelectorAll('.kb-card:not(.dragging)')].find(c => {
-          const r = c.getBoundingClientRect();
-          return e.clientY < r.top + r.height / 2;
-        });
-        list.querySelector('.kb-empty')?.remove();
-        if (after) list.insertBefore(placeholder, after); else list.append(placeholder);
-        col.classList.add('drop-over');
-      });
-      list.addEventListener('dragleave', e => { if (!list.contains(e.relatedTarget)) col.classList.remove('drop-over'); });
-      list.addEventListener('drop', e => {
-        if (!drag) return;
-        e.preventDefault();
-        e.stopPropagation();
-        const index = [...list.children].filter(c => c.classList.contains('kb-card') && !c.classList.contains('dragging') || c === placeholder).indexOf(placeholder);
-        const id = drag.id;
-        drag = null;
-        placeholder.remove();
-        moveTo(id, s.key, index < 0 ? 0 : index);
-      });
       return col;
     }
 
