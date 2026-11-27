@@ -59,7 +59,9 @@
     const undatedSw = el('label', { class: 'switch', title: _t('沒有開始日、到期日，子任務也都沒有日期的卡片不列出') },
       el('input', { type: 'checkbox', checked: hideUndated }), el('span', { class: 'track' }), el('span', { text: _t('隱藏未排日期') }));
     undatedSw.querySelector('input').addEventListener('change', e => { hideUndated = e.target.checked; TT.store.set('gantt-hide-undated', hideUndated); paint(); });
-    const tools = el('div', { class: 'gantt-tools' }, linkSw, soloTools, undatedSw, el('span', { class: 'spacer' }), expand, collapse, todayBtn, zoomSeg, exportBtn);
+    const colBtn = el('button', { class: 'btn btn-sm', type: 'button', title: _t('選擇表格要顯示的欄位'), html: svg('list') + _t('欄位') });
+    colBtn.addEventListener('click', e => { e.stopPropagation(); columnMenu(); });
+    const tools = el('div', { class: 'gantt-tools' }, linkSw, soloTools, undatedSw, el('span', { class: 'spacer' }), expand, collapse, todayBtn, zoomSeg, colBtn, exportBtn);
     const well = el('div', { class: 'gantt-well', tabindex: '-1' });
     const side = el('aside', { class: 'gantt-side', hidden: true, 'aria-label': _t('項目詳情') });
     const tip = el('div', { class: 'gantt-tip', hidden: true });
@@ -156,20 +158,60 @@
     // the table's width are shown (drag the divider to widen it). Right: the time line — year, month and week
     // rows, today as a red dashed line, bars coloured by type with the start date on their left and the finish
     // date (red when late) and the name on their right.
-    const COLS = [                                        // [key, label, width] in the order they are added
+    const COLS = [                                        // [key, label, width] — when the table is narrow, the first ones stay
       ['name', _t('名稱'), 200], ['code', _t('編號'), 58], ['status', _t('狀態'), 100], ['type', _t('類型'), 78],
-      ['due', _t('完成日期'), 92], ['start', _t('起始日期'), 92], ['dur', _t('時長'), 58], ['who', _t('負責'), 92]];
-    const ORDER = ['code', 'type', 'name', 'status', 'who', 'start', 'due', 'dur'];
-    let leftW = Math.max(260, Math.min(1100, Number(TT.store.get('gantt-lw', 0)) || (fixed ? 760 : 620)));
+      ['due', _t('完成日期'), 92], ['start', _t('起始日期'), 92], ['dur', _t('時長'), 58], ['who', _t('負責'), 92],
+      ['prio', _t('優先'), 60], ['pct', _t('完成度'), 66]];
+    const ORDER = ['code', 'type', 'name', 'status', 'who', 'prio', 'start', 'due', 'dur', 'pct'];       // left to right
+    const DEFAULT_COLS = ['code', 'type', 'status', 'start', 'due', 'dur', 'who'];
+    // the columns this person chose (名稱 is always there); kept with their profile
+    let chosen = new Set(Array.isArray(TT.store.get('gantt-cols', null)) ? TT.store.get('gantt-cols') : DEFAULT_COLS);
+    const widthFor = set => 24 + COLS.filter(([k]) => k === 'name' || set.has(k)).reduce((n, c) => n + c[2], 0);
+    let leftW = Math.max(260, Math.min(1400, Number(TT.store.get('gantt-lw', 0)) || widthFor(chosen)));
     const colsFor = w => {
       let used = 24;
       const keep = new Set();
       for (const [k, , cw] of COLS) {                     // by priority: stop at the first that no longer fits
+        if (k !== 'name' && !chosen.has(k)) continue;
         if (k !== 'name' && used + cw > w) break;
         keep.add(k); used += cw;
       }
       return ORDER.filter(k => keep.has(k));
     };
+    /** 「欄位」: tick the columns to show; the table widens to hold them (drag the divider to change it). */
+    function columnMenu() {
+      document.querySelector('.gantt-colmenu')?.remove();
+      const pop = el('div', { class: 'gantt-colmenu', role: 'dialog', 'aria-label': _t('表格欄位') });
+      const apply = () => {
+        TT.store.set('gantt-cols', [...chosen]);
+        leftW = Math.max(260, Math.min(1400, widthFor(chosen)));
+        TT.store.set('gantt-lw', leftW);
+        paint(true);
+      };
+      const paintMenu = () => pop.replaceChildren(
+        el('div', { class: 'gcm-head', text: _t('表格欄位') }),
+        el('label', { class: 'gcm-row is-fixed' }, el('input', { type: 'checkbox', checked: true, disabled: true }), el('span', { text: _t('名稱（固定）') })),
+        ...ORDER.filter(k => k !== 'name').map(k => {
+          const box = el('input', { type: 'checkbox', checked: chosen.has(k) });
+          box.addEventListener('change', () => { if (box.checked) chosen.add(k); else chosen.delete(k); apply(); });
+          return el('label', { class: 'gcm-row' }, box, el('span', { text: COLS.find(c => c[0] === k)[1] }));
+        }),
+        (() => {
+          const all = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: _t('全選') });
+          all.addEventListener('click', () => { chosen = new Set(ORDER.filter(k => k !== 'name')); apply(); paintMenu(); });
+          const reset = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: _t('恢復預設') });
+          reset.addEventListener('click', () => { chosen = new Set(DEFAULT_COLS); apply(); paintMenu(); });
+          return el('div', { class: 'gcm-foot' }, all, reset);
+        })(),
+        el('p', { class: 'hint', text: _t('表格太窄時，次要的欄位會先收起來；拖曳表格與時間軸之間的分隔線可以加寬。') }));
+      paintMenu();
+      document.body.append(pop);
+      const r = colBtn.getBoundingClientRect();
+      pop.style.top = `${Math.min(r.bottom + 6, innerHeight - pop.offsetHeight - 8)}px`;
+      pop.style.left = `${Math.max(8, Math.min(r.right - pop.offsetWidth, innerWidth - pop.offsetWidth - 8))}px`;
+      const off = e => { if (!pop.contains(e.target) && e.target !== colBtn) { pop.remove(); document.removeEventListener('mousedown', off); } };
+      setTimeout(() => document.addEventListener('mousedown', off), 0);
+    }
     const ymd = v => v ? v.slice(0, 10).replaceAll('-', '/') : '';
     const typeOf = x => x.kind === 't' && (x.card?.kind === 'project') ? 'project' : x.milestone ? 'milestone' : x.kids.length ? 'summary' : 'task';
     const TYPE_LABEL = { project: _t('專案'), summary: _t('摘要任務'), task: _t('工作'), milestone: _t('里程碑') };
@@ -258,6 +300,8 @@
           start: `<span class="g-date${derived ? ' is-derived' : ''}">${x.milestone ? '' : a != null ? ymd(isoOf(a)) : ''}</span>`,
           due: `<span class="g-date${lt ? ' is-late' : ''}${derived ? ' is-derived' : ''}">${b != null ? ymd(isoOf(b)) : ''}</span>`,
           dur: `<span class="g-dur">${a != null && !x.milestone ? _t('{0} 天', b - a + 1) : ''}</span>`,
+          prio: `<span class="g-prio pr-${x.priority || 'normal'}">${{ low: _t('低'), normal: _t('一般'), high: _t('高') }[x.priority || 'normal'] || ''}</span>`,
+          pct: `<span class="g-pct-c"><i style="width:${pct(x)}%"></i><b>${pct(x)}%</b></span>`,
         };
         return `<div class="g-row g-l${x.depth}${hot && (hot === x.key) ? ' is-hot' : ''}${sel === x.key ? ' is-sel' : ''}" data-key="${x.key}">
           <div class="g-cell">${cols.map(k => cell[k]).join('')}</div>

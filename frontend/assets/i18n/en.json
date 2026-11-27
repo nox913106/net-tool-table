@@ -2089,5 +2089,12 @@
  "細節、步驟、注意事項…（輸入 @ 提到同事）": "Details, steps, notes… (type @ to mention someone)",
  "儲存說明": "Save description",
  "改了就存；前置、附件、提醒等請開完整編輯": "Changes save at once; for predecessors, files, reminders and more, open the full editor",
- "你只能檢視這個項目": "You can only view this item"
+ "你只能檢視這個項目": "You can only view this item",
+ "選擇表格要顯示的欄位": "Choose the table columns",
+ "欄位": "Columns",
+ "表格欄位": "Table columns",
+ "名稱（固定）": "Name (always shown)",
+ "全選": "Select all",
+ "恢復預設": "Reset to default",
+ "表格太窄時，次要的欄位會先收起來；拖曳表格與時間軸之間的分隔線可以加寬。": "When the table is too narrow the less important columns are folded away first; drag the divider between the table and the time line to widen it."
 }

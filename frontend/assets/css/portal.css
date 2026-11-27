@@ -2076,3 +2076,18 @@ body.nav-collapsed .sidebar:not(.peek) .nav-empty, body.nav-collapsed .sidebar:n
 .gs-desc-in { min-height: 90px; font-size: 13px; }
 .gs-actions-inline { display: flex; justify-content: flex-end; padding-top: 6px; }
 .gs-actions { flex-wrap: wrap; align-items: center; }
+/* Gantt: choose the table's columns */
+.gantt-colmenu { position: fixed; z-index: 95; width: 220px; padding: 10px; display: flex; flex-direction: column; gap: 2px;
+  background: var(--surface-solid, var(--surface)); border: 1px solid var(--border-strong, var(--border)); box-shadow: var(--shadow-lg); border-radius: var(--r, 10px); }
+.gcm-head { font-size: 12px; font-weight: 700; color: var(--text-3); padding: 0 4px 6px; }
+.gcm-row { display: flex; align-items: center; gap: 8px; padding: 5px 4px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.gcm-row:hover { background: var(--surface-2); }
+.gcm-row.is-fixed { cursor: default; color: var(--text-2); }
+.gcm-foot { display: flex; gap: 6px; padding-top: 6px; border-top: 1px solid var(--border); margin-top: 4px; }
+.gantt-colmenu .hint { font-size: 11.5px; margin: 6px 4px 0; }
+.g-prio { font-size: 12px; color: var(--text-2); }
+.g-prio.pr-high { color: var(--danger); font-weight: 700; }
+.g-prio.pr-low { color: var(--text-3); }
+.g-pct-c { position: relative; display: flex !important; align-items: center; height: 16px; background: var(--surface-2); border-radius: 3px; padding: 0 !important; margin: 0 6px; }
+.g-pct-c i { position: absolute; inset: 0 auto 0 0; background: color-mix(in srgb, var(--g-task) 45%, transparent); border-radius: 3px; }
+.g-pct-c b { position: relative; font: 600 10.5px var(--mono, monospace); padding-left: 5px; color: var(--text); }
