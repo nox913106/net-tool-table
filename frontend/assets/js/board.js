@@ -1602,6 +1602,10 @@ const TTBoard = window.TTBoard = (() => {
     remind: _t('到期前多久提醒負責人：右上角 🔔 會出現提醒，瀏覽器允許通知的話也會跳出通知。'),
     repeat: _t('週期工作：完成後依規則自動建立下一次（例如每週一、每月 5 號）。需要設定到期日。'),
     estimate: _t('預估要花多少工時。和實際記錄的工時比較，也用來計算每個人的負載是否超量。'),
+    pct: _t('沒有下層的項目依狀態估算（完成 100%、進行中 50%、待確認 30%…）；有下層的項目是下層的平均（取消的不算）。'),
+    derived: _t('這個項目底下還有工作，它的期間、狀態和完成度都由下層彙總：改下層的日期或狀態，這裡會跟著變。'),
+    below: _t('直接在這個項目底下的工作數；點左邊表格的 › 可以展開。'),
+    status: _t('沒有下層的項目可以直接改狀態；有下層的項目由下層彙總，不能在這裡改。'),
   };
   const tipLabel = (html, tip) => { const s = el('span', { class: 'field-label', html }); s.append(TT.helpTip(TIPS[tip])); return s; };
 
@@ -3346,5 +3350,5 @@ const TTBoard = window.TTBoard = (() => {
     reload(false).then(() => { if (path.length) paint(true); });
   }
 
-  return { init, load, refresh, openNavigator, exportByPeople, exportReport, ganttRows, baselineText, save, projectAnalysis, isProject, PROBLEM_ZH, get meInfo() { return meInfo; }, mount, mountBell, openEditor, openTask, exportXlsx, importXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; }, find, all, remember, historyHours, historyText };
+  return { TIPS, init, load, refresh, openNavigator, exportByPeople, exportReport, ganttRows, baselineText, save, projectAnalysis, isProject, PROBLEM_ZH, get meInfo() { return meInfo; }, mount, mountBell, openEditor, openTask, exportXlsx, importXlsx, setSelecting, get selecting() { return selecting; }, searchCards, cardHit, alerts, summary, timing, nextDue, repeatText, STATUSES, get tasks() { return tasks; }, find, all, remember, historyHours, historyText };
 })();

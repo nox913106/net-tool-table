@@ -422,7 +422,10 @@
       const st = statusOf(x.status), ty = typeOf(x), up = parentOfKey(x.key);
       const lt = late(x, b);
       const edit = x.canEdit && !(opts.project && TTBoard.find(opts.project)?.history);
-      const row = (k, v) => v == null || v === '' ? null : el('div', { class: 'gs-f' }, el('span', { text: k }), typeof v === 'string' ? el('b', { text: v }) : v);
+      const tips = TTBoard.TIPS || {};
+      // a field row; `tip` adds a「?」with the same explanations as the card editor
+      const row = (k, v, tip) => v == null || v === '' ? null : el('div', { class: 'gs-f' },
+        el('span', {}, k, tip && tips[tip] ? TT.helpTip(tips[tip]) : null), typeof v === 'string' ? el('b', { text: v }) : v);
       const close = el('button', { class: 'icon-btn', type: 'button', 'aria-label': _t('關閉'), html: svg('x') });
       close.addEventListener('click', () => { sel = null; paintSide(); well.querySelectorAll('.g-row.is-sel').forEach(r => r.classList.remove('is-sel')); });
       const openBtn = el('button', { class: 'btn btn-sm', type: 'button', html: svg('external') + _t('開啟完整編輯') });
@@ -484,7 +487,7 @@
       }
       let ms = null;
       if (edit && !x.kids.length) {
-        ms = el('label', { class: 'gs-check' }, el('input', { type: 'checkbox', checked: !!x.milestone }), el('span', { text: _t('里程碑（只有一個日期）') }));
+        ms = el('label', { class: 'gs-check' }, el('input', { type: 'checkbox', checked: !!x.milestone }), el('span', { text: _t('里程碑（只有一個日期）') }), TT.helpTip(tips.milestone));
         ms.querySelector('input').addEventListener('change', e => saveItem(x, { milestone: e.target.checked }, _t('里程碑')));
       }
       // ---- description
@@ -519,16 +522,16 @@
       side.replaceChildren(...[
         el('div', { class: 'gs-head' }, up ? el('div', { class: 'gs-parent' }, el('span', { text: _t('上層：') }), upBtn) : el('span', { class: 'hint', text: x.kind === 't' ? _t('主卡') : '' }), el('span', { class: 'spacer' }), close),
         el('div', { class: 'gs-title' }, el('span', { class: `g-type ty-${ty}`, text: TYPE_LABEL[ty] }), el('code', { text: `#${x.code}` }), x.prefix ? el('span', { class: 'g-pfx', text: x.prefix }) : null, title),
-        el('div', { class: 'gs-status' }, status, lt ? el('span', { class: 'g-d is-late', text: _t('逾期') }) : null),
-        el('h4', { text: _t('人員') }), row(_t('負責'), who),
+        el('div', { class: 'gs-status' }, status, TT.helpTip(tips.status), lt ? el('span', { class: 'g-d is-late', text: _t('逾期') }) : null),
+        el('h4', { text: _t('人員') }), row(_t('負責'), who, 'owner'),
         el('h4', { text: _t('日期與進度') }),
-        row(x.milestone ? _t('日期') : _t('期間'), dates), ms,
+        row(x.milestone ? _t('日期') : _t('期間'), dates, x.kids.length ? 'derived' : x.milestone ? 'milestone' : null), ms,
         row(_t('優先'), prio),
-        row(_t('完成度'), `${pct(x)}%`),
-        x.started_at ? row(_t('實際開始'), ymd(x.started_at)) : null,
-        x.base_due || x.base_start ? row(_t('基準線'), TTBoard.baselineText({ ...x, due_at: x.due })) : null,
-        deps.length ? row(_t('前置'), deps.join('、')) : null,
-        x.kids.length ? row(_t('下層'), _t('{0} 項', x.kids.length)) : null,
+        row(_t('完成度'), `${pct(x)}%`, 'pct'),
+        row(_t('實際開始'), x.started_at ? ymd(x.started_at) : _t('還沒開始'), 'started'),
+        row(_t('基準線'), x.base_due || x.base_start ? TTBoard.baselineText({ ...x, due_at: x.due }) : _t('還沒有設定'), 'baseline'),
+        row(_t('前置'), deps.length ? deps.join('、') : _t('沒有'), 'deps'),
+        x.kids.length ? row(_t('下層'), _t('{0} 項', x.kids.length), 'below') : null,
         el('h4', { text: _t('說明') }), descBox,
         el('div', { class: 'gs-actions' }, openBtn,
           edit ? el('span', { class: 'hint', text: _t('改了就存；前置、附件、提醒等請開完整編輯') }) : el('span', { class: 'hint', text: _t('你只能檢視這個項目') }))].filter(Boolean));

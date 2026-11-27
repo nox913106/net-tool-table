@@ -2122,5 +2122,12 @@
  "負責這項工作的人：看板、儀表板與提醒都算在他身上。被 @ 提到的人是「協作」，可以看到並收到通知，但不算負責人。": "Who is responsible: the board, the dashboard and reminders count it as theirs. People @mentioned are collaborators — they can see it and are notified, but are not responsible.",
  "到期前多久提醒負責人：右上角 🔔 會出現提醒，瀏覽器允許通知的話也會跳出通知。": "How long before the due date to remind the owner: it appears under 🔔 at the top right, and as a browser notification if allowed.",
  "週期工作：完成後依規則自動建立下一次（例如每週一、每月 5 號）。需要設定到期日。": "Recurring work: when it is done, the next one is created by the rule (e.g. every Monday, the 5th of every month). Needs a due date.",
- "預估要花多少工時。和實際記錄的工時比較，也用來計算每個人的負載是否超量。": "How many hours it is expected to take. Compared with the hours logged, and used to see whether people are overloaded."
+ "預估要花多少工時。和實際記錄的工時比較，也用來計算每個人的負載是否超量。": "How many hours it is expected to take. Compared with the hours logged, and used to see whether people are overloaded.",
+ "沒有下層的項目依狀態估算（完成 100%、進行中 50%、待確認 30%…）；有下層的項目是下層的平均（取消的不算）。": "An item with nothing below it is estimated from its status (complete 100%, ongoing 50%, pending 30% …); one with items below is their average (cancelled ones left out).",
+ "這個項目底下還有工作，它的期間、狀態和完成度都由下層彙總：改下層的日期或狀態，這裡會跟著變。": "This item has work below it: its period, status and progress are rolled up from that work — change the dates or status below and this follows.",
+ "直接在這個項目底下的工作數；點左邊表格的 › 可以展開。": "How many items sit directly under this one; open them with › in the table on the left.",
+ "沒有下層的項目可以直接改狀態；有下層的項目由下層彙總，不能在這裡改。": "An item with nothing below it can have its status changed here; one with items below takes it from them.",
+ "還沒開始": "Not started",
+ "還沒有設定": "Not set",
+ "沒有": "None"
 }
