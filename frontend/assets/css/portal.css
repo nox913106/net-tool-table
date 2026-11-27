@@ -1229,6 +1229,10 @@ body.kb-selecting .view { padding-bottom: 90px; }
 .kb-col.kb-col-empty { min-width: 0; cursor: pointer; animation: kb-fold .22s var(--ease); }
 .kb-col.kb-col-empty:hover, .kb-col.kb-col-empty:focus-visible { border-color: var(--st); background: color-mix(in srgb, var(--st) 6%, var(--surface)); outline: none; }
 .kb-col.kb-col-empty .kb-col-head { border-bottom: 0; }
+/* the column a dragged card has just left folds, but the card itself must stay rendered: a dragged element
+   with display:none makes the browser drop nothing */
+.kb-col.kb-col-empty.kb-drag-folded { position: relative; overflow: hidden; }
+.kb-col.kb-col-empty.kb-drag-folded .kb-list { display: flex; position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; padding: 0; min-height: 0; }
 @keyframes kb-fold { from { opacity: .4; transform: scaleY(.92); transform-origin: top; } }
 .kb-col-fold { display: grid; place-items: center; width: 22px; height: 22px; margin-left: 2px; border: 1px solid var(--border); background: transparent; color: var(--text-3); cursor: pointer; border-radius: 6px; }
 .kb-col-fold:hover { color: var(--text); border-color: var(--st); }

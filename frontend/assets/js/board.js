@@ -955,22 +955,39 @@ const TTBoard = window.TTBoard = (() => {
       root.querySelectorAll(':scope > .kb-col.drop-over').forEach(x => { if (x !== c) x.classList.remove('drop-over'); });
       if (c) c.classList.add('drop-over');
     };
+    // While a card is dragged, empty columns behave live: the column it leaves folds at once when the card
+    // was its only one, and an empty (folded) column opens while the card is over it and folds again
+    // when the card moves on.
+    const applyGrid = () => {
+      const cs = [...root.querySelectorAll(':scope > .kb-col')];
+      root.style.gridTemplateColumns = cs.some(x => x.classList.contains('kb-col-empty'))
+        ? cs.map(x => x.classList.contains('kb-col-empty') ? '52px' : 'minmax(var(--kb-col-min), 1fr)').join(' ') : '';
+    };
+    const foldLive = col => { col.classList.remove('kb-drag-open'); col.classList.add('kb-col-empty', 'kb-drag-folded'); };
+    const openLive = col => { col.classList.remove('kb-col-empty'); col.classList.add('kb-drag-open'); };
+    const liveColumns = c => {
+      let moved = false;
+      root.querySelectorAll(':scope > .kb-drag-open').forEach(o => { if (o !== c) { foldLive(o); moved = true; } });
+      if (c && c.classList.contains('kb-col-empty')) { openLive(c); moved = true; }
+      if (moved) applyGrid();
+    };
     root.addEventListener('dragover', e => {
       if (!drag || lanes) return;
       const c = colAt(e.clientX);
+      liveColumns(c);
       if (!c) { setOver(null); placeholder.remove(); return; }
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
       setOver(c);
       const list = c.querySelector('.kb-list');
-      if (!list || c.classList.contains('kb-col-empty')) { placeholder.remove(); return; }
+      if (!list) { placeholder.remove(); return; }
       const after = [...list.querySelectorAll('.kb-card:not(.dragging)')].find(k => { const r = k.getBoundingClientRect(); return e.clientY < r.top + r.height / 2; });
       if (after) { if (placeholder.nextElementSibling !== after) list.insertBefore(placeholder, after); }
       else if (list.lastElementChild !== placeholder) list.append(placeholder);
       list.querySelectorAll('.kb-empty').forEach(x => { x.hidden = true; });
     });
     root.addEventListener('dragleave', e => {
-      if (drag && !lanes && !root.contains(e.relatedTarget)) { setOver(null); placeholder.remove(); }
+      if (drag && !lanes && !root.contains(e.relatedTarget)) { setOver(null); placeholder.remove(); liveColumns(null); }
     });
     root.addEventListener('drop', e => {
       if (!drag || lanes) return;
@@ -1280,7 +1297,19 @@ const TTBoard = window.TTBoard = (() => {
         TT.dragGhost(e, t.title, _t('目前：{0}　放到要改的狀態', st.zh), st.color);
         placeholder.style.height = `${Math.max(52, Math.min(c.offsetHeight, 120))}px`;
         // after the drag has started: changing the layout inside dragstart makes the browser cancel the drag
-        requestAnimationFrame(() => { if (drag) { c.classList.add('dragging'); document.body.classList.add('kb-is-dragging'); } });
+        requestAnimationFrame(() => {
+          if (!drag) return;
+          c.classList.add('dragging');
+          document.body.classList.add('kb-is-dragging');
+          // the card was the last one in its column: the column folds right away (it opens again if the card comes back)
+          const own = c.closest('.kb > .kb-col');
+          if (!lanes && own && ![...own.querySelectorAll('.kb-card')].some(x => x !== c)) {
+            foldLive(own);
+            const n = own.querySelector('.kb-count');
+            if (n) n.textContent = '0';
+            applyGrid();
+          }
+        });
       });
       c.addEventListener('dragend', () => {
         document.body.classList.remove('kb-is-dragging');
