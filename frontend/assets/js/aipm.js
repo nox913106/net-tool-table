@@ -219,7 +219,7 @@
     return el('section', { class: 'aipm-board' },
       el('div', { class: 'ai-chips aipm-chips' }, ...[[_t('項目'), c.items], [_t('完成'), `${c.done ?? 0}（${c.pct ?? 0}%）`], [_t('逾期'), c.overdue], [_t('卡住'), c.blocked]]
         .map(([k, v]) => el('span', { class: 'ai-chip' }, el('small', { text: k }), el('b', { text: String(v ?? 0) })))),
-      sec('message', _t('AiPM 的問題'), qs.length, qs.length ? el('div', {}, ...qs.map(question)) : empty(_t('目前沒有問題。'))),
+      sec('message', _t('AiPM 的問題'), qs.length, qs.length ? questions(qs) : empty(_t('目前沒有問題。'))),
       sec('edit', _t('建議的變更（待核准）'), props.length, el('div', {},
         el('p', { class: 'hint aipm-rule', text: st.can_approve ? _t('你是這個專案的核准人：按「核准採用」才會變更。') : _t('只有專案負責人或看板管理人可以核准（{0}）。', st.approvers.join('、') || '—') }),
         ...(props.length ? props.map(proposal) : [empty(_t('目前沒有待核准的變更。'))]))),
@@ -235,30 +235,78 @@
 
   const itemApi = (id, what, body) => api(`/api/aipm/items/${id}/${what}`, { method: 'POST', body });
 
-  function question(i) {
+  /**
+   * AiPM's questions are answered together: picking an option or typing only fills in a draft (nothing is
+   * locked or sent), then one button sends every answer filled in and AiPM re-plans once with all of them.
+   * Questions left blank stay for later. Drafts survive repaints of the panel.
+   */
+  const canAnswer = i => i.assignee_id === panel.st.me || panel.st.can_approve;
+  function questions(qs) {
+    const drafts = panel.drafts || (panel.drafts = new Map());
+    for (const id of [...drafts.keys()]) if (!qs.some(q => q.id === id)) drafts.delete(id);
+    const mine = qs.filter(canAnswer);
+    const send = el('button', { class: 'btn btn-sm btn-primary', type: 'button' });
+    const count = el('span', { class: 'aipm-qcount' });
+    const filled = () => mine.map(q => ({ id: q.id, text: (drafts.get(q.id) || '').trim() })).filter(a => a.text);
+    const paintBar = () => {
+      const n = filled().length;
+      send.disabled = !n;
+      send.innerHTML = svg('send') + esc(n ? _t('送出 {0} 個回答，讓 AiPM 一起調整', n) : _t('送出回答'));
+      count.textContent = _t('已填 {0} / {1} 題', n, mine.length);
+    };
+    send.addEventListener('click', () => {
+      const answers = filled();
+      if (!answers.length) return;
+      run(send, async () => {
+        const r = await api(`/api/aipm/${panel.st.root.id}/answers`, { method: 'POST', body: { answers } });
+        answers.forEach(a => drafts.delete(a.id));
+        return r;
+      }, _t('AiPM 正在依你的 {0} 個回答一起調整…', answers.length));
+    });
+    const list = qs.map(q => question(q, paintBar));
+    paintBar();
+    return el('div', { class: 'aipm-qs' },
+      mine.length > 1 ? el('p', { class: 'hint', text: _t('可以一次回答多題，也可以只回答幾題（沒填的會留著）。選項與自己寫的回答都只是先填好，按下方「送出」才會一起交給 AiPM。') }) : null,
+      ...list,
+      mine.length ? el('div', { class: 'aipm-qbar' }, count, el('span', { class: 'spacer' }), send) : null);
+  }
+
+  function question(i, onChange) {
     const st = panel.st;
-    if (i.assignee_id !== st.me && !st.can_approve) {
+    if (!canAnswer(i)) {
       return el('div', { class: 'aipm-item q' },
         el('div', { class: 'aipm-it-head' }, i.code ? el('code', { text: i.code }) : null, el('b', { text: i.title })),
         el('small', { class: 'hint', text: _t('等 {0} 回答', i.assignee || _t('專案負責人')) }));
     }
-    const input = el('input', { class: 'input', maxlength: '2000', placeholder: _t('或自己回答…') });
-    const answer = v => run(null, () => itemApi(i.id, 'answer', { text: v }), _t('AiPM 正在依你的回答調整…'));
-    const ok = el('button', { class: 'btn btn-sm', type: 'button', text: _t('回答') });
-    ok.addEventListener('click', () => { if (input.value.trim()) answer(input.value.trim()); else input.focus(); });
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); ok.click(); } });
-    const skip = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: _t('略過') });
-    skip.addEventListener('click', () => run(null, () => itemApi(i.id, 'dismiss')));
-    return el('div', { class: 'aipm-item q' },
-      el('div', { class: 'aipm-it-head' }, i.code ? el('code', { text: i.code }) : null, el('b', { text: i.title })),
+    const drafts = panel.drafts;
+    const opts = i.options || [];
+    const cur = drafts.get(i.id) || '';
+    const input = el('input', { class: 'input', maxlength: '2000', placeholder: opts.length ? _t('或自己寫回答…') : _t('寫下回答…'),
+      value: opts.includes(cur) ? '' : cur });
+    const optBtns = opts.map(o => el('button', { class: 'btn btn-sm aipm-opt', type: 'button', text: o, 'aria-pressed': String(cur === o) }));
+    const box = el('div', { class: 'aipm-item q' + (cur.trim() ? ' is-filled' : '') });
+    const set = v => {
+      if (v.trim()) drafts.set(i.id, v); else drafts.delete(i.id);
+      optBtns.forEach(b => b.setAttribute('aria-pressed', String(drafts.get(i.id) === b.textContent)));
+      box.classList.toggle('is-filled', !!v.trim());
+      onChange();
+    };
+    optBtns.forEach(b => b.addEventListener('click', () => {                // click again to unpick
+      const on = drafts.get(i.id) === b.textContent;
+      input.value = '';
+      set(on ? '' : b.textContent);
+    }));
+    input.addEventListener('input', () => set(input.value));
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
+    const skip = el('button', { class: 'btn btn-sm btn-ghost', type: 'button', text: _t('略過'), title: _t('不回答這題（AiPM 不會再問）') });
+    skip.addEventListener('click', () => { drafts.delete(i.id); run(null, () => itemApi(i.id, 'dismiss')); });
+    box.append(...[
+      el('div', { class: 'aipm-it-head' }, i.code ? el('code', { text: i.code }) : null, el('b', { text: i.title }), el('span', { class: 'aipm-q-ok', text: _t('已填') })),
       i.detail ? el('p', { class: 'hint', text: _t('為什麼問：') + i.detail }) : null,
       i.assignee ? el('small', { class: 'hint', text: _t('請 {0} 回答', i.assignee) }) : null,
-      (i.options || []).length ? el('div', { class: 'aipm-opts' }, ...i.options.map(o => {
-        const b = el('button', { class: 'btn btn-sm aipm-opt', type: 'button', text: o });
-        b.addEventListener('click', () => answer(o));
-        return b;
-      })) : null,
-      el('div', { class: 'aipm-row' }, input, ok, skip));
+      opts.length ? el('div', { class: 'aipm-opts' }, ...optBtns) : null,
+      el('div', { class: 'aipm-row' }, input, skip)].filter(Boolean));
+    return box;
   }
 
   function proposal(i) {

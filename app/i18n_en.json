@@ -619,5 +619,7 @@
  "「{0}」已完成：請跟 AiPM 做結案對齊（完成條件、紀錄、結案摘要）": "“{0}” is done: align the closure with AiPM (completion criteria, records, summary)",
  "請輸入要追問或補充的內容": "Type a follow-up question or more information",
  "追問的對象無效": "Nothing to follow up on",
- "這個範圍沒有任何工作": "There is no work in this scope"
+ "這個範圍沒有任何工作": "There is no work in this scope",
+ "請至少回答一個問題": "Answer at least one question",
+ "這個問題不屬於這個專案": "This question does not belong to this project"
 }

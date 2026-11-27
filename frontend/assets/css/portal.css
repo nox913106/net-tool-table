@@ -2022,3 +2022,12 @@ button.g-tog:focus-visible { outline: 2px solid var(--accent); outline-offset: -
 .ai-follow { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .ai-follow-input { min-height: 60px; }
 .ai-follow-btns { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* AiPM questions: fill in several, send once */
+.aipm-opts .btn.aipm-opt[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 0 0 2px var(--accent-soft); }
+.aipm-opts .btn.aipm-opt[aria-pressed="true"]::before { content: "✓ "; }
+.aipm-item.q .aipm-q-ok { display: none; margin-left: auto; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 99px; background: var(--accent-soft); color: var(--accent-text); }
+.aipm-item.q { padding-left: 8px; }
+.aipm-item.q.is-filled { box-shadow: inset 3px 0 0 var(--accent); }
+.aipm-item.q.is-filled .aipm-q-ok { display: inline-block; }
+.aipm-qbar { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; gap: 8px; padding: 10px 0 2px; background: var(--surface-solid, var(--surface)); border-top: 1px solid var(--border); }
+.aipm-qcount { font-size: 12.5px; color: var(--text-2); font-weight: 650; }

@@ -321,28 +321,76 @@ class AnswerIn(BaseModel):
         return v
 
 
-@router.post("/items/{item_id}/answer")
-async def answer_item(item_id: int, body: AnswerIn, request: Request):
-    from .tasks import CommentIn, add_comment
-    user = current_user(request)
-    _member(user)
-    it, root = await _load_item(item_id, user)
+async def _check_answer(it: dict, root: dict, user: dict):
     if it["kind"] != "question" or it["status"] != "pending":
         raise HTTPException(status_code=400, detail="這個問題已經回答過了")
     if it["assignee_id"] != user.get("id"):
         await _approver(root, user)
-    await aipm._set(item_id, status="answered", answer=body.text, done_by=user.get("id"))
-    text = f"回覆 AiPM 的問題「{it['title']}」：{body.text}"
+
+
+async def _record_answer(it: dict, root: dict, user: dict, answer: str, request: Request) -> str:
+    """Mark one question answered (by the person asked, or an approver) and keep the answer as a comment."""
+    from .tasks import CommentIn, add_comment
+    await _check_answer(it, root, user)
+    await aipm._set(it["id"], status="answered", answer=answer, done_by=user.get("id"))
+    text = f"回覆 AiPM 的問題「{it['title']}」：{answer}"
     if not root["history"]:
         try:
             await add_comment(it["target_card"] or root["id"], CommentIn(body=text, parent_id=it["target_sub"]), request)
         except HTTPException:
             pass
+    return (f"{it['code']}：" if it.get("code") else "") + text
+
+
+async def _review_answers(root: dict, request: Request, lines: List[str], code: Optional[str]):
     out_err = None
     try:
-        await aipm.review(root["id"], request, "chat", {"text": text, "code": it["code"], "images": 0})
+        await aipm.review(root["id"], request, "chat", {"text": "\n".join(lines), "code": code, "images": 0})
     except (ValueError, RuntimeError) as e:
         out_err = aipm._err(e)
     out = await state(root, request)
     out["warning"] = out_err
     return out
+
+
+@router.post("/items/{item_id}/answer")
+async def answer_item(item_id: int, body: AnswerIn, request: Request):
+    user = current_user(request)
+    _member(user)
+    it, root = await _load_item(item_id, user)
+    line = await _record_answer(it, root, user, body.text, request)
+    return await _review_answers(root, request, [line], it["code"])
+
+
+class AnswerOne(BaseModel):
+    id: int
+    text: str
+
+
+class AnswersIn(BaseModel):
+    answers: List[AnswerOne]
+
+
+@router.post("/{card_id}/answers")
+async def answer_many(card_id: int, body: AnswersIn, request: Request):
+    """Several of AiPM's questions answered at once: every answer is recorded, then AiPM reviews once with
+    all of them together (instead of re-planning after each one)."""
+    user = current_user(request)
+    _member(user)
+    root = await _visible_root(card_id, user)
+    picked = [(a.id, (a.text or "").strip()[:2000]) for a in body.answers[:30] if (a.text or "").strip()]
+    if not picked:
+        raise HTTPException(status_code=400, detail="請至少回答一個問題")
+    items = []
+    for item_id, text in picked:                    # check all first: either every answer is kept or none
+        it, r = await _load_item(item_id, user)
+        if r["id"] != root["id"]:
+            raise HTTPException(status_code=400, detail="這個問題不屬於這個專案")
+        await _check_answer(it, root, user)
+        items.append((it, text))
+    lines, codes = [], set()
+    for it, text in items:
+        lines.append(await _record_answer(it, root, user, text, request))
+        codes.add(it["code"])
+    head = f"一次回覆了 AiPM 的 {len(lines)} 個問題，請一起考慮後再調整：" if len(lines) > 1 else ""
+    return await _review_answers(root, request, ([head] if head else []) + lines, codes.pop() if len(codes) == 1 else None)
