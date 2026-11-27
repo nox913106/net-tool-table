@@ -2108,5 +2108,19 @@
  "預設跟隨專案；也可以只讓這張卡片用別的前綴": "Follows the project by default; you can give just this card another prefix",
  "這張卡片底下每一層顯示的前綴": "The prefix shown at every level under this card",
  "表格欄位（拖曳 ⋮⋮ 調整順序）": "Table columns (drag ⋮⋮ to reorder)",
- "底色標出指派給你的項目。編號：專案本身是 0，往下依序 1、2、3…；標題前的階層前綴可在專案卡的「階層前綴」選擇。": "Items assigned to you are highlighted. Numbers: the project itself is 0, then 1, 2, 3 … down the list; the level prefix before titles is chosen on the project card (“Level prefix”)."
+ "底色標出指派給你的項目。編號：專案本身是 0，往下依序 1、2、3…；標題前的階層前綴可在專案卡的「階層前綴」選擇。": "Items assigned to you are highlighted. Numbers: the project itself is 0, then 1, 2, 3 … down the list; the level prefix before titles is chosen on the project card (“Level prefix”).",
+ "這是什麼？": "What is this?",
+ "里程碑是一個時間點，不是一段工作：例如「設備到貨」「驗收完成」。只看到期日，甘特圖畫成菱形，用來標出重要的檢查點。": "A milestone is a point in time, not a stretch of work — e.g. “equipment delivered”, “acceptance done”. Only its due date counts; the Gantt draws it as a diamond to mark key checkpoints.",
+ "要等哪些工作完成才能開始。例如「上架」要等「到貨」，就把「到貨」設為前置。「+N 天」是前置完成後隔幾天才開始（0 = 隔天就開始）。排得比前置還早開始時，甘特圖的箭頭會變紅（排程衝突）。": "The work that must finish before this can start. E.g. “racking” waits for “delivery”, so set “delivery” as its predecessor. “+N days” is how many days after the predecessor finishes this starts (0 = the next day). If it is scheduled to start earlier, the Gantt arrow turns red (a schedule conflict).",
+ "停電、機房維護窗口這類大家要共用的時段（管理員在後台設定）。選了之後，系統會檢查同一個時段是否排了太多工作；「凍結期」裡不應該排工作。": "A time slot many jobs share, such as a power outage or a data-centre maintenance window (set by an administrator). The system checks the slot is not overbooked; nothing should be scheduled in a “freeze”.",
+ "真正動工的日子。第一次改成「進行中」或第一次記工時時自動記下來，也可以手動修正。用來和計畫的開始日比較，看是否晚開工。": "The day work really began. Recorded automatically the first time it is set to “Ongoing” or hours are logged, and can be corrected. Compared with the planned start to see whether it started late.",
+ "把目前排好的日期「拍照存起來」當作原定計畫。之後日期再怎麼改，系統都會拿基準線來算延誤或提前幾天；甘特圖長條下方的細線就是基準線。通常在計畫核定後設定一次，計畫重新核定時再「重設」。": "A snapshot of the dates as planned now, kept as the original plan. However the dates change later, the system measures how many days late or early against it; the thin line under a Gantt bar is the baseline. Usually set once when the plan is approved, and reset when it is re-approved.",
+ "這一區給甘特圖與排程用：里程碑、前置任務、共用時段、實際開始與基準線。一般的日常工作可以不用填。": "This part is for the Gantt and scheduling: milestone, predecessors, shared slot, actual start and baseline. Everyday work can leave it empty.",
+ "一般（維運）是日常工作；專案有自己的專案頁（甘特圖、專案看板、清單、雷達），在看板上顯示成一張專案卡，底下用子任務拆成階段與工作。": "Everyday (operations) is routine work; a project has its own page (Gantt, project board, list, radar), shows on the board as a project card, and is broken down into phases and work with subtasks.",
+ "把這張一般卡片掛到某個專案底下：它會出現在該專案的甘特圖與專案看板，並算進專案進度。卡片本身還是留在你的看板上。": "Attach this everyday card to a project: it appears in that project's Gantt and project board and counts towards its progress. The card stays on your board too.",
+ "標題前面顯示的層級標示，方便一眼看出是第幾層（例如 A / A1 / A1-1，或 一、/（一）/ 1.）。在專案卡選一次，整個專案都套用。": "The level mark shown before titles so you can tell the level at a glance (e.g. A / A1 / A1-1, or 一、/（一）/ 1.). Choose it once on the project card and the whole project uses it.",
+ "負責這項工作的人：看板、儀表板與提醒都算在他身上。被 @ 提到的人是「協作」，可以看到並收到通知，但不算負責人。": "Who is responsible: the board, the dashboard and reminders count it as theirs. People @mentioned are collaborators — they can see it and are notified, but are not responsible.",
+ "到期前多久提醒負責人：右上角 🔔 會出現提醒，瀏覽器允許通知的話也會跳出通知。": "How long before the due date to remind the owner: it appears under 🔔 at the top right, and as a browser notification if allowed.",
+ "週期工作：完成後依規則自動建立下一次（例如每週一、每月 5 號）。需要設定到期日。": "Recurring work: when it is done, the next one is created by the rule (e.g. every Monday, the 5th of every month). Needs a due date.",
+ "預估要花多少工時。和實際記錄的工時比較，也用來計算每個人的負載是否超量。": "How many hours it is expected to take. Compared with the hours logged, and used to see whether people are overloaded."
 }

@@ -1587,6 +1587,24 @@ const TTBoard = window.TTBoard = (() => {
   }
   /** Milestone, predecessors, actual start and baseline of a card ("t:id") or subtask ("s:id").
    *  opts: { key, item, editable, card (for the baseline buttons), onChange(body) → saves at once; omitted → value() } */
+  /** 「?」 explanations for the fields that are not obvious (shown next to their labels). */
+  const TIPS = {
+    milestone: _t('里程碑是一個時間點，不是一段工作：例如「設備到貨」「驗收完成」。只看到期日，甘特圖畫成菱形，用來標出重要的檢查點。'),
+    deps: _t('要等哪些工作完成才能開始。例如「上架」要等「到貨」，就把「到貨」設為前置。「+N 天」是前置完成後隔幾天才開始（0 = 隔天就開始）。排得比前置還早開始時，甘特圖的箭頭會變紅（排程衝突）。'),
+    win: _t('停電、機房維護窗口這類大家要共用的時段（管理員在後台設定）。選了之後，系統會檢查同一個時段是否排了太多工作；「凍結期」裡不應該排工作。'),
+    started: _t('真正動工的日子。第一次改成「進行中」或第一次記工時時自動記下來，也可以手動修正。用來和計畫的開始日比較，看是否晚開工。'),
+    baseline: _t('把目前排好的日期「拍照存起來」當作原定計畫。之後日期再怎麼改，系統都會拿基準線來算延誤或提前幾天；甘特圖長條下方的細線就是基準線。通常在計畫核定後設定一次，計畫重新核定時再「重設」。'),
+    sched: _t('這一區給甘特圖與排程用：里程碑、前置任務、共用時段、實際開始與基準線。一般的日常工作可以不用填。'),
+    kind: _t('一般（維運）是日常工作；專案有自己的專案頁（甘特圖、專案看板、清單、雷達），在看板上顯示成一張專案卡，底下用子任務拆成階段與工作。'),
+    project: _t('把這張一般卡片掛到某個專案底下：它會出現在該專案的甘特圖與專案看板，並算進專案進度。卡片本身還是留在你的看板上。'),
+    style: _t('標題前面顯示的層級標示，方便一眼看出是第幾層（例如 A / A1 / A1-1，或 一、/（一）/ 1.）。在專案卡選一次，整個專案都套用。'),
+    owner: _t('負責這項工作的人：看板、儀表板與提醒都算在他身上。被 @ 提到的人是「協作」，可以看到並收到通知，但不算負責人。'),
+    remind: _t('到期前多久提醒負責人：右上角 🔔 會出現提醒，瀏覽器允許通知的話也會跳出通知。'),
+    repeat: _t('週期工作：完成後依規則自動建立下一次（例如每週一、每月 5 號）。需要設定到期日。'),
+    estimate: _t('預估要花多少工時。和實際記錄的工時比較，也用來計算每個人的負載是否超量。'),
+  };
+  const tipLabel = (html, tip) => { const s = el('span', { class: 'field-label', html }); s.append(TT.helpTip(TIPS[tip])); return s; };
+
   function scheduleBlock(opts) {
     const { key, item, editable } = opts;
     let milestone = !!item.milestone;
@@ -1596,7 +1614,7 @@ const TTBoard = window.TTBoard = (() => {
     const emit = part => { Object.assign(changed, part); opts.onChange?.(part); };
     const box = el('div', { class: 'kb-sched' });
     const ms = el('label', { class: 'kb-sched-ms' }, el('input', { type: 'checkbox', checked: milestone, disabled: !editable }),
-      el('span', { html: svg('flag') + _t('里程碑') }), el('small', { class: 'hint', text: _t('只看到期日，甘特圖畫成菱形') }));
+      el('span', { html: svg('flag') + _t('里程碑') }), TT.helpTip(TIPS.milestone), el('small', { class: 'hint', text: _t('只看到期日，甘特圖畫成菱形') }));
     ms.querySelector('input').addEventListener('change', e => { milestone = e.target.checked; emit({ milestone }); });
     const chips = el('div', { class: 'kb-dep-chips' });
     const paintChips = () => {
@@ -1673,10 +1691,10 @@ const TTBoard = window.TTBoard = (() => {
     }
     box.append(...[
       el('div', { class: 'kb-sched-row' }, ms),
-      el('div', { class: 'kb-sched-row' }, el('span', { class: 'kb-sched-label', html: svg('link') + _t('前置任務') }), el('div', { class: 'kb-dep-box' }, chips, find, sug)),
-      wins.length || item.win ? el('div', { class: 'kb-sched-row' }, el('span', { class: 'kb-sched-label', html: svg('zap') + _t('共用時段') }), winSel) : null,
-      el('div', { class: 'kb-sched-row' }, el('span', { class: 'kb-sched-label', html: svg('play') + _t('實際開始') }), st,
-        el('span', { class: 'kb-sched-label', html: svg('calendar') + _t('基準線') }), base, baseBtns)].filter(Boolean));
+      el('div', { class: 'kb-sched-row' }, el('span', { class: 'kb-sched-label', html: svg('link') + _t('前置任務') }, TT.helpTip(TIPS.deps)), el('div', { class: 'kb-dep-box' }, chips, find, sug)),
+      wins.length || item.win ? el('div', { class: 'kb-sched-row' }, el('span', { class: 'kb-sched-label', html: svg('zap') + _t('共用時段') }, TT.helpTip(TIPS.win)), winSel) : null,
+      el('div', { class: 'kb-sched-row' }, el('span', { class: 'kb-sched-label', html: svg('play') + _t('實際開始') }, TT.helpTip(TIPS.started)), st,
+        el('span', { class: 'kb-sched-label', html: svg('calendar') + _t('基準線') }, TT.helpTip(TIPS.baseline)), base, baseBtns)].filter(Boolean));
     return { el: box, value: () => ({ ...changed }) };
   }
 
@@ -1812,13 +1830,14 @@ const TTBoard = window.TTBoard = (() => {
           field(_t('標題'), title),
           field(_t('說明'), desc),
           el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('paperclip') + _t('附件') }), filesBox),
-          meInfo.people ? el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('user') + _t('負責人') }), who) : null,
+          meInfo.people ? el('div', { class: 'field' }, tipLabel(svg('user') + _t('負責人'), 'owner'), who) : null,
           el('div', { class: 'kb-row' }, field(_t('狀態'), status), el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('優先順序') }), prio)),
           el('div', { class: 'kb-row' },
             el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('play') + _t('開始日') }), el('div', { class: 'kb-dt' }, startD, startT)),
             el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('clock') + _t('到期日') }), el('div', { class: 'kb-dt' }, dueD, dueT))),
-          el('div', { class: 'kb-row' }, field(_t('提醒'), remind), field(_t('預估工時（小時）'), est)),
-          el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('calendar') + _t('排程（甘特圖）') }), sched.el),
+          el('div', { class: 'kb-row' }, el('label', { class: 'field' }, tipLabel(TT.esc(_t('提醒')), 'remind'), remind),
+            el('label', { class: 'field' }, tipLabel(TT.esc(_t('預估工時（小時）')), 'estimate'), est)),
+          el('div', { class: 'field' }, tipLabel(svg('calendar') + _t('排程（甘特圖）'), 'sched'), sched.el),
           hint,
           el('p', { class: 'hint', text: _t("已記錄工時 {0}{1}（計時與明細在卡片的子任務區）", fmtMin(spent), s.estimate_minutes ? _t(" / 預估 {0}", fmtMin(s.estimate_minutes)) : '') })),
         el('div', { class: 'modal-foot' }, aiSuggestBtn({ card_id: card.id, comment_id: c.id, title: s.title }, c.can_edit_body ? desc : null), aipmBtn(card.id, c.id), el('span', { class: 'spacer' }), cancel, edit || c.can_edit_body || s.can_update ? ok : null)));
@@ -2117,7 +2136,7 @@ const TTBoard = window.TTBoard = (() => {
     const projSel = el('select', { class: 'select', disabled: readOnly, 'aria-label': _t('歸屬專案') },
       el('option', { value: '', text: _t('不歸屬任何專案') }),
       ...tasks.filter(x => isProject(x) && x.id !== task?.id).map(x => el('option', { value: x.id, text: x.title, selected: x.id === t.project_id })));
-    const projField = el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('layout') + _t('歸屬專案') }), projSel,
+    const projField = el('div', { class: 'field' }, tipLabel(svg('layout') + _t('歸屬專案'), 'project'), projSel,
       el('span', { class: 'hint', text: _t('這張卡片也會出現在該專案的甘特圖與專案看板') }));
     // 階層前綴: chosen once on a project (or a card on its own); everything under it shows that prefix before its title
     const STYLE_NAMES = { alpha: _t('英數階層'), num: _t('數字大綱'), zh: _t('中文公文'), pts: _t('階段／工作'), none: _t('不加前綴') };
@@ -2134,7 +2153,7 @@ const TTBoard = window.TTBoard = (() => {
       if (styleSel.selectedIndex < 0) styleSel.value = proj ? '' : 'alpha';
       styleHint.textContent = kind === 'project' ? _t('選一次，整個專案（含歸屬的卡片）的每一層都套用這個前綴') : proj ? _t('預設跟隨專案；也可以只讓這張卡片用別的前綴') : _t('這張卡片底下每一層顯示的前綴');
     };
-    const styleField = el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('list') + _t('階層前綴') }), styleSel, styleHint);
+    const styleField = el('div', { class: 'field' }, tipLabel(svg('list') + _t('階層前綴'), 'style'), styleSel, styleHint);
     projSel.addEventListener('change', paintStyle);
     const kindHint = el('span', { class: 'hint' });
     const paintKind = () => {
@@ -2695,21 +2714,21 @@ const TTBoard = window.TTBoard = (() => {
           field(_t('標題'), title),
           field(_t('說明'), desc),
           el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('標籤') }), tagBox, tagSug, tagData),
-          el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('類型') }), kindSeg, kindHint),
+          el('div', { class: 'field' }, tipLabel(TT.esc(_t('類型')), 'kind'), kindSeg, kindHint),
           projField,
           styleField,
           el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('paperclip') + _t('附件') }), imgBox),
-          meInfo.people ? el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('users') + _t('負責人') }), assignBox) : null,
+          meInfo.people ? el('div', { class: 'field' }, tipLabel(svg('users') + _t('負責人'), 'owner'), assignBox) : null,
           el('div', { class: 'kb-row' }, el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('狀態') }), status,
             summary ? el('span', { class: 'hint', text: SUMMARY_HINT }) : null), el('div', { class: 'field' }, el('span', { class: 'field-label', text: _t('優先順序') }), prio)),
           blockBox,
           el('div', { class: 'kb-row' },
             el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('play') + _t('開始日') }), el('div', { class: 'kb-dt' }, startD, startT), startChips),
             el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('clock') + _t('到期日') }), el('div', { class: 'kb-dt' }, dueD, dueT), dueChips)),
-          el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('calendar') + _t('排程（甘特圖）') }), sched.el),
+          el('div', { class: 'field' }, tipLabel(svg('calendar') + _t('排程（甘特圖）'), 'sched'), sched.el),
           el('div', { class: 'kb-row' },
-            field(_t('提醒'), remind),
-            el('div', { class: 'field' }, el('span', { class: 'field-label', html: svg('repeat') + _t('重複') }),
+            el('label', { class: 'field' }, tipLabel(TT.esc(_t('提醒')), 'remind'), remind),
+            el('div', { class: 'field' }, tipLabel(svg('repeat') + _t('重複'), 'repeat'),
               el('div', { class: 'kb-repeat' }, repeatSel, everyBox))),
           weekBox,
           hint,

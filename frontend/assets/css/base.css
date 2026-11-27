@@ -573,3 +573,11 @@ button.kb-tag:hover { border-color: hsl(var(--tag-h) 60% 55%); }
 .kb-tag.custom.on, [data-theme="dark"] .kb-tag.custom.on { color: #fff; background: var(--tag-c); border-color: transparent; }
 .lang-btn { font: 700 12px var(--mono, ui-monospace, monospace); letter-spacing: .04em; }
 .login-lang { justify-self: end; margin-top: 4px; }
+/* 「?」 field explanations (common.js helpTip) */
+.help-tip { display: inline-grid; place-items: center; width: 16px; height: 16px; margin-left: 6px; padding: 0; border-radius: 50%;
+  border: 1px solid var(--border-strong, var(--border)); background: transparent; color: var(--text-3); font: 700 10.5px/1 var(--font, sans-serif);
+  cursor: help; vertical-align: middle; flex: none; }
+.help-tip:hover, .help-tip:focus-visible { color: var(--accent-text); border-color: var(--accent); background: var(--accent-soft); outline: none; }
+.help-bubble { position: fixed; z-index: 200; max-width: min(320px, calc(100vw - 16px)); padding: 9px 12px; font-size: 12.5px; line-height: 1.55; font-weight: 400;
+  color: var(--text); background: var(--surface-solid, var(--surface)); border: 1px solid var(--border-strong, var(--border)); border-radius: 10px;
+  box-shadow: var(--shadow-lg); pointer-events: none; white-space: normal; }

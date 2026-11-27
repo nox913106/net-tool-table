@@ -704,6 +704,39 @@ const TT = (() => {
     return input;
   }
 
+  /** A small「?」next to a field that is not obvious (基準線, 前置任務 …): its text shows on hover, focus or tap. */
+  function helpTip(text) {
+    const b = el('button', { class: 'help-tip', type: 'button', 'aria-label': _t('這是什麼？') + ' ' + text, text: '?' });
+    b.dataset.tip = text;
+    return b;
+  }
+  {
+    let bubble = null, owner = null;
+    const hide = () => { bubble?.remove(); bubble = null; owner = null; };
+    const show = b => {
+      if (owner === b) return;
+      hide();
+      owner = b;
+      bubble = el('div', { class: 'help-bubble', role: 'tooltip', text: b.dataset.tip });
+      document.body.append(bubble);
+      const r = b.getBoundingClientRect(), w = bubble.offsetWidth, h = bubble.offsetHeight;
+      const below = r.bottom + 8 + h <= innerHeight - 8;
+      bubble.style.top = `${below ? r.bottom + 8 : Math.max(8, r.top - 8 - h)}px`;
+      bubble.style.left = `${Math.min(Math.max(8, r.left + r.width / 2 - w / 2), innerWidth - w - 8)}px`;
+    };
+    document.addEventListener('mouseover', e => { const b = e.target.closest?.('.help-tip'); if (b) show(b); else if (owner && !e.target.closest?.('.help-bubble')) hide(); });
+    document.addEventListener('focusin', e => { const b = e.target.closest?.('.help-tip'); if (b) show(b); });
+    document.addEventListener('focusout', e => { if (e.target.closest?.('.help-tip')) hide(); });
+    document.addEventListener('click', e => {
+      const b = e.target.closest?.('.help-tip');
+      if (!b) { if (!e.target.closest?.('.help-bubble')) hide(); return; }
+      e.preventDefault(); e.stopPropagation();          // inside a <label>: do not focus or toggle the field
+      show(b);                                          // (a tap on a phone; on a desktop hovering already showed it)
+    }, true);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && bubble) { e.stopPropagation(); hide(); } }, true);
+    addEventListener('scroll', hide, true);
+  }
+
   /** A solid, compact drag image centred on the pointer (the browser's default is a see-through copy of the
    *  whole element, held by the corner, so it looks offset from where it will land). */
   function dragGhost(e, title, sub, color) {
@@ -775,7 +808,7 @@ const TT = (() => {
   }
 
   return {
-    wbs, me, userMenu, avatar, nameOf, mentionInput, mentionText, dragGhost, ROLE,
+    wbs, me, userMenu, avatar, nameOf, mentionInput, mentionText, dragGhost, helpTip, ROLE,
     onInstallable, installApp, installed, syncThemeColor,
     langButton, store, api, esc, el, svg, tile, tagHue, isIconFile, iconUrl, initials, hostOf, toast, applyAppearance, cycleTheme, themePref,
     togglePerf, setFavicon, isLinkDrag, readDroppedLink, guessIcon, nameFromUrl,
