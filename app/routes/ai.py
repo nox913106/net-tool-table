@@ -13,7 +13,7 @@ import asyncio
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from .. import ai
 from ..auth import current_user, require_admin
@@ -192,10 +192,9 @@ class ReportIn(BaseModel):
     mode: Optional[str] = None
 
 
-@router.post("/report")
-async def report(body: ReportIn, request: Request, user: dict = Depends(current_user)):
+async def _report_data(body: ReportIn, request: Request, user: dict):
+    """(data, prompt) of a report; prompt is None when the scope has no work. Only what this person sees."""
     from .. import ai_assist as A
-    _member(user)
     if body.kind not in A.KINDS or body.scope not in ("project", "mine", "all"):
         raise HTTPException(status_code=400, detail="報告類型或範圍無效")
     try:
@@ -208,9 +207,16 @@ async def report(body: ReportIn, request: Request, user: dict = Depends(current_
     data["context"] = A._context(data["items"], today)
     header = {"project": f"範圍：專案「{data['project']}」與歸屬的卡片。", "mine": f"範圍：{user.get('display_name') or user.get('username')} 參與的工作。",
               "all": "範圍：我看得到的所有工作。"}[body.scope]
-    if not data["items"]:
+    return data, (A.build_report_prompt(body.kind, data, header) if data["items"] else None)
+
+
+@router.post("/report")
+async def report(body: ReportIn, request: Request, user: dict = Depends(current_user)):
+    from .. import ai_assist as A
+    _member(user)
+    data, prompt = await _report_data(body, request, user)
+    if prompt is None:
         return {"title": A.TITLES[body.kind], "lists": data["lists"], "result": None, "empty": True}
-    prompt = A.build_report_prompt(body.kind, data, header)
     res = await _run(lambda: _ask(prompt, user, f"report:{body.kind}", None, body.mode))
     return {"title": A.TITLES[body.kind], "lists": data["lists"], "result": res}
 
@@ -221,13 +227,11 @@ class TaskSuggestIn(BaseModel):
     mode: Optional[str] = None
 
 
-@router.post("/task-suggest")
-async def task_suggest(body: TaskSuggestIn, request: Request, user: dict = Depends(current_user)):
-    """One card or subtask: suggested content, execution flow, screenshots to keep as records."""
+async def _task_prompt(body: TaskSuggestIn, user: dict):
+    """(target title, prompt) for one card or subtask the person can see."""
     from .. import ai_assist as A
     from ..database import get_db
     from .tasks import _get_visible
-    _member(user)
     db = await get_db()
     try:
         t = await _get_visible(db, body.card_id, user)
@@ -258,9 +262,70 @@ async def task_suggest(body: TaskSuggestIn, request: Request, user: dict = Depen
         sib = [x["title"] for x in subs.values() if not x["task_parent_id"]][:30]
         lines += [f"底下的子任務：{'、'.join(sib)}" if sib else "", "這項工作：整張卡片"]
         target = t["title"]
-    prompt = A.TASK_PROMPT + "\n\n" + "\n".join(x for x in lines if x)
+    return target, A.TASK_PROMPT + "\n\n" + "\n".join(x for x in lines if x)
+
+
+@router.post("/task-suggest")
+async def task_suggest(body: TaskSuggestIn, request: Request, user: dict = Depends(current_user)):
+    """One card or subtask: suggested content, execution flow, screenshots to keep as records."""
+    _member(user)
+    target, prompt = await _task_prompt(body, user)
     res = await _run(lambda: _ask(prompt, user, "task-suggest", None, body.mode))
     return {"target": target, "result": res}
+
+
+class Turn(BaseModel):
+    q: str = ""                               # the person's follow-up ("" for the first answer)
+    a: str = ""                               # the AI's answer
+
+
+class FollowIn(BaseModel):
+    """A follow-up on an AI 助理 answer: the same request is rebuilt (so it only ever holds what the person
+    may see now), then the earlier answers and the new question are added."""
+    kind: str                                 # report | task
+    report: Optional[ReportIn] = None
+    task: Optional[TaskSuggestIn] = None
+    history: List[Turn] = []
+    question: str
+    mode: Optional[str] = None
+
+    @field_validator("question")
+    @classmethod
+    def v_q(cls, v):
+        v = (v or "").strip()[:3000]
+        if not v:
+            raise ValueError("請輸入要追問或補充的內容")
+        return v
+
+
+FOLLOW_RULES = """=== 這是同一份工作的後續對話 ===
+以上是原本的資料與要求。下面是你先前的回答，以及使用者後續的追問或補充。
+- 直接回答最後一則追問；使用者補充了新資訊或更正時，依此修正先前的建議，並明確說明改了什麼、為什麼。
+- 只能根據上面的資料與對話內容回答，資料裡沒有的事情要說「資料裡沒有」，不要編造。
+- 如果還有需要使用者決定或補充才能往下走的地方，最後用「需要你確認」列出 1–3 個具體問題（附可選的答案）。
+- 用繁體中文、Markdown。"""
+
+
+@router.post("/followup")
+async def followup(body: FollowIn, request: Request, user: dict = Depends(current_user)):
+    _member(user)
+    if body.kind == "report" and body.report:
+        _, base = await _report_data(body.report, request, user)
+        if base is None:
+            raise HTTPException(status_code=400, detail="這個範圍沒有任何工作")
+    elif body.kind == "task" and body.task:
+        _, base = await _task_prompt(body.task, user)
+    else:
+        raise HTTPException(status_code=400, detail="追問的對象無效")
+    turns, size = [], 0
+    for t in reversed(body.history[-8:]):                 # newest first, within a size budget
+        piece = (f"使用者：{t.q.strip()[:2000]}\n" if t.q.strip() else "") + f"你：{t.a.strip()[:5000]}"
+        if size + len(piece) > 16000 and turns:
+            break
+        turns.insert(0, piece); size += len(piece)
+    prompt = f"{base}\n\n{FOLLOW_RULES}\n\n" + "\n\n".join(turns) + f"\n\n使用者：{body.question}"
+    res = await _run(lambda: _ask(prompt, user, f"followup:{body.kind}", None, body.mode))
+    return {"result": res}
 
 
 class DraftIn(BaseModel):

@@ -616,5 +616,8 @@
  "只能附加截圖（圖片）": "Only screenshots (images) can be attached",
  "AiPM 每日對齊：你有 {0} 項進行中的工作": "AiPM daily check-in: you have {0} items in progress",
  "AiPM 每日對齊：你有 {0} 項進行中的工作，{1} 項要注意": "AiPM daily check-in: you have {0} items in progress, {1} need attention",
- "「{0}」已完成：請跟 AiPM 做結案對齊（完成條件、紀錄、結案摘要）": "“{0}” is done: align the closure with AiPM (completion criteria, records, summary)"
+ "「{0}」已完成：請跟 AiPM 做結案對齊（完成條件、紀錄、結案摘要）": "“{0}” is done: align the closure with AiPM (completion criteria, records, summary)",
+ "請輸入要追問或補充的內容": "Type a follow-up question or more information",
+ "追問的對象無效": "Nothing to follow up on",
+ "這個範圍沒有任何工作": "There is no work in this scope"
 }

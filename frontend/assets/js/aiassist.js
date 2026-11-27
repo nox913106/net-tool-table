@@ -75,9 +75,57 @@
       tabs.append(b);
     });
     if (shown.length) paint();
+    box.currentText = () => (shown[cur] && shown[cur].ok ? shown[cur].text : '');
     box.append(tabs, pane);
     if (failedBefore.length) box.append(el('p', { class: 'hint', text: _t('已略過無法回覆的服務：{0}', failedBefore.map(r => `${r.name}（${r.error}）`).join('；')) }));
     return box;
+  }
+
+  // ---------------------------------------------------------------- a conversation, not a one-shot answer
+  const AIPM_INTRO = '以下是 AI 助理的建議與後續討論。請依此檢視，提出需要核准的具體變更與要追蹤的事項；不清楚或需要人決定的地方，請向相關的人追問。\n\n';
+  /**
+   * An AI answer you keep working with: ask a follow-up or add what the AI didn't know (the server rebuilds the
+   * same request from what you may see now, plus the conversation), and hand the result to AiPM, which turns it
+   * into concrete changes that wait for the project owner's approval (AiPM never changes anything by itself).
+   */
+  function conversation(first, ctx, { onUse, aipm } = {}) {
+    const history = [];
+    const thread = el('div', { class: 'ai-thread' });
+    const firstView = resultView(first, onUse ? { onUse } : {});
+    history.push({ q: '', get a() { return firstView.currentText(); } });
+    thread.append(firstView);
+    const input = el('textarea', { class: 'textarea ai-follow-input', rows: '2',
+      placeholder: _t('追問或補充，例如：「第 2 點已經做完了」、「供應商延到 12/20，請重排」、「這一步誰來做比較好？」（Ctrl+Enter 送出）') });
+    const send = el('button', { class: 'btn btn-sm btn-primary', type: 'button', html: svg('send') + _t('追問／補充') });
+    const toPm = aipm && window.TTAIPM ? el('button', { class: 'btn btn-sm', type: 'button', html: svg('sparkles') + _t('交給 AiPM 變成專案行動'),
+      title: _t('AiPM 依這段對話提出具體的變更（等負責人核准）與追問，不會自己改任何東西') }) : null;
+    const ask = async () => {
+      const q = input.value.trim();
+      if (!q) return;
+      send.disabled = input.disabled = true;
+      const wait = el('div', { class: 'ai-wait', html: svg('sparkles') + esc(_t('AI 正在回覆…')) });
+      thread.append(el('div', { class: 'ai-q' }, el('b', { text: _t('你') }), el('span', { text: q })), wait);
+      try {
+        const r = await api('/api/ai/followup', { method: 'POST', body: { ...ctx, history: history.map(h => ({ q: h.q, a: h.a })), question: q } });
+        const v = resultView(r.result, onUse ? { onUse } : {});
+        wait.replaceWith(v);
+        history.push({ q, get a() { return v.currentText(); } });
+        input.value = '';
+      } catch (e) { wait.replaceWith(el('p', { class: 'ai-err', text: e.message })); }
+      send.disabled = input.disabled = false;
+      input.focus();
+    };
+    send.addEventListener('click', ask);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ask(); } });
+    toPm?.addEventListener('click', async () => {
+      const text = history.filter(h => h.a).map(h => (h.q ? `【追問】${h.q}\n` : '') + h.a).join('\n\n');
+      if (!text) return;
+      toPm.disabled = true;
+      try { await aipm(AIPM_INTRO + text.slice(-3800)); } catch (e) { toast(e.message, true); }
+      toPm.disabled = false;
+    });
+    return el('div', { class: 'ai-convo' }, thread,
+      el('div', { class: 'ai-follow' }, input, el('div', { class: 'ai-follow-btns' }, toPm, el('span', { class: 'spacer' }), send)));
   }
 
   // ---------------------------------------------------------------- 「AI 建議」 for one card / subtask
@@ -96,7 +144,13 @@
     document.body.append(wrap);
     try {
       const r = await api('/api/ai/task-suggest', { method: 'POST', body: { card_id, comment_id } });
-      body.replaceChildren(resultView(r.result, onUse ? { onUse: text => { onUse(text); toast(_t('已加到說明，記得儲存')); done(); } } : {}),
+      const aipm = async text => {
+        await api(`/api/aipm/${card_id}/chat`, { method: 'POST', body: { text, card: card_id, sub: comment_id, record: false } });
+        done();
+        TTAIPM.open(card_id, { target: { card: card_id, sub: comment_id } });
+      };
+      body.replaceChildren(conversation(r.result, { kind: 'task', task: { card_id, comment_id } },
+        { onUse: onUse ? text => { onUse(text); toast(_t('已加到說明，記得儲存')); done(); } : null, aipm }),
         el('p', { class: 'hint', text: _t('AI 的建議僅供參考，請確認後再採用。') }));
     } catch (e) { body.replaceChildren(el('p', { class: 'ai-err', text: e.message })); }
   }
@@ -135,8 +189,9 @@
       btns.forEach(b => { b.disabled = true; });
       out.replaceChildren(el('div', { class: 'ai-wait', html: svg('sparkles') + esc(_t('AI 正在整理「{0}」…', label)) }));
       try {
-        const r = await api('/api/ai/report', { method: 'POST', body: { kind, scope, project_id: scope === 'project' ? Number(projSel.value) : null } });
-        out.replaceChildren(reportView(r));
+        const req = { kind, scope, project_id: scope === 'project' ? Number(projSel.value) : null };
+        const r = await api('/api/ai/report', { method: 'POST', body: req });
+        out.replaceChildren(reportView(r, req));
       } catch (e) { out.replaceChildren(el('p', { class: 'ai-err', text: e.message })); }
       btns.forEach(b => { b.disabled = false; });
       void btn;
@@ -158,7 +213,15 @@
         : el('p', { class: 'hint', text: _t('無') }));
   }
 
-  function reportView(r) {
+  function reportView(r, req) {
+    // the project's AiPM for a project report; "我的 AiPM" (which works out which project each point belongs to) otherwise
+    const aipm = req && req.scope === 'project'
+      ? async text => { await api(`/api/aipm/${req.project_id}/chat`, { method: 'POST', body: { text, record: false } }); TTAIPM.open(req.project_id); }
+      : async text => {
+        const fd = new FormData(); fd.append('text', text);
+        await api('/api/aipm-my/chat', { method: 'POST', form: fd });
+        location.hash = '#/aipm';
+      };
     const L = r.lists, c = L.counts;
     const chips = el('div', { class: 'ai-chips' }, ...[[_t('項目'), c.items], [_t('完成'), `${c.done}（${c.pct}%）`], [_t('逾期'), c.overdue], [_t('卡住'), c.blocked],
       [_t('本週完成'), c.done_week], [_t('本週未完成'), c.undone_week]].map(([k, v]) => el('span', { class: 'ai-chip' }, el('small', { text: k }), el('b', { text: String(v) }))));
@@ -167,7 +230,7 @@
       itemList(_t('本週未完成'), L.undone_week), itemList(_t('逾期'), L.overdue), itemList(_t('卡住'), L.blocked),
       itemList(_t('下週候選工作（{0}～{1}）', L.next_week[0].slice(5), L.next_week[1].slice(5)), L.candidates_next));
     return el('div', {}, el('h3', { class: 'ai-title', text: r.title }), chips,
-      r.empty ? el('p', { class: 'hint', text: _t('這個範圍沒有任何工作。') }) : resultView(r.result),
+      r.empty ? el('p', { class: 'hint', text: _t('這個範圍沒有任何工作。') }) : conversation(r.result, { kind: 'report', report: req }, { aipm }),
       el('p', { class: 'hint', text: _t('下面的清單由系統直接計算（不是 AI 產生），可以用來核對 AI 的內容。') }), lists);
   }
 
