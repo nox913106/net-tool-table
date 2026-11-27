@@ -1316,12 +1316,25 @@ const TTBoard = window.TTBoard = (() => {
       return el('div', {}, bar, tree);
     }
 
+    /** Who is on the card: "<creator> 與其他 N 人" when the creator is one of them, else "N 位負責人". */
+    function whoLine(t) {
+      const seen = new Map();
+      for (const p of [...(t.assignees || []), ...(t.mentions || [])]) if (p && !seen.has(p.id ?? p.username)) seen.set(p.id ?? p.username, p);
+      const all = [...seen.values()];
+      if (!all.length) return null;
+      const title = _t('負責與協作：') + all.map(TT.nameOf).join('、');
+      const owner = t.owner && all.find(p => (p.id ?? p.username) === (t.owner.id ?? t.owner.username));
+      if (!owner) return el('span', { class: 'kb-meta kb-who', title, text: _t('{0} 位負責人', all.length) });
+      return el('span', { class: 'kb-meta kb-who', title }, el('span', { class: 'mention-bubble', text: TT.nameOf(owner) }),
+        all.length > 1 ? el('span', { text: _t(' 與其他 {0} 人', all.length - 1) }) : null);
+    }
+
     function cardPeople(t) {
       const people = t.assignees?.length ? t.assignees : t.owner ? [t.owner] : [];
       if (!people.length && !t.comments && !t.mentions?.length) return null;
       return el('div', { class: 'kb-people' },
         t.comments ? el('span', { class: 'kb-meta', title: _t("{0} 則留言", t.comments), html: svg('message') + t.comments }) : null,
-        t.mentions?.length ? el('span', { class: 'kb-meta', title: _t('協作：') + t.mentions.map(TT.nameOf).join('、'), html: '@' + t.mentions.length }) : null,
+        whoLine(t),
         el('span', { class: 'spacer' }),
         el('span', { class: 'avatars' + (t.assignees?.length ? '' : ' is-owner'), title: (t.assignees?.length ? _t('負責：') : _t('建立：')) + people.map(TT.nameOf).join('、') },
           people.slice(0, 4).map(p => TT.avatar(p, 22))));

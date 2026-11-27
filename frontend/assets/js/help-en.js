@@ -153,7 +153,7 @@ window.TT_HELP_EN = [
         <li><b>Progress bar %</b>: (done subtasks + collaborators marked done) ÷ (subtasks not canceled + collaborators).</li>
       </ul>` },
       { h: 'People row', b: `<ul>
-        <li>Left: <b>💬 N</b> comments, <b>@N</b> collaborators mentioned.</li>
+        <li>Left: <b>💬 N</b> comments, who is on the card: “creator and N others” when the creator is one of them, otherwise “N responsible” (hover for all names).</li>
         <li>Right: assignees' avatars (up to 4); with nobody assigned, the creator (faded).</li>
       </ul>` },
       { h: 'Task tree button “Subtasks x/y · Collaborators x/y ⧉”', b: 'Opens the task window (see “Task window”). In the expanded tree each subtask shows status, assignee, due date and hours; each collaborator has a “Done” box (the collaborator or anyone who can edit the card can tick it), which counts toward completion. Double-click the tree to open the card editor.' },
@@ -354,7 +354,7 @@ window.TT_HELP_EN = [
       </ul>` },
       { h: 'Replies', b: '“Reply” on a comment opens a reply box (<kbd>Ctrl</kbd>+<kbd>Enter</kbd> sends, <kbd>Esc</kbd> cancels). Replying to someone\'s reply @mentions them and notifies the whole thread.' },
       { h: 'Editing and deleting', b: 'Your own comments have “Edit” (shows “(edited)” afterwards; <kbd>Ctrl</kbd>+<kbd>Enter</kbd> saves, <kbd>Esc</kbd> cancels) and 🗑 delete; with replies, or on a subtask, it asks first and deletes the replies too.' },
-      { h: '@ mentions', b: 'Type <code>@</code> for a list (managers / reports / peers first); the person picked can see the card and is notified. With AD reachable you can also @ people who have never signed in. Mentions are always saved as <code>@username</code>: typing <code>@Full Name</code> without picking is changed to the username (left as typed when several people share the name; pick from the list then). A person picked is a name bubble in the box (hover for the username); Backspace / Delete removes the whole bubble, so one stray key cannot break or change the mention. Comments, descriptions and cards show mentions as name bubbles too.' },
+      { h: '@ mentions', b: 'Type <code>@</code> for a list (yourself, then managers / reports / peers first; you can @ yourself); the person picked can see the card and is notified. With AD reachable you can also @ people who have never signed in. Mentions are always saved as <code>@username</code>: typing <code>@Full Name</code> without picking is changed to the username (left as typed when several people share the name; pick from the list then). A person picked is a name bubble in the box (hover for the username); Backspace / Delete removes the whole bubble, so one stray key cannot break or change the mention. Comments, descriptions and cards show mentions as name bubbles too.' },
       { h: 'Sort and filter buttons', b: 'Top right of the comments: “🕒 Oldest first / Newest first” and “✓ All comments / Subtasks only” (in outline order). Your choice is kept on your account.' },
       { h: 'When read-only', b: 'Read-only people can still comment, reply and attach files; read-only admins cannot change the card\'s files but can attach files to comments. Closed cases take no comments.' },
     ],

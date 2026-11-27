@@ -2030,5 +2030,8 @@
  "（這次的更新沒有新的版本號，例如只改文件）": "(this update adds no new version number, e.g. documentation only)",
  "放在這裡": "Drop here",
  "目前：{0}　放到要改的狀態": "Now: {0} · drop on the new status",
- "拖到要放的位置": "Drag to where it goes"
+ "拖到要放的位置": "Drag to where it goes",
+ "負責與協作：": "Responsible and collaborating: ",
+ "{0} 位負責人": "{0} responsible",
+ " 與其他 {0} 人": " and {0} others"
 }

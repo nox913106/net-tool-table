@@ -2004,3 +2004,7 @@ button.g-tog:focus-visible { outline: 2px solid var(--accent); outline-offset: -
   .my-chat { height: 72vh; }
 }
 .my-tab { text-decoration: none; }
+/* card footer: "<creator bubble> 與其他 N 人" / "N 位負責人" */
+.kb-who { min-width: 0; flex: 0 1 auto; flex-wrap: wrap; gap: 2px 3px; color: var(--text-2); }
+.kb-who .mention-bubble { flex: none; font-size: 11.5px; padding: 0 6px; line-height: 1.6; max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+.kb-who > span:not(.mention-bubble) { white-space: nowrap; }

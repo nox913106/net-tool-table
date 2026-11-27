@@ -514,15 +514,15 @@ async def people(q: str = "", user: dict = Depends(current_user)):
     try:
         cur = await db.execute(
             """SELECT id, username, display_name, department FROM users
-               WHERE active = 1 AND source IN ('ldap', 'entra', 'demo') AND id IS NOT ? AND (? = '' OR lower(username) LIKE ? OR lower(display_name) LIKE ?)
-               ORDER BY display_name LIMIT 20""", (user.get("id"), text, f"%{text}%", f"%{text}%"))
+               WHERE active = 1 AND source IN ('ldap', 'entra', 'demo') AND (? = '' OR lower(username) LIKE ? OR lower(display_name) LIKE ?)
+               ORDER BY id IS NOT ?, display_name LIMIT 21""", (text, f"%{text}%", f"%{text}%", user.get("id")))
         out = [{**dict(r), "known": True} for r in await cur.fetchall()]
         from ..team import relations
         rel = await relations(db, user.get("id"))
         for p in out:
-            p["relation"] = rel.get(p["id"])
-        order = {"上級": 0, "下級": 1, "同級": 2}
-        out.sort(key=lambda p: order.get(p["relation"], 3))      # my own reporting line first
+            p["relation"] = "自己" if p["id"] is not None and p["id"] == user.get("id") else rel.get(p["id"])
+        order = {"自己": 0, "上級": 1, "下級": 2, "同級": 3}
+        out.sort(key=lambda p: order.get(p["relation"], 4))      # myself (I can @ my own account), then my reporting line
     finally:
         await db.close()
     if text and not C.AUTH:                       # linked copy: the server's search (AD included) while online
