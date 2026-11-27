@@ -191,14 +191,21 @@
       return b;
     }));
     paintTabs();
+    // which projects to look at: null = all; kept per browser
+    let pick = TT.store.get('projects-pick', null);
+    const pickUi = { open: false, q: '' };              // the picker stays open while ticking, across repaints
+    const setPick = (v, close) => { pick = v; if (close) pickUi.open = false; TT.store.set('projects-pick', v); paint(); };
     const paint = async () => {
       if (!body.isConnected) { document.removeEventListener('tt:tasks', paint); return; }
       const a = await TTBoard.projectAnalysis().catch(() => null);
       if (!a) { body.replaceChildren(el('p', { class: 'hint', text: _t('讀不到專案資料') })); return; }
       if (tab === 'load') { body.replaceChildren(...loadView(a)); return; }
-      if (tab === 'links') { body.replaceChildren(...linksView(a)); return; }
+      const all = a.projects;
+      const chosen = pick && all.some(p => pick.includes(p.id)) ? new Set(pick) : null;      // nothing left of the pick: show all
+      const picker = all.length > 1 ? projectPicker(all, chosen, setPick, pickUi) : null;
+      if (tab === 'links') { body.replaceChildren(...[picker, ...linksView(a, chosen)].filter(Boolean)); return; }
       const T = todayN();
-      const ps = a.projects;
+      const ps = chosen ? all.filter(p => chosen.has(p.id)) : all;
       const lo = Math.min(T - 14, ...ps.map(p => day(p.start) ?? T)), hi = Math.max(T + 60, ...ps.map(p => day(p.end) ?? day(p.due) ?? T));
       const pos = v => `${((day(v) - lo) / (hi - lo) * 100).toFixed(2)}%`;
       const wid = (s, e) => `${(Math.max(1, day(e) - day(s) + 1) / (hi - lo) * 100).toFixed(2)}%`;
@@ -207,8 +214,8 @@
         const up = a.can_rank ? el('button', { class: 'pj-mv', type: 'button', 'aria-label': _t('往前'), text: '▲', disabled: i === 0 }) : null;
         const down = a.can_rank ? el('button', { class: 'pj-mv', type: 'button', 'aria-label': _t('往後'), text: '▼', disabled: i === ps.length - 1 }) : null;
         const move = async d => {
-          const ids = ps.map(x => x.id); const j = i + d;
-          [ids[i], ids[j]] = [ids[j], ids[i]];
+          const ids = all.map(x => x.id), a1 = ids.indexOf(p.id), a2 = ids.indexOf(ps[i + d].id);   // the neighbour among the shown ones
+          [ids[a1], ids[a2]] = [ids[a2], ids[a1]];
           try { await api('/api/tasks/projects/order', { method: 'POST', body: { ids } }); await TTBoard.projectAnalysis(true); paint(); }
           catch (e) { toast(e.message, true); }
         };
@@ -236,7 +243,7 @@
       const table = el('div', { class: 'pj-tw' }, el('table', { class: 'pj-table' },
         el('thead', {}, el('tr', {}, ...[_t('排序'), _t('專案'), _t('狀態'), _t('完成'), _t('排程'), _t('下個里程碑'), _t('問題'), _t('時程')].map(h => el('th', { text: h })))),
         el('tbody', {}, ...rows)));
-      const parts = [a.can_rank ? el('p', { class: 'hint', text: _t('用 ▲▼ 調整專案的先後：雷達、警示清單與這張表都照這個順序。') }) : null,
+      const parts = [picker, a.can_rank ? el('p', { class: 'hint', text: _t('用 ▲▼ 調整專案的先後：雷達、警示清單與這張表都照這個順序。') }) : null,
         ps.length ? table : el('p', { class: 'hint', text: _t('還沒有專案。按「新增專案」，或把下方看起來像專案的卡片轉為專案。') })];
       // everyday cards that look like projects
       const sus = await api('/api/tasks/projects/suspected').catch(() => []);
@@ -257,6 +264,46 @@
     };
     document.addEventListener('tt:tasks', paint);
     paint();
+  }
+
+  /** 「顯示：全部專案」 — tick the projects to look at; search when there are many. */
+  function projectPicker(all, chosen, set, ui) {
+    const n = chosen ? all.filter(p => chosen.has(p.id)).length : all.length;
+    const btn = el('button', { class: 'btn btn-sm pj-pick-btn', type: 'button', 'aria-haspopup': 'true', 'aria-expanded': 'false', html: svg('filter') },
+      el('span', { text: chosen ? _t('顯示：{0} / {1} 個專案', n, all.length) : _t('顯示：全部專案（{0}）', all.length) }), el('span', { class: 'pj-pick-caret', text: '▾' }));
+    const q = el('input', { class: 'input input-sm', type: 'search', placeholder: _t('搜尋專案'), 'aria-label': _t('搜尋專案') });
+    const list = el('div', { class: 'pj-pick-list' });
+    let sel = new Set(chosen || all.map(p => p.id));
+    const apply = () => set(sel.size === all.length || !sel.size ? null : [...sel]);
+    const paintList = () => {
+      const k = q.value.trim().toLowerCase();
+      list.replaceChildren(...all.filter(p => !k || p.title.toLowerCase().includes(k)).map(p => {
+        const cb = el('input', { type: 'checkbox', checked: sel.has(p.id) });
+        cb.addEventListener('change', () => { cb.checked ? sel.add(p.id) : sel.delete(p.id); apply(); });
+        const only = el('button', { class: 'pj-pick-only', type: 'button', text: _t('只看這個'), title: _t('只顯示這個專案') });
+        only.addEventListener('click', e => { e.preventDefault(); set([p.id], true); });
+        return el('label', { class: 'pj-pick-row' }, cb, el('span', { class: 'pj-pick-t', text: p.title }), el('small', { class: 'hint', text: p.rank ? `#${p.rank}` : '' }), only);
+      }));
+      if (!list.children.length) list.append(el('p', { class: 'hint', text: _t('找不到符合的專案') }));
+    };
+    const allBtn = el('button', { class: 'btn btn-sm', type: 'button', text: _t('全部') });
+    allBtn.addEventListener('click', () => set(null, true));
+    const pop = el('div', { class: 'pj-pick-pop', hidden: true }, el('div', { class: 'pj-pick-top' }, q, allBtn), list,
+      el('p', { class: 'hint', text: _t('勾選要看的專案；記在你的帳號，換電腦也一樣。') }));
+    q.value = ui.q;
+    q.addEventListener('input', () => { ui.q = q.value; paintList(); });
+    const box = el('div', { class: 'pj-pick' }, btn, pop,
+      chosen ? el('button', { class: 'kb-link-btn', type: 'button', text: _t('顯示全部'), onclick: () => set(null, true) }) : null);
+    const close = e => { if (!box.isConnected) return document.removeEventListener('pointerdown', close, true); if (!box.contains(e.target)) toggle(false); };
+    const toggle = on => {
+      ui.open = on; pop.hidden = !on; btn.setAttribute('aria-expanded', String(on));
+      if (on) { paintList(); requestAnimationFrame(() => box.isConnected && !pop.contains(document.activeElement) && q.focus({ preventScroll: true })); document.addEventListener('pointerdown', close, true); }
+      else document.removeEventListener('pointerdown', close, true);
+    };
+    btn.addEventListener('click', () => toggle(pop.hidden));
+    box.addEventListener('keydown', e => { if (e.key === 'Escape' && !pop.hidden) { e.stopPropagation(); toggle(false); btn.focus(); } });
+    if (ui.open) toggle(true);
+    return box;
   }
 
   const titleOf = id => TTBoard.tasks.find(t => t.id === id)?.title || '';
@@ -294,13 +341,14 @@
       a.load.length ? el('div', { class: 'pj-tw' }, table) : el('p', { class: 'hint', text: _t('這段期間沒有指派給人的到期項目。') }), detail];
   }
   /** Shared windows and cross-project dependencies: where projects get in each other's way. */
-  function linksView(a) {
+  function linksView(a, chosen) {
     const KIND = { outage: _t('停電'), maintenance: _t('維護窗口'), freeze: _t('變更凍結期') };
-    const wins = a.windows.map(w => el('div', { class: 'pj-win' + (w.clash ? ' clash' : '') },
+    const mine = x => !chosen || chosen.has(x.project);
+    const wins = a.windows.map(w => ({ ...w, users: w.users.filter(mine) })).filter(w => !chosen || w.users.length).map(w => el('div', { class: 'pj-win' + (w.clash ? ' clash' : '') },
       el('div', {}, el('b', { text: w.title }), el('div', { class: 'hint', text: `${KIND[w.kind] || w.kind} · ${md(w.from)}${w.to !== w.from ? '–' + md(w.to) : ''} · ${w.kind === 'freeze' ? _t('不可排變更') : _t("可容納 {0} 個專案", w.capacity)}` })),
       el('div', { class: 'pj-win-users' }, ...(w.users.length ? w.users.map(u => el('span', {}, el('span', { class: 'pj-kind proj', text: titleOf(u.project || u.card) }), ` ${u.title}${u.who ? `（${u.who}）` : ''}`)) : [el('span', { class: 'hint', text: _t('沒有工作使用') })]),
         el('span', { class: 'pj-flag' + (w.clash ? '' : ' ok'), text: w.clash ? (w.kind === 'freeze' ? _t('衝突：排進凍結期') : _t("衝突：{0} 個專案搶用", w.projects)) : _t('正常') }))));
-    const xd = a.problems.filter(p => p.type === 'xdep');
+    const xd = a.problems.filter(p => p.type === 'xdep' && mine(p));
     const links = xd.map(p => {
       const row = el('button', { type: 'button', class: 'pj-chain' }, el('span', { class: 'pj-kind proj', text: p.card_title }), el('b', { text: p.title }), el('span', { text: p.text }));
       row.addEventListener('click', () => { const c = TTBoard.tasks.find(t => t.id === p.card); if (c) TTBoard.openNavigator(c); });
@@ -313,7 +361,9 @@
   }
 
   // ---------------------------------------------------------------- one project
+  let switchTab = null;                              // switching projects keeps the tab you were on
   async function renderProject(view, id, tab = 'gantt') {
+    if (switchTab) { tab = switchTab; switchTab = null; }
     view.replaceChildren(el('p', { class: 'hint', text: _t('載入中…') }));
     await TTBoard.load().catch(() => {});
     const card = () => TTBoard.find(id);
@@ -357,7 +407,8 @@
         archived ? el('div', { class: 'kb-readonly is-history pj-history', html: svg('archive') },
           el('span', { text: _t("歷史案件：{0} 結案，超過 {1}，只能檢視，不能修改。", (c.closed_at || '').slice(0, 10), TTBoard.historyText()) }),
           el('a', { href: '#/history', text: _t('回歷史區') })) : '',
-        el('div', { class: 'pj-title' }, el('span', { class: 'pj-kicker', text: archived ? _t('專案 · 歷史') : _t("專案{0}", p?.rank ? _t(" · 排序 #{0}", p.rank) : '') }),
+        el('div', { class: 'pj-title' }, el('div', { class: 'pj-kick-row' },
+          el('span', { class: 'pj-kicker', text: archived ? _t('專案 · 歷史') : _t("專案{0}", p?.rank ? _t(" · 排序 #{0}", p.rank) : '') }), switcher(a)),
           el('h1', { text: c.title }),
           el('p', { class: 'page-desc', text: [c.owner ? _t("負責 {0}", TT.nameOf(c.owner)) : '', c.start_at || c.due_at ? `${md(c.start_at)} – ${md(c.due_at)}` : '', c.base_due ? _t("基準線結案 {0}", md(c.base_due)) : _t('尚未設定基準線')].filter(Boolean).join(' · ') })),
         el('div', { class: 'pj-stats' },
@@ -374,6 +425,21 @@
       strip.replaceChildren(...(elsewhere.length ? [el('span', { class: 'pj-strip-l', text: _t('其他地方') }),
         el('a', { href: '#/mine', text: _t("你在其他地方還有 {0} 項今天到期或逾期", elsewhere.length) })] : []));
       strip.hidden = !elsewhere.length;
+    }
+    /** Jump to another project without going back to 專案總覽. */
+    function switcher(a) {
+      const ps = a?.projects || [];
+      if (ps.length < 2 || !ps.some(x => x.id === id)) return null;
+      const sel = el('select', { class: 'select select-sm pj-switch', 'aria-label': _t('切換專案'), title: _t('切換到其他專案（停留在同一個分頁）') },
+        ...ps.map(x => el('option', { value: String(x.id), text: `${x.rank ? `#${x.rank} ` : ''}${x.title}`, selected: x.id === id })));
+      sel.addEventListener('change', () => { switchTab = tab; location.hash = `#/project/${sel.value}`; });
+      const i = ps.findIndex(x => x.id === id);
+      const step = (d, label, txt) => {
+        const b = el('button', { class: 'pj-sw-step', type: 'button', 'aria-label': label, title: label, text: txt, disabled: !ps[i + d] });
+        b.addEventListener('click', () => { switchTab = tab; location.hash = `#/project/${ps[i + d].id}`; });
+        return b;
+      };
+      return el('span', { class: 'pj-sw' }, step(-1, _t('上一個專案'), '‹'), sel, step(1, _t('下一個專案'), '›'));
     }
     function paintTabs() {
       tabs.replaceChildren(...[['gantt', _t('甘特圖')], ['board', _t('專案看板')], ['list', _t('清單')]].map(([k, l]) => {

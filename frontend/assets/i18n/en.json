@@ -2145,5 +2145,17 @@
  "怎麼用": "How it works",
  "階段": "Phase",
  "專案 · 歷史": "Project · history",
- "專案{0}": "Project{0}"
+ "專案{0}": "Project{0}",
+ "顯示：{0} / {1} 個專案": "Showing: {0} / {1} projects",
+ "顯示：全部專案（{0}）": "Showing: all projects ({0})",
+ "搜尋專案": "Search projects",
+ "只看這個": "Only this",
+ "只顯示這個專案": "Show only this project",
+ "找不到符合的專案": "No matching project",
+ "勾選要看的專案；記在你的帳號，換電腦也一樣。": "Tick the projects to show; saved to your account, on any computer.",
+ "顯示全部": "Show all",
+ "切換專案": "Switch project",
+ "切換到其他專案（停留在同一個分頁）": "Go to another project (stays on the same tab)",
+ "上一個專案": "Previous project",
+ "下一個專案": "Next project"
 }

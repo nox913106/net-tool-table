@@ -2103,3 +2103,26 @@ body.nav-collapsed .sidebar:not(.peek) .nav-empty, body.nav-collapsed .sidebar:n
 .pj-legend > span { display: inline-flex; align-items: center; gap: 2px; }
 .kb-chip.pj-sum { color: var(--g-summary, #f08c00); border-color: color-mix(in srgb, #f08c00 45%, transparent); }
 .pj-item.is-summary { border-style: dashed; cursor: pointer; }
+/* 專案總覽: pick the projects to look at; project page: switch project */
+.pj-pick { position: relative; display: flex; align-items: center; gap: 10px; margin: 0 0 10px; }
+.pj-pick-btn { display: inline-flex; align-items: center; gap: 6px; }
+.pj-pick-btn svg { width: 14px; height: 14px; }
+.pj-pick-caret { color: var(--text-3); font-size: 11px; }
+.pj-pick-pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 40; width: min(380px, calc(100vw - 32px)); padding: 10px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius, 8px); box-shadow: 0 8px 24px rgba(0,0,0,.18); }
+.pj-pick-pop[hidden] { display: none; }
+.pj-pick-top { display: flex; gap: 6px; margin-bottom: 6px; }
+.pj-pick-top .input { flex: 1; min-width: 0; }
+.pj-pick-list { max-height: 320px; overflow: auto; display: flex; flex-direction: column; }
+.pj-pick-row { display: flex; align-items: center; gap: 8px; padding: 5px 4px; border-radius: 6px; cursor: pointer; }
+.pj-pick-row:hover { background: var(--surface-2, rgba(127,127,127,.08)); }
+.pj-pick-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-pick-only { border: 0; background: none; color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; opacity: 0; }
+.pj-pick-row:hover .pj-pick-only, .pj-pick-only:focus { opacity: 1; }
+.pj-pick-pop > .hint { margin: 6px 0 0; font-size: 12px; }
+.pj-kick-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.pj-sw { display: inline-flex; align-items: center; gap: 2px; }
+.pj-switch { max-width: min(320px, 60vw); height: 26px; min-height: 0; padding-block: 0; font-size: 12px; }
+.pj-sw-step { width: 24px; height: 24px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-2); cursor: pointer; font-size: 15px; line-height: 1; }
+.pj-sw-step:disabled { opacity: .35; cursor: default; }
+@media (hover: none) { .pj-pick-only { opacity: 1; } }
