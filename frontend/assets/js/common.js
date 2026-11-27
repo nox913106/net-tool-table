@@ -700,6 +700,15 @@ const TT = (() => {
     return input;
   }
 
+  /** A solid, compact drag image centred on the pointer (the browser's default is a see-through copy of the
+   *  whole element, held by the corner, so it looks offset from where it will land). */
+  function dragGhost(e, title, sub, color) {
+    const g = el('div', { class: 'kb-drag-ghost', style: { '--st': color || 'var(--accent)' } }, el('strong', { text: title }), sub ? el('small', { text: sub }) : null);
+    document.body.append(g);
+    e.dataTransfer.setDragImage(g, Math.round(g.offsetWidth / 2), Math.round(g.offsetHeight / 2));
+    setTimeout(() => g.remove(), 0);
+  }
+
   /** Outline numbers (app/numbering.py): the card A, its subtasks A1, theirs A1-1, then A1-1.1, A1-1.1.1. */
   const wbs = {
     card(n) { let s = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s; return s; },
@@ -708,7 +717,7 @@ const TT = (() => {
   };
 
   return {
-    wbs, me, userMenu, avatar, nameOf, mentionInput, mentionText, ROLE,
+    wbs, me, userMenu, avatar, nameOf, mentionInput, mentionText, dragGhost, ROLE,
     onInstallable, installApp, installed, syncThemeColor,
     langButton, store, api, esc, el, svg, tile, tagHue, isIconFile, iconUrl, initials, hostOf, toast, applyAppearance, cycleTheme, themePref,
     togglePerf, setFavicon, isLinkDrag, readDroppedLink, guessIcon, nameFromUrl,

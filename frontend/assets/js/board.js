@@ -950,7 +950,7 @@ const TTBoard = window.TTBoard = (() => {
       // (it stays unfolded until the page is reloaded; in focus mode empty columns always fold)
       const empty = s => !lanes && !colItems(s.key).length && (focusId != null || !opened.has(s.key));
       const anyEmpty = !lanes && cols.some(empty);
-      root.style.gridTemplateColumns = anyEmpty ? cols.map(s => empty(s) ? '52px' : 'minmax(var(--kb-col-min), 1fr)').join(' ') : '';
+      root.style.gridTemplateColumns = anyEmpty ? cols.map(s => empty(s) ? 'var(--kb-fold-w, 52px)' : 'minmax(var(--kb-col-min), 1fr)').join(' ') : '';
       root.classList.toggle('kb-has-folded', anyEmpty);
       if (lanes) renderLanes(cols);
       else root.replaceChildren(...cols.map(s => {
@@ -1253,14 +1253,10 @@ const TTBoard = window.TTBoard = (() => {
         e.dataTransfer.setData('application/x-tool-table-task', String(t.id));
         // a solid, compact drag image (the browser's default is a see-through copy of the whole card)
         const st = STATUS[t.status] || STATUS.new;
-        const ghost = el('div', { class: 'kb-drag-ghost', style: { '--st': st.color } },
-          el('strong', { text: t.title }), el('small', { text: _t('目前：{0}　放到要改的狀態', st.zh) }));
-        document.body.append(ghost);
-        e.dataTransfer.setDragImage(ghost, 20, 20);
-        setTimeout(() => ghost.remove(), 0);
+        TT.dragGhost(e, t.title, _t('目前：{0}　放到要改的狀態', st.zh), st.color);
         placeholder.style.height = `${Math.max(52, Math.min(c.offsetHeight, 120))}px`;
-        document.body.classList.add('kb-is-dragging');
-        requestAnimationFrame(() => c.classList.add('dragging'));
+        // after the drag has started: changing the layout inside dragstart makes the browser cancel the drag
+        requestAnimationFrame(() => { if (drag) { c.classList.add('dragging'); document.body.classList.add('kb-is-dragging'); } });
       });
       c.addEventListener('dragend', () => {
         document.body.classList.remove('kb-is-dragging');
@@ -2431,9 +2427,11 @@ const TTBoard = window.TTBoard = (() => {
               [ids[i], ids[j]] = [ids[j], ids[i]];
               saveOrder(ids).then(() => rollBox.querySelector(`.kb-outline-row[data-id="${c.id}"]`)?.focus());
             });
+            row.dataset.drop = _t('放在這裡');
             row.addEventListener('dragstart', e => {
               dragId = c.id;
               e.dataTransfer.effectAllowed = 'move';
+              TT.dragGhost(e, s.title, _t('拖到要放的位置'), st.color);
               e.dataTransfer.setData('application/x-tool-table-subtask', String(c.id));
               requestAnimationFrame(() => row.classList.add('dragging'));
             });
@@ -2667,7 +2665,7 @@ const TTBoard = window.TTBoard = (() => {
       e.preventDefault();
       e.dataTransfer.dropEffect = target ? 'copy' : 'none';
       wrap.querySelectorAll('.kb-drop-hot').forEach(x => x.classList.remove('kb-drop-hot'));
-      if (target) (inComments(e.target) ? comments : imgBox).classList.add('kb-drop-hot');
+      if (target) { const zone = inComments(e.target) ? comments : imgBox; zone.dataset.drop = _t('放在這裡'); zone.classList.add('kb-drop-hot'); }
     });
     wrap.addEventListener('dragleave', e => { if (e.target === wrap || !wrap.contains(e.relatedTarget)) wrap.querySelectorAll('.kb-drop-hot').forEach(x => x.classList.remove('kb-drop-hot')); });
     wrap.addEventListener('drop', e => {

@@ -393,6 +393,9 @@
         const items = rows.filter(r => !r.milestone).map(r => ({ r, lv: pathOf(r).length + 1, phase: phaseOf(r), card: TTBoard.find(r.card) }));
         const ops = attached().filter(t => !rows.some(r => r.card === t.id));
         const cols = ['new', 'ongoing', 'pending', 'onhold', 'complete'];
+        const ph = el('div', { class: 'kb-placeholder' }, el('span', { text: _t('放在這裡') }));
+        const dragOn = (e, title, status) => { TT.dragGhost(e, title, _t('目前：{0}　放到要改的狀態', st(status).zh), st(status).color); requestAnimationFrame(() => document.body.classList.add('kb-is-dragging')); };
+        const dragOff = () => { document.body.classList.remove('kb-is-dragging'); ph.remove(); board.querySelectorAll('.drop-over').forEach(x => x.classList.remove('drop-over')); };
         const board = el('div', { class: 'kb pj-kb' }, ...cols.map(s => {
           const list = items.filter(x => (x.r.status === 'canceled' ? 'complete' : x.r.status) === s);
           const opsHere = ops.filter(t => t.status === s);
@@ -408,22 +411,24 @@
                 x.r.due_at ? el('span', { class: 'kb-chip' + (late ? ' due-overdue' : ''), text: late ? _t("逾期 {0} 天", T - day(x.r.due_at)) : _t("{0} 到期", md(x.r.due_at)) }) : null),
               x.r.assignee ? el('div', { class: 'hint', text: x.r.assignee.name }) : null);
             c.addEventListener('click', () => TTBoard.openNavigator(x.card, pathOf(x.r)));
-            c.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', 's:' + x.r.id); });
+            c.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', 's:' + x.r.id); dragOn(e, x.r.title, x.r.status); });
+            c.addEventListener('dragend', dragOff);
             return c;
           }), ...opsHere.map(t => {
             const c = el('article', { class: 'kb-card pj-item', draggable: String(!archived), tabindex: '0' },
               el('div', { class: 'kb-card-title' }, el('span', { text: t.title })), el('div', { class: 'kb-chips' }, el('span', { class: 'kb-chip', text: _t('一般卡') }),
                 t.due_at ? el('span', { class: 'kb-chip', text: _t("{0} 到期", md(t.due_at)) }) : null));
             c.addEventListener('click', () => TTBoard.openEditor(t));
-            c.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', 't:' + t.id); });
+            c.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', 't:' + t.id); dragOn(e, t.title, t.status); });
+            c.addEventListener('dragend', dragOff);
             return c;
           })].forEach(x => box.append(x));
           if (!box.children.length) box.append(el('div', { class: 'kb-empty', text: archived ? '—' : _t('拖曳到這裡') }));
           col.append(box);
-          col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('drop-over'); });
-          col.addEventListener('dragleave', e => { if (!col.contains(e.relatedTarget)) col.classList.remove('drop-over'); });
+          col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('drop-over'); if (!archived && ph.parentElement !== box) box.append(ph); });
+          col.addEventListener('dragleave', e => { if (!col.contains(e.relatedTarget)) { col.classList.remove('drop-over'); if (ph.parentElement === box) ph.remove(); } });
           col.addEventListener('drop', async e => {
-            e.preventDefault(); col.classList.remove('drop-over');
+            e.preventDefault(); col.classList.remove('drop-over'); dragOff();
             if (archived) return;
             const [k, v] = (e.dataTransfer.getData('text/plain') || '').split(':');
             try {

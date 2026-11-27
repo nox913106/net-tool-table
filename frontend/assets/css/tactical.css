@@ -260,7 +260,7 @@ body { font-family: var(--font); background: var(--bg); }
 /* ---------- kanban ---------- */
 .kb-col { background: var(--surface); border: 1px solid var(--border); }
 .kb-col.drop-over { border-color: var(--st); background: color-mix(in srgb, var(--st) 6%, var(--surface)); }
-body.kb-is-dragging .kb-col.drop-over { background: color-mix(in srgb, var(--st) 14%, var(--surface)); box-shadow: 0 0 0 2px var(--st), 0 0 18px color-mix(in srgb, var(--st) 35%, transparent); }
+body.kb-is-dragging .kb-col.drop-over { background: color-mix(in srgb, var(--st) 18%, var(--surface)); box-shadow: 0 0 0 3px var(--st), 0 0 26px color-mix(in srgb, var(--st) 45%, transparent); }
 .kb-drag-ghost { background: var(--surface-raised, var(--surface)); font-family: inherit; }
 .kb-col-head { background: var(--bg-2); }
 .kb-col-head strong { font-size: 13px; }

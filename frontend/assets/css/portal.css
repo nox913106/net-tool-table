@@ -631,13 +631,17 @@ body.link-dragging .drop-overlay { display: grid; }
 }
 .kb-col.drop-over { border-color: var(--st); background: color-mix(in srgb, var(--st) 7%, var(--surface)); }
 /* while a card is dragged: the column under it stands out, the others step back */
-body.kb-is-dragging .kb-col { transition: opacity var(--t-fast), box-shadow var(--t-fast), background var(--t-fast); }
-body.kb-is-dragging .kb-col:not(.drop-over) { opacity: .62; }
-body.kb-is-dragging .kb-col.drop-over { opacity: 1; border-color: var(--st); background: color-mix(in srgb, var(--st) 13%, var(--surface));
-  box-shadow: 0 0 0 2px var(--st), 0 10px 28px color-mix(in srgb, var(--st) 28%, transparent); }
-body.kb-is-dragging .kb-col.drop-over .kb-col-head { background: color-mix(in srgb, var(--st) 20%, transparent); }
+body.kb-is-dragging .kb { --kb-fold-w: 96px; }               /* folded columns open up so they are easy to hit */
+body.kb-is-dragging .kb-col { transition: opacity var(--t-fast), box-shadow var(--t-fast), background var(--t-fast), transform var(--t-fast); }
+body.kb-is-dragging .kb-col:not(.drop-over) { opacity: .45; filter: saturate(.6); }
+body.kb-is-dragging .kb-col.drop-over { opacity: 1; filter: none; position: relative; z-index: 3; transform: scale(1.035); transform-origin: 50% 0;
+  border-color: var(--st); background: color-mix(in srgb, var(--st) 18%, var(--surface));
+  box-shadow: 0 0 0 3px var(--st), 0 14px 36px color-mix(in srgb, var(--st) 38%, transparent); }
+body.kb-is-dragging .kb-col.drop-over .kb-col-head { background: var(--st); }
+body.kb-is-dragging .kb-col.drop-over .kb-col-head :is(strong, .kb-zh, .kb-name) { color: #fff; }
+body.kb-is-dragging .kb-col.kb-col-empty.drop-over::after { content: "⬇"; display: block; text-align: center; font-size: 22px; color: var(--st); margin-top: 8px; }
 .kb-lane-cell.drop-over { box-shadow: inset 0 0 0 2px var(--st, var(--accent)); }
-.kb-drag-ghost { position: fixed; top: -1000px; left: -1000px; width: 260px; display: flex; flex-direction: column; gap: 3px; padding: 10px 14px;
+.kb-drag-ghost { position: fixed; top: -1000px; left: -1000px; width: 220px; display: flex; flex-direction: column; gap: 3px; padding: 10px 14px;
   border-radius: 12px; background: var(--surface-solid, var(--surface)); color: var(--text); border: 2px solid var(--st, var(--accent));
   border-left-width: 6px; box-shadow: var(--shadow-lg); font-size: 13.5px; pointer-events: none; }
 .kb-drag-ghost strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -965,7 +969,9 @@ body.kb-is-dragging .kb-col.drop-over .kb-col-head { background: color-mix(in sr
 @media (hover: none) { .kb-thumb-x { opacity: 1; } }
 .kb-comment-pending:empty { display: none; }
 .kb-comment-btns { display: flex; flex-direction: column; gap: 6px; }
-.kb-drop-hot { outline: 2px dashed var(--accent) !important; outline-offset: 4px; background: color-mix(in srgb, var(--accent) 6%, transparent); border-radius: 10px; }
+.kb-drop-hot { position: relative; outline: 2px dashed var(--accent) !important; outline-offset: 4px; background: color-mix(in srgb, var(--accent) 10%, transparent); border-radius: 10px; }
+.kb-drop-hot::after { content: attr(data-drop); position: absolute; inset: 0; display: grid; place-items: center; z-index: 5; pointer-events: none;
+  font-size: 15px; font-weight: 800; color: var(--accent); background: color-mix(in srgb, var(--surface-solid, var(--surface)) 55%, transparent); border-radius: 10px; }
 .kb-viewer { position: fixed; inset: 0; z-index: 2000; background: rgb(10 12 18 / .88); display: grid; place-items: center; padding: 56px 16px 24px; }
 .kb-viewer-img { max-width: 100%; max-height: calc(100vh - 90px); object-fit: contain; border-radius: 6px; box-shadow: 0 10px 40px rgb(0 0 0 / .5); cursor: zoom-out; }
 .kb-viewer-bar { position: fixed; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 8px; padding: 10px 14px; color: #e5e7eb; }
@@ -1091,8 +1097,15 @@ body.kb-is-dragging .kb-col.drop-over .kb-col-head { background: color-mix(in sr
 .kb-outline-row:hover, .kb-outline-row:focus-visible { border-color: var(--accent); outline: none; }
 .kb-outline.can-drag .kb-outline-row { cursor: grab; }
 .kb-outline-row.dragging { opacity: .4; }
-.kb-outline-row.drop-before { box-shadow: 0 -3px 0 var(--accent); }
-.kb-outline-row.drop-after { box-shadow: 0 3px 0 var(--accent); }
+/* subtask reorder: a "放在這裡" slot opens above / below the row under the pointer */
+.kb-outline-row.drop-before { margin-top: 40px; }
+.kb-outline-row.drop-after { margin-bottom: 40px; }
+.kb-outline-row.drop-before::after, .kb-outline-row.drop-after::after {
+  content: attr(data-drop); position: absolute; left: -1px; right: -1px; height: 32px; display: grid; place-items: center;
+  border: 2px dashed var(--accent); border-radius: 8px; background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent); font-size: 12px; font-weight: 700; pointer-events: none; }
+.kb-outline-row.drop-before::after { top: -38px; }
+.kb-outline-row.drop-after::after { bottom: -38px; }
 .kb-outline-grip { color: var(--text-3); display: grid; }
 .kb-outline-grip svg { width: 13px; height: 13px; }
 .kb-outline-no { color: var(--text-3); font-variant-numeric: tabular-nums; min-width: 22px; text-align: right; white-space: nowrap; }
