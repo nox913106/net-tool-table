@@ -423,7 +423,7 @@
       const lt = late(x, b);
       const edit = x.canEdit && !(opts.project && TTBoard.find(opts.project)?.history);
       const tips = TTBoard.TIPS || {};
-      // a field row; `tip` adds a「?」with the same explanations as the card editor
+      // a field row; `tip` adds a「!」with the same explanations as the card editor
       const row = (k, v, tip) => v == null || v === '' ? null : el('div', { class: 'gs-f' },
         el('span', {}, k, tip && tips[tip] ? TT.helpTip(tips[tip]) : null), typeof v === 'string' ? el('b', { text: v }) : v);
       const close = el('button', { class: 'icon-btn', type: 'button', 'aria-label': _t('關閉'), html: svg('x') });

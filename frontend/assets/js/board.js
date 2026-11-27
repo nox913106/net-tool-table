@@ -1587,7 +1587,7 @@ const TTBoard = window.TTBoard = (() => {
   }
   /** Milestone, predecessors, actual start and baseline of a card ("t:id") or subtask ("s:id").
    *  opts: { key, item, editable, card (for the baseline buttons), onChange(body) → saves at once; omitted → value() } */
-  /** 「?」 explanations for the fields that are not obvious (shown next to their labels). */
+  /** 「!」 explanations for the fields that are not obvious (shown next to their labels). */
   const TIPS = {
     milestone: _t('里程碑是一個時間點，不是一段工作：例如「設備到貨」「驗收完成」。只看到期日，甘特圖畫成菱形，用來標出重要的檢查點。'),
     deps: _t('要等哪些工作完成才能開始。例如「上架」要等「到貨」，就把「到貨」設為前置。「+N 天」是前置完成後隔幾天才開始（0 = 隔天就開始）。排得比前置還早開始時，甘特圖的箭頭會變紅（排程衝突）。'),
@@ -1606,6 +1606,9 @@ const TTBoard = window.TTBoard = (() => {
     derived: _t('這個項目底下還有工作，它的期間、狀態和完成度都由下層彙總：改下層的日期或狀態，這裡會跟著變。'),
     below: _t('直接在這個項目底下的工作數；點左邊表格的 › 可以展開。'),
     status: _t('沒有下層的項目可以直接改狀態；有下層的項目由下層彙總，不能在這裡改。'),
+    timelog: _t('這項工作實際花的時間：按 ▶ 開始計時、■ 停止，或直接記錄時數。和預估工時比較，也算進每個人的負載。'),
+    cardProgress: _t('主卡的進度＝已完成的子任務佔全部子任務的比例（取消的不算）；主卡的狀態也由子任務彙總。'),
+    navSubs: _t('點一個子任務，它的內容會在右邊新的一欄展開；可以一直往下一層看，不用開新視窗。'),
   };
   const tipLabel = (html, tip) => { const s = el('span', { class: 'field-label', html }); s.append(TT.helpTip(TIPS[tip])); return s; };
 
@@ -3084,7 +3087,7 @@ const TTBoard = window.TTBoard = (() => {
       const pr = sub && sub.total ? Math.round(sub.done / Math.max(1, sub.total - (sub.canceled || 0)) * 100) : null;
       return el('section', { class: 'kb-nav-col is-card' },
         el('div', { class: 'kb-nav-kicker', text: _t('主卡') }),
-        el('div', { class: 'kb-nav-head' }, stChip(t.status), el('h4', { class: 'kb-nav-title', text: t.title })),
+        el('div', { class: 'kb-nav-head' }, stChip(t.status), el('h4', { class: 'kb-nav-title', text: t.title }), pr != null ? TT.helpTip(TIPS.cardProgress) : null),
         t.tags?.length ? el('div', { class: 'kb-tags' }, t.tags.map(x => tagChip(x))) : null,
         el('div', { class: 'kb-nav-meta' },
           t.start_at ? el('span', { text: _t("開始 {0}", fmt(t.start_at)) }) : null,
@@ -3092,7 +3095,7 @@ const TTBoard = window.TTBoard = (() => {
           el('span', { text: _t("工時 {0}", fmtMin(subs().reduce((n, c) => n + (c.task.spent_minutes || 0), 0))) })),
         pr != null ? el('div', { class: 'kb-progress' }, el('span', { class: 'kb-progress-bar' }, el('span', { style: { width: pr + '%' } })), el('span', { class: 'kb-progress-text', text: `${pr}%` })) : null,
         t.description ? el('p', { class: 'kb-nav-desc' }, TT.mentionText(t.description, [t.owner, ...(t.assignees || []), ...(t.mentions || [])])) : null,
-        el('div', { class: 'kb-nav-sec', text: _t('子任務') }),
+        el('div', { class: 'kb-nav-sec' }, _t('子任務'), TT.helpTip(TIPS.navSubs)),
         childList(null, 1, 0),
         el('div', { class: 'kb-nav-sec', text: _t("卡片留言（{0}）", threads.filter(c => !c.task).length) }),
         cardComments());
@@ -3234,7 +3237,7 @@ const TTBoard = window.TTBoard = (() => {
       const s = c.task;
       const put = body => call(`${base}/${c.id}/task`, { method: 'PUT', body });
       const box = el('div', { class: 'kb-nav-fields' });
-      const row = (label, ctl) => el('label', { class: 'kb-nav-field' }, el('span', { text: label }), ctl);
+      const row = (label, ctl, tip) => el('label', { class: 'kb-nav-field' }, el('span', {}, label, tip ? TT.helpTip(TIPS[tip]) : null), ctl);
       if (meInfo.people) {
         const who = el('div', { class: 'kb-nav-who' });
         const paintWho = () => {
@@ -3251,7 +3254,7 @@ const TTBoard = window.TTBoard = (() => {
           who.replaceChildren(...[chip, clear, pick].filter(Boolean));
         };
         paintWho();
-        box.append(el('div', { class: 'kb-nav-field is-wide' }, el('span', { text: _t('負責') }), who));
+        box.append(el('div', { class: 'kb-nav-field is-wide' }, el('span', {}, _t('負責'), TT.helpTip(TIPS.owner)), who));
       }
       const prio = el('select', { class: 'select input-sm', disabled: !s.can_edit }, PRIORITIES.map(([v, l]) => el('option', { value: v, text: l, selected: v === (s.priority || 'normal') })));
       prio.addEventListener('change', () => put({ priority: prio.value }));
@@ -3263,15 +3266,15 @@ const TTBoard = window.TTBoard = (() => {
         inp.addEventListener('change', () => put({ [key]: inp.value ? inp.value + (s[key]?.includes('T') ? s[key].slice(10) : '') : null }));
         return inp;
       };
-      box.append(row(_t('開始'), date('start_at')), row(_t('到期'), date('due_at')));
+      box.append(row(_t('開始'), date('start_at'), spans ? 'derived' : null), row(_t('到期'), date('due_at'), spans ? 'derived' : null));
       if (spans) box.append(el('span', { class: 'hint kb-nav-field is-wide', text: _t('開始／到期由下層子任務推算') }));
       const est = el('input', { class: 'input input-sm', type: 'number', min: '0', max: '1000', step: '0.5', placeholder: '—', disabled: !s.can_edit,
         value: s.estimate_minutes ? String(+(s.estimate_minutes / 60).toFixed(2)) : '' });
       est.addEventListener('change', () => { const h = parseFloat(est.value); put({ estimate_minutes: Number.isFinite(h) && h > 0 ? Math.round(h * 60) : null }); });
-      box.append(row(_t('預估（時）'), est));
+      box.append(row(_t('預估（時）'), est, 'estimate'));
       const sched = scheduleBlock({ key: `s:${c.id}`, item: { ...s, deps: s.deps || [] }, editable: !!s.can_edit,
         onChange: body => { if (body.milestone && !s.due_at) { toast(_t('里程碑需要到期日'), true); return; } put(body); } });
-      box.append(el('div', { class: 'kb-nav-field is-wide' }, el('span', { text: _t('排程') }), sched.el));
+      box.append(el('div', { class: 'kb-nav-field is-wide' }, el('span', {}, _t('排程'), TT.helpTip(TIPS.sched)), sched.el));
       return box;
     }
 
@@ -3325,11 +3328,11 @@ const TTBoard = window.TTBoard = (() => {
       return el('section', { class: 'kb-nav-col', style: { '--c': (STATUS[s.status] || STATUS.new).color } },
         el('div', { class: 'kb-nav-kicker' }, el('span', { text: _t("{0} // 子任務", codeOf(c)), title: _t('第 {0} 層', level) }), el('span', { class: 'spacer' }), more, del),
         title,
-        el('div', { class: 'kb-nav-strow' }, stSel,
+        el('div', { class: 'kb-nav-strow' }, stSel, TT.helpTip(TIPS.status),
           tm.due && tm.due !== 'later' ? el('span', { class: `kb-nav-due due-${tm.due}`, text: tm.dueText }) : null),
         fieldsBlock(c),
         el('div', { class: 'kb-nav-sec', text: _t('說明') }), descBlock(c),
-        el('div', { class: 'kb-nav-sec', text: _t('工時紀錄') }), timeBlock(c),
+        el('div', { class: 'kb-nav-sec' }, _t('工時紀錄'), TT.helpTip(TIPS.timelog)), timeBlock(c),
         el('div', { class: 'kb-nav-sec', text: _t("留言（{0}）", (c.replies || []).length) }), comments(c),
         el('div', { class: 'kb-nav-sec', text: _t("{0} 的下層子任務", codeOf(c)) }),
         childList(c.id, level, colIndex));

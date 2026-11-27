@@ -2129,5 +2129,8 @@
  "沒有下層的項目可以直接改狀態；有下層的項目由下層彙總，不能在這裡改。": "An item with nothing below it can have its status changed here; one with items below takes it from them.",
  "還沒開始": "Not started",
  "還沒有設定": "Not set",
- "沒有": "None"
+ "沒有": "None",
+ "這項工作實際花的時間：按 ▶ 開始計時、■ 停止，或直接記錄時數。和預估工時比較，也算進每個人的負載。": "The time really spent: ▶ starts the timer, ■ stops it, or log hours directly. Compared with the estimate, and counted in each person's load.",
+ "主卡的進度＝已完成的子任務佔全部子任務的比例（取消的不算）；主卡的狀態也由子任務彙總。": "The main card's progress = the share of its subtasks that are done (cancelled ones left out); its status is rolled up from the subtasks too.",
+ "點一個子任務，它的內容會在右邊新的一欄展開；可以一直往下一層看，不用開新視窗。": "Click a subtask and it opens in a new column on the right; keep going down the levels without opening another window."
 }

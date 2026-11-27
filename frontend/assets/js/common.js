@@ -704,9 +704,9 @@ const TT = (() => {
     return input;
   }
 
-  /** A small「?」next to a field that is not obvious (基準線, 前置任務 …): its text shows on hover, focus or tap. */
+  /** A small「!」next to a field that is not obvious (基準線, 前置任務 …): its text shows on hover, focus or tap. */
   function helpTip(text) {
-    const b = el('button', { class: 'help-tip', type: 'button', 'aria-label': _t('這是什麼？') + ' ' + text, text: '?' });
+    const b = el('button', { class: 'help-tip', type: 'button', 'aria-label': _t('這是什麼？') + ' ' + text, text: '!' });
     b.dataset.tip = text;
     return b;
   }
