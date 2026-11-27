@@ -3040,7 +3040,7 @@ const TTBoard = window.TTBoard = (() => {
       const sub = t.subtasks;
       const pr = sub && sub.total ? Math.round(sub.done / Math.max(1, sub.total - (sub.canceled || 0)) * 100) : null;
       return el('section', { class: 'kb-nav-col is-card' },
-        el('div', { class: 'kb-nav-kicker', text: _t('A // 主卡') }),
+        el('div', { class: 'kb-nav-kicker', text: _t('主卡') }),
         el('div', { class: 'kb-nav-head' }, stChip(t.status), el('h4', { class: 'kb-nav-title', text: t.title })),
         t.tags?.length ? el('div', { class: 'kb-tags' }, t.tags.map(x => tagChip(x))) : null,
         el('div', { class: 'kb-nav-meta' },

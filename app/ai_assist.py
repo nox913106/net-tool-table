@@ -18,7 +18,7 @@ import re
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 
-from .numbering import child, letters
+from .numbering import child
 
 ZH = {"recurring": "週期工作", "overdue": "過期未結案", "new": "新建", "ongoing": "進行中", "pending": "待確認",
       "onhold": "暫緩", "complete": "完成", "canceled": "取消"}
@@ -88,10 +88,10 @@ async def collect(request, scope: str, project_id: Optional[int] = None) -> Dict
         p = owner_of_card(c)
         return p.get("name") or p.get("display_name") or p.get("username") or ""
 
-    def walk(card, parent, code, depth):
+    def walk(card, parent, code, depth, prefix):
         for k, s in enumerate(kids.get((card["id"], parent), []), start=1):
             sc = child(code, depth, k)
-            items.append({"code": sc, "level": depth + 1, "kind": "sub", "id": s["id"], "card": card["id"], "title": s["title"] or "",
+            items.append({"code": prefix + sc, "level": depth + 1, "kind": "sub", "id": s["id"], "card": card["id"], "title": s["title"] or "",
                           "status": s["status"], "who": (s.get("assignee") or {}).get("name") or "", "start": _d(s["start_at"]),
                           "due": _d(s["due_at"]), "done_at": _d(s.get("completed_at")), "priority": s.get("priority") or "normal",
                           "blocked": "", "est": s.get("estimate") or 0, "spent": s.get("spent") or 0, "milestone": s.get("milestone"),
@@ -99,10 +99,14 @@ async def collect(request, scope: str, project_id: Optional[int] = None) -> Dict
                           "mine": bool(s.get("assignee") and s["assignee"]["id"] == me),
                           "uid": (s.get("assignee") or {}).get("id"), "username": (s.get("assignee") or {}).get("username") or "",
                           "parent": s["parent"], "started": _d(s.get("started_at"))})
-            walk(card, s["id"], sc, depth + 1)
+            walk(card, s["id"], sc, depth + 1, prefix)
 
+    # Numbers restart in every card and the card itself has none (numbering.py). So that every item still has its
+    # own code for the AI: each card is "#n", and its work is "#n:A1" — except a project's own work in the project
+    # scope, which keeps the plain numbers people see on the screen (A, A1, A1-1 …).
     for n, c in enumerate(cards, start=1):
-        code = letters(n)
+        code = f"#{n}"
+        prefix = "" if scope == "project" and n == 1 else f"{code}:"
         b = c.get("blocked") or {}
         items.append({"code": code, "level": 1, "kind": "card", "id": c["id"], "card": c["id"], "title": c["title"], "status": c["status"],
                       "who": who_of_card(c), "start": _d(c.get("start_at")), "due": _d(c.get("due_at")), "done_at": _d(c.get("completed_at")),
@@ -112,7 +116,7 @@ async def collect(request, scope: str, project_id: Optional[int] = None) -> Dict
                       "is_project": c.get("kind") == "project", "notes": notes.get(c["id"], []), "mine": bool(c.get("mine")),
                       "uid": owner_of_card(c).get("id"), "username": owner_of_card(c).get("username") or "",
                       "desc": c.get("description") or "", "updated": c.get("updated_at")})
-        walk(c, None, code, 1)
+        walk(c, None, "", 1, prefix)
     return {"items": items, "cards": len(cards), "scope": scope, "project": names.get(project_id) if project_id else None}
 
 

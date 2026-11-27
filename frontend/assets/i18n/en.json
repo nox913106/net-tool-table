@@ -2059,7 +2059,7 @@
  "＋ 新增 {0} 的下層子任務（Enter）": "+ Add a subtask under {0} (Enter)",
  "{0} // 子任務": "{0} // Subtask",
  "{0} 的下層子任務": "Subtasks under {0}",
- "這個專案結案時各層工作（A1 以下）與歸屬的一般卡的狀態（歷史案件，只能檢視）。": "The status of every level of this project's work (A1 and below) and its attached cards when it closed (history: view only).",
- "這個專案的各層工作（A1 以下）與歸屬的一般卡，依狀態分欄；拖到其他欄改狀態，上層狀態會自動彙總。": "This project's work at every level (A1 and below) and its attached cards, by status; drag to another column to change the status — the levels above roll up automatically.",
- "A // 主卡": "A // Main card"
+ "主卡": "Main card",
+ "這個專案結案時各層工作（階段 A、B… 與底下的工作）與歸屬的一般卡的狀態（歷史案件，只能檢視）。": "The status of this project's work at every level (phases A, B … and the work under them) and its attached cards when it closed (history: view only).",
+ "這個專案的各層工作（階段 A、B… 與底下的工作）與歸屬的一般卡，依狀態分欄；拖到其他欄改狀態，上層狀態會自動彙總。": "This project's work at every level (phases A, B … and the work under them) and its attached cards, by status; drag to another column to change the status — the levels above roll up automatically."
 }

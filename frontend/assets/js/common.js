@@ -713,13 +713,14 @@ const TT = (() => {
     setTimeout(() => g.remove(), 0);
   }
 
-  /** Outline numbers (app/numbering.py): the card A, its subtasks A1, theirs A1-1, then A1-1.1, A1-1.1.1. */
+  /** Outline numbers (app/numbering.py), as in OpenProject: the card (the project's head) has no number; its phases
+   *  (direct subtasks) are A, B, C …; below them A1, then A1-1, then A1-1.1. Numbers restart in every card. */
   const wbs = {
     card(n) { let s = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s; return s; },
-    /** the k-th child of `parent`; depth = the child's subtask depth (1 = directly under the card) */
-    child(parent, depth, k) { return depth === 1 ? `${parent}${k}` : depth === 2 ? `${parent}-${k}` : `${parent}.${k}`; },
+    /** the k-th child of `parent`; depth = the child's subtask depth (1 = directly under the card: a letter) */
+    child(parent, depth, k) { return depth === 1 ? wbs.card(k) : depth === 2 ? `${parent}${k}` : depth === 3 ? `${parent}-${k}` : `${parent}.${k}`; },
     /** id → outline number for one card's subtasks, given in their order with their parent (null = under the card). */
-    codes(rows, parentOf = r => r.parent || null, prefix = 'A') {
+    codes(rows, parentOf = r => r.parent || null) {
       const kids = new Map();
       rows.forEach(r => { const p = parentOf(r) || null; if (!kids.has(p)) kids.set(p, []); kids.get(p).push(r); });
       const out = new Map();
@@ -728,7 +729,7 @@ const TT = (() => {
         out.set(r.id, c);
         walk(r.id, c, depth + 1);
       });
-      walk(null, prefix, 1);
+      walk(null, '', 1);
       return out;
     },
   };

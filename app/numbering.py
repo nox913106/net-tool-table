@@ -1,12 +1,16 @@
 """
-Outline numbers for cards and their subtasks (the Excel report, the Gantt sheet, MS Project's WBS, the card outline).
+Outline numbers inside one card / project (the Excel report, the Gantt sheet, MS Project's WBS, the card outline),
+following OpenProject's structure — the card itself is the project's head and carries no number:
 
-  任務大綱 (the card, L1)          A, B, … Z, AA, AB …
-  主任務   (its subtasks, L2)       A1, A2
-  子任務   (L3)                     A1-1, A1-2
-  子任務的任務 (L4 and deeper)      A1-1.1, A1-1.1.1
+  專案／主卡 (the card)            (no number)
+  階段      (its subtasks)         A, B, … Z, AA …     — phases; how many depends on the project
+  工作      (their subtasks)       A1, A2
+  子工作    (next level)           A1-1, A1-2
+  細項      (deeper)               A1-1.1, A1-1.1.1
 
-to_path() also reads the older numbers (1, 1.2, 1.2.3) so files exported before this change still import.
+Numbers restart in every card. to_path() reads a number as its path inside the card ("A1-2" → (1, 1, 2)), and also
+the dotted numbers (1.2.3) of very old files. Files from the version that numbered the card itself (A, A1 …) are
+recognised by the card row having a number and read the old way (to_path gives the card first).
 """
 import re
 from typing import Optional, Tuple
@@ -27,8 +31,18 @@ def letters(n: int) -> str:
 
 
 def child(parent: str, depth: int, k: int) -> str:
-    """The k-th child of `parent`; depth is the child's subtask depth (1 = a direct subtask of the card)."""
-    return f"{parent}{k}" if depth == 1 else f"{parent}-{k}" if depth == 2 else f"{parent}.{k}"
+    """The k-th child of `parent`; depth is the child's subtask depth (1 = a direct subtask of the card, a phase:
+    its number is a letter and `parent` — the card, which has no number — is ignored)."""
+    return letters(k) if depth == 1 else f"{parent}{k}" if depth == 2 else f"{parent}-{k}" if depth == 3 else f"{parent}.{k}"
+
+
+def sub_code(path) -> str:
+    """A path inside the card → its number: (1,) → A, (1, 2) → A2, (1, 2, 3) → A2-3, (1, 2, 3, 4) → A2-3.4."""
+    out = ""
+    for d, k in enumerate(path, start=1):
+        out = child(out, d, k)
+    return out
+
 
 
 def from_letters(s: str) -> int:
@@ -57,7 +71,5 @@ def to_path(code) -> Optional[Tuple[int, ...]]:
 
 
 def from_path(path) -> str:
-    out = letters(path[0])
-    for d, k in enumerate(path[1:], start=1):
-        out = child(out, d, k)
-    return out
+    """A full path (card, then the path inside it) → the number shown for it (the card itself: "")."""
+    return sub_code(path[1:])

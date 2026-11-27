@@ -448,14 +448,14 @@
           });
           return col;
         }));
-        pane.replaceChildren(el('p', { class: 'hint', text: archived ? _t('這個專案結案時各層工作（A1 以下）與歸屬的一般卡的狀態（歷史案件，只能檢視）。') : _t('這個專案的各層工作（A1 以下）與歸屬的一般卡，依狀態分欄；拖到其他欄改狀態，上層狀態會自動彙總。') }), board);
+        pane.replaceChildren(el('p', { class: 'hint', text: archived ? _t('這個專案結案時各層工作（階段 A、B… 與底下的工作）與歸屬的一般卡的狀態（歷史案件，只能檢視）。') : _t('這個專案的各層工作（階段 A、B… 與底下的工作）與歸屬的一般卡，依狀態分欄；拖到其他欄改狀態，上層狀態會自動彙總。') }), board);
       } else {
         // list with WBS numbers (the same numbering as the Excel report)
         const kids = new Map();
         rows.filter(r => r.card === id).forEach(r => { const k = r.parent || 0; if (!kids.has(k)) kids.set(k, []); kids.get(k).push(r); });
         const out = [];
         const walk = (pid, prefix, depth) => (kids.get(pid) || []).forEach((r, i) => { const n = TT.wbs.child(prefix, depth, i + 1); out.push({ r, n, depth }); walk(r.id, n, depth + 1); });
-        walk(0, 'A', 1);   // the project card is A (as when it is exported on its own)
+        walk(0, '', 1);    // the project card heads the numbering (no number); its phases are A, B …
         attached().forEach(t => out.push({ r: { id: 't' + t.id, title: t.title, status: t.status, start_at: t.start_at, due_at: t.due_at, assignee: (t.assignees || [])[0] ? { id: t.assignees[0].id, name: TT.nameOf(t.assignees[0]) } : null, estimate: null, ops: t }, n: '↳', depth: 1 }));
         const myId = me();
         pane.replaceChildren(el('div', { class: 'pj-tw' }, el('table', { class: 'pj-table' },

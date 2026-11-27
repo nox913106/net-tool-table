@@ -95,22 +95,23 @@ window.TT_HELP_EN = [
     id: 'numbering', icon: 'list', title: 'Card numbering',
     intro: 'A card and every level of work under it are numbered. The outline in the card, the project page list, the Excel report, the Gantt sheet and the MS Project file all use the same rule.',
     items: [
-      { h: 'Four levels', b: `<table>
-        <tr><td><b>Outline</b> (the card itself, L1)</td><td><code>A</code>, <code>B</code> … <code>Z</code>, <code>AA</code>, <code>AB</code> …</td></tr>
-        <tr><td><b>Main task</b> (first level under the card, L2)</td><td><code>A1</code>, <code>A2</code>, <code>A3</code> …</td></tr>
-        <tr><td><b>Subtask</b> (L3)</td><td><code>A1-1</code>, <code>A1-2</code> …</td></tr>
-        <tr><td><b>Subtask's task</b> (L4)</td><td><code>A1-1.1</code>, <code>A1-1.2</code> …; each deeper level adds <code>.n</code>: <code>A1-1.1.1</code></td></tr>
+      { h: 'The levels (as in OpenProject)', b: `<table>
+        <tr><td><b>Project / main card</b> (the card itself, the head of the project)</td><td>no number — just its title</td></tr>
+        <tr><td><b>Phase</b> (first level under the card)</td><td><code>A</code>, <code>B</code>, <code>C</code> … <code>Z</code>, <code>AA</code> … (how many depends on the project's size and detail)</td></tr>
+        <tr><td><b>Work</b> (under a phase)</td><td><code>A1</code>, <code>A2</code> … (a phase can hold its own milestones)</td></tr>
+        <tr><td><b>Sub-work</b></td><td><code>A1-1</code>, <code>A1-2</code> …</td></tr>
+        <tr><td><b>Detail</b></td><td><code>A1-1.1</code>, <code>A1-1.2</code> …; each deeper level adds <code>.n</code>: <code>A1-1.1.1</code></td></tr>
       </table>` },
-      { h: 'Which card is A', b: `<ul>
-        <li><b>Excel report, Gantt sheet, MS Project</b>: by the card's order in the file — the first card is A, the second B …, from the 27th on AA, AB.</li>
-        <li><b>The outline in the card editor</b> and the project page's <b>List</b>: they show one card, so that card is always A (as when it is exported on its own).</li>
-        <li>Collaborator rows (co-assignees or @mentioned people without a subtask of their own) are numbered after the main tasks in the report, e.g. A1, A2 are main tasks and A3 a collaborator.</li>
+      { h: 'Each card has its own numbers', b: `<ul>
+        <li>Numbers start again at A in every card (project); the card itself has none.</li>
+        <li>Where many cards are listed together (the board's Gantt, a report of several cards), the numbers sit under their own card, so the card tells you which A it is.</li>
+        <li>Collaborator rows (co-assignees or @mentioned people without a subtask of their own) are numbered after the phases in the report, e.g. A and B are phases and C a collaborator.</li>
       </ul>` },
       { h: 'Numbers follow the order', b: 'Numbers are worked out from the current order, they are not fixed codes: reorder in the outline, or add or delete items, and the numbers after them change. To point at an item outside the system for good, use the report\'s “System ID” column (T12 card, S45 subtask, C7 collaborator).' },
       { h: 'Predecessors and importing', b: `<ul>
-        <li>The report's “Predecessors” column uses numbers, e.g. “A1-2, B1 (+2 days)”; items outside the report are written by name in 「…」.</li>
-        <li>When you insert a row in Excel, its number says which level it is and where it belongs: the parent of <code>A2-3</code> is <code>A2</code>, the parent of <code>A2-3.1</code> is <code>A2-3</code>. The parent row must come before it.</li>
-        <li>Files exported by older versions (numbers like 1, 1.2, 1.2.3) still import.</li>
+        <li>The report's “Predecessors” column uses numbers within the same card, e.g. “A1-2, B1 (+2 days)”; items in other cards or outside the report are written by name in 「…」.</li>
+        <li>When you insert a row in Excel, its number says which level it is and where it belongs (in the nearest card above it): the parent of <code>A2</code> is <code>A</code>, the parent of <code>A2-3</code> is <code>A2</code>. The parent row must come before it.</li>
+        <li>Files exported by older versions (with the card itself numbered A, or numbers like 1, 1.2, 1.2.3) still import.</li>
       </ul>` },
     ],
   },
@@ -328,12 +329,12 @@ window.TT_HELP_EN = [
     items: [
       { h: 'Opening it', b: '“Subtasks x/y ⧉” on a card, “Task window” at the bottom of the editor, “Task tree (N)” on a subtask, or a row in the project page list.' },
       { h: 'Top: path and buttons', b: 'The path (card › subtask › …) jumps back to any level; “Full edit” opens the card editor; × closes (<kbd>Esc</kbd> too).' },
-      { h: 'First column: the card (A // main card)', b: `<ul>
+      { h: 'First column: the card', b: `<ul>
         <li>The card's status, start, due, hours and progress.</li>
-        <li>“Subtasks”: each subtask's (A1, A2 …) status and name — click to open it on the right; “+ Add a subtask (Enter)” below.</li>
+        <li>“Subtasks”: each subtask's (A, B …) status and name — click to open it on the right; “+ Add a subtask (Enter)” below.</li>
         <li>“Card comments (N)”: the card's own comments — comment, reply, edit, delete (<kbd>Ctrl</kbd>+<kbd>Enter</kbd> sends).</li>
       </ul>` },
-      { h: 'Subtask columns (A1 // subtask …)', b: `<ul>
+      { h: 'Subtask columns (A // subtask …)', b: `<ul>
         <li>Top: “More settings” opens the full subtask window (files, times, reminder); 🗑 deletes it with everything below (asks first and says how many go with it).</li>
         <li><b>Name</b> (<kbd>Enter</kbd> saves), <b>status</b> (asks first if you set Complete while items below are open), <b>assignee</b> (assign / reassign / unassign), <b>priority</b>, <b>start</b> / <b>due</b> (worked out from below when it has subtasks), <b>estimate (h)</b>, <b>schedule</b> (milestone, predecessors …).</li>
         <li><b>Description</b>: “Add description / Edit description” edits it in place.</li>

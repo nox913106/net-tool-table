@@ -9,7 +9,8 @@ Gantt exports of the same cards the progress report takes (selection, by person,
   summary tasks, manually scheduled (the dates stay exactly as in IPMS), finish-to-start predecessors with
   their lag, milestones, baselines, % complete and the people as resources.
 
-Both start from nodes(): the report's numbering (A, A1, A1-1, A1-1.1 … — numbering.py) over cards and their subtasks.
+Both start from nodes(): the report's numbering over cards and their subtasks — the card has none, its phases are
+A, B …, then A1, A1-1, A1-1.1 (numbering.py; numbers restart in every card).
 """
 import io
 from datetime import date, datetime, timedelta
@@ -43,14 +44,14 @@ def _get(row, key, default=None):
 def nodes(cards: List[dict], subtasks: Dict[int, list], names: Dict[int, str], sub_deps: Optional[Dict[int, list]] = None) -> List[dict]:
     """Flatten cards › subtasks (in report order) into rows: key, num, level, title, who, status, start, due,
     milestone, base_start, base_due, deps [{key, lag}], summary."""
-    from .numbering import child, letters
+    from .numbering import child
     from .xlsx_export import lead_and_collaborators
     sub_deps = sub_deps or {}
     out = []
     for n, t in enumerate(cards, start=1):
         subs = subtasks.get(t["id"], [])
         lead, _ = lead_and_collaborators(t, subs)
-        out.append({"key": f"t:{t['id']}", "num": letters(n), "outline": str(n), "level": 1, "title": t["title"], "who": lead["name"] if lead else None,
+        out.append({"key": f"t:{t['id']}", "card": t["id"], "num": "", "outline": str(n), "level": 1, "title": t["title"], "who": lead["name"] if lead else None,
                     "status": t["status"], "start": _d(t.get("start_at")), "due": _d(t.get("due_at")), "milestone": bool(t.get("milestone")),
                     "base_start": _d(t.get("base_start")), "base_due": _d(t.get("base_due")),
                     "deps": [{"key": d["key"], "lag": int(d.get("lag") or 0), "title": d.get("title")} for d in t.get("deps") or []],
@@ -61,7 +62,7 @@ def nodes(cards: List[dict], subtasks: Dict[int, list], names: Dict[int, str], s
 
         def emit(s, num, outline, level):
             children = kids.get(s["id"], [])
-            out.append({"key": f"s:{s['id']}", "num": num, "outline": outline, "level": level, "title": s["title"] or "",
+            out.append({"key": f"s:{s['id']}", "card": t["id"], "num": num, "outline": outline, "level": level, "title": s["title"] or "",
                         "who": names.get(s["assignee_id"]) if s["assignee_id"] else None, "status": s["status"] or "new",
                         "start": _d(s["start_at"]), "due": _d(s["due_at"]), "milestone": bool(_get(s, "milestone", 0)),
                         "base_start": _d(_get(s, "base_start")), "base_due": _d(_get(s, "base_due")),
@@ -70,7 +71,7 @@ def nodes(cards: List[dict], subtasks: Dict[int, list], names: Dict[int, str], s
             for k, c in enumerate(children, start=1):
                 emit(c, child(num, level, k), f"{outline}.{k}", level + 1)
         for k, s in enumerate(kids.get(None, []), start=1):
-            emit(s, child(letters(n), 1, k), f"{n}.{k}", 2)
+            emit(s, child("", 1, k), f"{n}.{k}", 2)
     return out
 
 
@@ -91,7 +92,8 @@ def pick_scale(lo: date, hi: date, scale: str = "auto") -> str:
 def _deps_text(x, number):
     parts = []
     for d in x["deps"]:
-        where = number.get(d["key"]) or (f"「{d['title']}」" if d.get("title") else None)
+        num, card = number.get(d["key"]) or (None, None)          # numbers restart in every card: others by name
+        where = (num if num and card == x.get("card") else None) or (f"「{d['title']}」" if d.get("title") else None)
         if where:
             parts.append(where + (f"（{'+' if d['lag'] > 0 else ''}{d['lag']} 天）" if d["lag"] else ""))
     return "、".join(parts) or None
@@ -186,7 +188,7 @@ def add_sheet(wb, rows: List[dict], today: date, scale: str = "auto", title: str
         ws.merge_cells(start_row=head1, start_column=group_start, end_row=head1, end_column=F + len(cols))
     ws.row_dimensions[head2].height = 30 if unit == "week" else 18
 
-    number = {x["key"]: x["num"] for x in rows}
+    number = {x["key"]: (x["num"], x.get("card")) for x in rows}
     col_of = lambda d: None if d is None else max(0, min(len(cols) - 1, _index(cols, d)))
     for k, x in enumerate(rows):
         r = first + k
