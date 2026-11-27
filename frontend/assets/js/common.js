@@ -497,19 +497,143 @@ const TT = (() => {
     setTimeout(() => cur.focus(), 30);
   }
 
+  // ---------------------------------------------------------------- @mentions
+  // People seen so far, by username (lower case), for the name bubbles.
+  const peopleCache = new Map(), peopleAsk = new Map();
+  function personOf(username) {
+    const u = String(username || '').toLowerCase();
+    if (peopleCache.has(u)) return Promise.resolve(peopleCache.get(u));
+    if (!peopleAsk.has(u)) {
+      peopleAsk.set(u, api('/api/people?q=' + encodeURIComponent(u)).then(res => {
+        for (const p of res || []) if (p.username) peopleCache.set(p.username.toLowerCase(), p);
+        return peopleCache.get(u) || null;
+      }).catch(() => null));
+    }
+    return peopleAsk.get(u);
+  }
+  const MENTION_SPLIT = /(?<![\w@])(@[A-Za-z0-9._\-]*[A-Za-z0-9_\-])/;
+  /** A mention as a bubble with the person's name (the text behind it stays "@username"). */
+  function mentionBubble(username, { editable = false } = {}) {
+    const u = username.toLowerCase(), p = peopleCache.get(u);
+    const b = el('span', { class: 'mention-bubble', 'data-u': p ? p.username : username, title: '@' + (p ? p.username : username), text: p ? nameOf(p) : '@' + username });
+    if (editable) b.contentEditable = 'false';
+    if (!p) personOf(u).then(x => {
+      if (x) { b.textContent = nameOf(x); b.dataset.u = x.username; b.title = '@' + x.username; }
+      else b.replaceWith(document.createTextNode('@' + username));     // not an account: plain text
+    });
+    return b;
+  }
+  /** Text for reading (comments, descriptions): every @username becomes a name bubble. */
+  function mentionText(text, people) {
+    for (const p of people || []) if (p && p.username && !peopleCache.has(p.username.toLowerCase())) peopleCache.set(p.username.toLowerCase(), p);
+    const frag = document.createDocumentFragment();
+    String(text || '').split(MENTION_SPLIT).forEach((part, i) => frag.append(i % 2 ? mentionBubble(part.slice(1)) : part));
+    return frag;
+  }
+
   /**
-   * @mention autocomplete for a textarea / input: typing "@ab" lists accounts (known ones and,
-   * when the AD service account is set, the directory); Enter / click inserts "@username ".
-   * A mention already in the text (picked, or saved before) is one piece: Backspace / Delete removes the
-   * whole "@username" and typing inside it goes after it, so one stray key cannot turn it into another name.
+   * A textarea shown as an editor where a mention is a bubble with the person's name. The textarea stays
+   * the source of truth (hidden): its value is the text with "@username", kept in sync both ways, and its
+   * own keydown / input listeners keep working. A bubble is one piece — Backspace / Delete removes it whole.
+   */
+  function mentionEditor(ta) {
+    const ed = el('div', { class: `${ta.className} mention-editor`, contenteditable: 'true', role: 'textbox', 'aria-multiline': 'true',
+      'data-placeholder': ta.placeholder || '' });
+    ed.style.minHeight = `calc(${Number(ta.getAttribute('rows')) || 2} * 1.5em + 22px)`;
+    ta.style.display = 'none';
+    const proto = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+    let syncing = false;
+    const serialize = () => {
+      let out = '';
+      const walk = n => {
+        for (const c of n.childNodes) {
+          if (c.nodeType === 3) out += c.nodeValue;
+          else if (c.dataset && c.dataset.u) out += '@' + c.dataset.u;
+          else if (c.nodeName === 'BR') { if (c !== ed.lastChild) out += '\n'; }        // the last <br> is the browser's filler
+          else { if (/^(DIV|P)$/.test(c.nodeName) && out && !out.endsWith('\n')) out += '\n'; walk(c); }
+        }
+      };
+      walk(ed);
+      return out.replace(/ /g, ' ');
+    };
+    const render = text => {
+      const nodes = [];
+      String(text || '').split('\n').forEach((line, i) => {
+        if (i) nodes.push(document.createElement('br'));
+        line.split(MENTION_SPLIT).forEach((part, k) => { if (part) nodes.push(k % 2 ? mentionBubble(part.slice(1), { editable: true }) : document.createTextNode(part)); });
+      });
+      if (String(text || '').endsWith('\n')) nodes.push(document.createElement('br'));
+      ed.replaceChildren(...nodes);
+    };
+    const sync = () => {
+      const v = serialize();
+      if (!v) ed.replaceChildren();                 // empty: show the placeholder
+      syncing = true; ta.value = v; syncing = false;
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    Object.defineProperty(ta, 'value', { configurable: true, get: () => proto.get.call(ta), set: v => { proto.set.call(ta, v); if (!syncing) render(v); } });
+    const caretEnd = () => { const s = getSelection(), r = document.createRange(); r.selectNodeContents(ed); r.collapse(false); s.removeAllRanges(); s.addRange(r); };
+    ta.focus = () => { ed.focus(); caretEnd(); };
+    ta.blur = () => ed.blur();
+    render(proto.get.call(ta));
+    ed.addEventListener('input', sync);
+    ed.addEventListener('keydown', e => {
+      // the page's own shortcuts on the textarea (Ctrl+Enter sends, Esc cancels …)
+      const k = new KeyboardEvent('keydown', { key: e.key, code: e.code, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey,
+        repeat: e.repeat, isComposing: e.isComposing, cancelable: true });
+      let stopped = false;
+      k.stopPropagation = () => { stopped = true; };
+      ta.dispatchEvent(k);
+      if (stopped) e.stopPropagation();
+      if (k.defaultPrevented) { e.preventDefault(); return; }
+      if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.isComposing) { e.preventDefault(); document.execCommand('insertLineBreak'); sync(); }
+    });
+    ed.addEventListener('paste', e => {
+      if ([...(e.clipboardData?.items || [])].some(i => i.kind === 'file')) return;   // files: the page's paste handler
+      e.preventDefault();
+      document.execCommand('insertText', false, e.clipboardData.getData('text/plain'));
+    });
+    ed.addEventListener('drop', e => { if (![...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault(); });
+    new MutationObserver(() => { ed.contentEditable = ta.disabled || ta.readOnly ? 'false' : 'true'; ed.classList.toggle('is-disabled', ta.disabled); })
+      .observe(ta, { attributes: true, attributeFilter: ['disabled', 'readonly'] });
+    if (ta.disabled) ed.contentEditable = 'false';
+    /** the "@query" just before the caret: { q, node, start, end } */
+    ed.query = () => {
+      const s = getSelection();
+      if (!s.rangeCount || !s.isCollapsed || !ed.contains(s.anchorNode) || s.anchorNode.nodeType !== 3) return null;
+      const m = /(^|[^\w@])@([A-Za-z0-9._\-㐀-鿿]{0,30})$/.exec(s.anchorNode.nodeValue.slice(0, s.anchorOffset));
+      return m ? { q: m[2], node: s.anchorNode, start: s.anchorOffset - m[2].length - 1, end: s.anchorOffset } : null;
+    };
+    ed.insertMention = p => {
+      peopleCache.set(p.username.toLowerCase(), p);
+      const at = ed.query(), s = getSelection();
+      const r = document.createRange();
+      if (at) { r.setStart(at.node, at.start); r.setEnd(at.node, at.end); r.deleteContents(); }
+      else if (s.rangeCount && ed.contains(s.anchorNode)) r.setStart(s.anchorNode, s.anchorOffset);
+      else { r.selectNodeContents(ed); r.collapse(false); }
+      const space = document.createTextNode(' ');
+      r.insertNode(space);
+      r.insertNode(mentionBubble(p.username, { editable: true }));
+      s.removeAllRanges(); const c = document.createRange(); c.setStart(space, 1); c.collapse(true); s.addRange(c);
+      sync();
+    };
+    return ed;
+  }
+
+  /**
+   * @mention autocomplete. A textarea becomes an editor where typing "@ab" lists accounts (known ones and,
+   * when the AD service account is set, the directory) and the pick is a bubble with the person's name
+   * (saved as "@username"). With onPick (assignee pickers) the input is a search box that hands back the person.
    */
   function mentionInput(input, { onPick } = {}) {
+    const ed = !onPick && input.tagName === 'TEXTAREA' ? mentionEditor(input) : null;
+    const target = ed || input;
     const box = el('div', { class: 'mention-pop', hidden: true, role: 'listbox' });
     document.body.append(box);
     let items = [], index = 0, start = -1, timer = null, seq = 0;
     const hide = () => { box.hidden = true; items = []; start = -1; };
     const place = () => {
-      const r = input.getBoundingClientRect();
+      const r = target.getBoundingClientRect();
       box.style.left = `${r.left}px`;
       box.style.top = `${r.bottom + 4}px`;
       box.style.width = `${Math.min(340, r.width)}px`;
@@ -528,117 +652,50 @@ const TT = (() => {
     const pick = i => {
       const p = items[i];
       if (!p) return;
-      if (onPick) { input.value = ''; hide(); onPick(p); input.focus(); return; }   // picker mode
-      names.set(p.username.toLowerCase(), p);
-      const v = input.value, caret = input.selectionStart;
-      known.add(p.username.toLowerCase());
-      input.value = v.slice(0, start) + '@' + p.username + ' ' + v.slice(caret);
-      const pos = start + p.username.length + 2;
+      hide();
+      if (onPick) { input.value = ''; onPick(p); input.focus(); return; }   // picker mode
+      if (ed) { ed.insertMention(p); ed.focus(); return; }
+      const v = input.value, caret = input.selectionStart, at = v.slice(0, caret).lastIndexOf('@');
+      input.value = v.slice(0, at) + '@' + p.username + ' ' + v.slice(caret);
+      const pos = at + p.username.length + 2;
       input.setSelectionRange(pos, pos);
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      hide();
       input.focus();
     };
-    input.addEventListener('input', () => {
-      const caret = input.selectionStart;
-      let m;
-      if (onPick) {                                 // picker mode: the whole box is the search text
-        const whole = /^@?([A-Za-z0-9._\-\u3400-\u9fff]{1,30})$/.exec(input.value.slice(0, caret));
-        m = whole ? [whole[0], '', whole[1]] : null;
-      } else {
-        m = /(^|[^\w@])@([A-Za-z0-9._\-\u3400-\u9fff]{0,30})$/.exec(input.value.slice(0, caret));
-        const t = m && tokenAt(caret);
-        if (t && caret === t[1]) m = null;          // right after a finished mention: no new search
-        paintChips();
+    target.addEventListener('input', () => {
+      let q = null;
+      if (ed) { const at = ed.query(); q = at ? at.q : null; }
+      else {
+        const before = input.value.slice(0, input.selectionStart);
+        const m = onPick ? /^@?([A-Za-z0-9._\-㐀-鿿]{1,30})$/.exec(before)          // picker: the whole box is the search
+          : /(^|[^\w@])@([A-Za-z0-9._\-㐀-鿿]{0,30})$/.exec(before);
+        q = m ? m[m.length - 1] : null;
       }
-      if (!m) return hide();
-      start = caret - m[2].length - 1;
-      const q = m[2];
+      if (q === null) return hide();
       clearTimeout(timer);
       timer = setTimeout(async () => {
         const my = ++seq;
         try {
           const res = await api('/api/people?q=' + encodeURIComponent(q));
           if (my !== seq) return;
+          for (const p of res || []) if (p.username) peopleCache.set(p.username.toLowerCase(), p);
           items = res; index = 0; paint();
         } catch { hide(); }
       }, 160);
     });
-    input.addEventListener('keydown', e => {
+    target.addEventListener('keydown', e => {
       if (box.hidden) return;
-      if (e.key === 'ArrowDown') { e.preventDefault(); index = (index + 1) % items.length; paint(); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); index = (index - 1 + items.length) % items.length; paint(); }
-      else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); pick(index); }
-      else if (e.key === 'Escape') { e.stopPropagation(); hide(); }
+      if (e.key === 'ArrowDown') { e.preventDefault(); e.stopImmediatePropagation(); index = (index + 1) % items.length; paint(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopImmediatePropagation(); index = (index - 1 + items.length) % items.length; paint(); }
+      else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); e.stopImmediatePropagation(); e.stopPropagation(); pick(index); }
+      else if (e.key === 'Escape') { e.stopImmediatePropagation(); e.stopPropagation(); hide(); }
     }, true);
-    input.addEventListener('blur', () => setTimeout(hide, 120));
-    // ---- whole-piece mentions (text mode only)
-    const known = new Set();
-    const learn = () => { for (const m of input.value.matchAll(/(?:^|[^\w@])@([A-Za-z0-9._\-]+)/g)) known.add(m[1].toLowerCase()); };
-    const tokenAt = pos => {                     // the known mention [start, end) that pos touches
-      for (const m of input.value.matchAll(/(^|[^\w@])@([A-Za-z0-9._\-]+)/g)) {
-        const s = m.index + m[1].length, e = s + 1 + m[2].length;
-        if (pos >= s && pos <= e && known.has(m[2].toLowerCase())) return [s, e];
-      }
-      return null;
-    };
-    const cut = (s, e) => {
-      input.value = input.value.slice(0, s) + input.value.slice(e);
-      input.setSelectionRange(s, s);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    };
-    // the people mentioned, by name, under the box; × takes the mention out of the text
-    const names = new Map();                     // username (lower case) -> person
-    const chips = el('div', { class: 'mention-chips', hidden: true });
-    const asked = new Set();
-    const paintChips = () => {
-      if (onPick) return;
-      if (!chips.isConnected && input.isConnected) {     // under the box (under its row when it sits beside a button)
-        const row = input.parentElement, cs = row && getComputedStyle(row);
-        (cs && cs.display.includes('flex') && !cs.flexDirection.startsWith('column') ? row : input).after(chips);
-      }
-      const users = [...new Set([...input.value.matchAll(/(?:^|[^\w@])@([A-Za-z0-9._\-]+)/g)].map(m => m[1].toLowerCase()))].filter(u => known.has(u));
-      for (const u of users) {
-        if (names.has(u) || asked.has(u)) continue;
-        asked.add(u);
-        api('/api/people?q=' + encodeURIComponent(u)).then(res => {
-          const p = (res || []).find(x => (x.username || '').toLowerCase() === u);
-          if (p) { names.set(u, p); paintChips(); }
-        }).catch(() => {});
-      }
-      chips.replaceChildren(...users.map(u => {
-        const p = names.get(u) || { username: u };
-        const x = el('button', { type: 'button', class: 'mention-chip-x', title: _t('移除'), html: '&times;' });
-        x.addEventListener('mousedown', e => {
-          e.preventDefault();
-          input.value = input.value.replace(new RegExp(`(^|[^\\w@])@${u.replace(/[.\-]/g, '\\$&')}(?![\\w.\-]) ?`, 'gi'), '$1');
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-        });
-        return el('span', { class: 'mention-chip', title: '@' + (p.username || u) }, avatar(p, 18), el('span', { text: nameOf(p) }), x);
-      }));
-      chips.hidden = !users.length;
-    };
-    if (!onPick) {
-      learn();
-      input.addEventListener('focus', () => { learn(); paintChips(); });
-      setTimeout(paintChips, 0);
-      input.addEventListener('keydown', e => {
-        if (e.isComposing || input.selectionStart !== input.selectionEnd || !['Backspace', 'Delete'].includes(e.key)) return;
-        const pos = input.selectionStart, t = tokenAt(pos);
-        if (!t) return;
-        if ((e.key === 'Backspace' && pos > t[0]) || (e.key === 'Delete' && pos < t[1])) { e.preventDefault(); cut(t[0], t[1]); }
-      });
-      input.addEventListener('beforeinput', e => {
-        if (!/^insert/.test(e.inputType) || input.selectionStart !== input.selectionEnd) return;
-        const pos = input.selectionStart, t = tokenAt(pos);
-        // typing inside a mention, or letters right after it, would change the name: go past it, after a space
-        if (t && pos > t[0] && (pos < t[1] || /^[\w.\-]/.test(e.data || ''))) {
-          if (input.value[t[1]] !== ' ') input.value = input.value.slice(0, t[1]) + ' ' + input.value.slice(t[1]);
-          input.setSelectionRange(t[1] + 1, t[1] + 1);
-        }
-      });
-    }
-    const obs = new MutationObserver(() => { if (!input.isConnected) { box.remove(); obs.disconnect(); } });
+    target.addEventListener('blur', () => setTimeout(hide, 120));
+    if (ed && input.isConnected) input.after(ed);
+    const obs = new MutationObserver(() => {
+      if (ed && input.isConnected && ed.previousSibling !== input) input.after(ed);       // keep the editor right where the textarea is
+      if (!input.isConnected) { box.remove(); if (ed) ed.remove(); obs.disconnect(); }
+    });
     obs.observe(document.body, { childList: true, subtree: true });
     return input;
   }
@@ -651,7 +708,7 @@ const TT = (() => {
   };
 
   return {
-    wbs, me, userMenu, avatar, nameOf, mentionInput, ROLE,
+    wbs, me, userMenu, avatar, nameOf, mentionInput, mentionText, ROLE,
     onInstallable, installApp, installed, syncThemeColor,
     langButton, store, api, esc, el, svg, tile, tagHue, isIconFile, iconUrl, initials, hostOf, toast, applyAppearance, cycleTheme, themePref,
     togglePerf, setFavicon, isLinkDrag, readDroppedLink, guessIcon, nameFromUrl,

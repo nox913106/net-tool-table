@@ -792,7 +792,7 @@ const TTBoard = window.TTBoard = (() => {
         el('div', { class: 'modal-head' }, el('h3', { html: svg('repeat') + _t('週期工作到期') })),
         el('div', { class: 'modal-body' },
           el('div', { class: 'kb-close-title' }, t.priority === 'high' ? el('span', { class: 'kb-flag', html: svg('flag') }) : null, el('strong', { text: t.title })),
-          t.description ? el('p', { class: 'kb-close-desc', text: t.description }) : null,
+          t.description ? el('p', { class: 'kb-close-desc' }, TT.mentionText(t.description, [t.owner, ...(t.assignees || []), ...(t.mentions || [])])) : null,
           el('div', { class: 'kb-chips' },
             el('span', { class: `kb-chip due-${tm.due || 'later'}`, html: svg('clock') + `<span>${tm.dueText || fmt(t.due_at)}</span>` }),
             el('span', { class: 'kb-chip repeat', html: svg('repeat') + `<span>${repeatText(t.repeat, t.repeat_every, t.due_at)}</span>` })),
@@ -1208,7 +1208,7 @@ const TTBoard = window.TTBoard = (() => {
         })() : null,
         isBlocked(t) ? el('div', { class: 'kb-blocked-bar', title: _t("卡住（{0} 標記）：{1}", t.blocked.by || '', t.blocked.reason),
           text: _t("⛔ 卡住 {0}：{1}", blockedDays(t.blocked.since), t.blocked.reason) }) : null,
-        t.description ? el('p', { class: 'kb-card-desc', text: t.description }) : null,
+        t.description ? el('p', { class: 'kb-card-desc' }, TT.mentionText(t.description, [t.owner, ...(t.assignees || []), ...(t.mentions || [])])) : null,
         chips.length ? el('div', { class: 'kb-chips' }, chips) : null,
         (() => {
           const pr = progressOf(t);
@@ -2138,10 +2138,7 @@ const TTBoard = window.TTBoard = (() => {
       };
       const renderBody = text => {
         const body = el('p', { class: 'kb-comment-body' });
-        const who = {};
-        for (const p of [task.owner, ...(task.assignees || []), ...(task.mentions || [])]) if (p && p.username) who[p.username.toLowerCase()] = p;
-        text.split(/(@[A-Za-z0-9._\-]+)/).forEach(part => body.append(part.startsWith('@')
-          ? (p => el('span', { class: 'kb-at', text: p ? '@' + TT.nameOf(p) : part, title: p ? part : null }))(who[part.slice(1).toLowerCase()]) : part));
+        body.append(TT.mentionText(text, [task.owner, ...(task.assignees || []), ...(task.mentions || [])]));
         return body;
       };
       const delBtn = (c, isRoot) => {
@@ -2966,7 +2963,7 @@ const TTBoard = window.TTBoard = (() => {
           t.due_at ? el('span', { text: _t("到期 {0}", fmt(t.due_at)) }) : null,
           el('span', { text: _t("工時 {0}", fmtMin(subs().reduce((n, c) => n + (c.task.spent_minutes || 0), 0))) })),
         pr != null ? el('div', { class: 'kb-progress' }, el('span', { class: 'kb-progress-bar' }, el('span', { style: { width: pr + '%' } })), el('span', { class: 'kb-progress-text', text: `${pr}%` })) : null,
-        t.description ? el('p', { class: 'kb-nav-desc', text: t.description }) : null,
+        t.description ? el('p', { class: 'kb-nav-desc' }, TT.mentionText(t.description, [t.owner, ...(t.assignees || []), ...(t.mentions || [])])) : null,
         el('div', { class: 'kb-nav-sec', text: _t('子任務（L2）') }),
         childList(null, 1, 0),
         el('div', { class: 'kb-nav-sec', text: _t("卡片留言（{0}）", threads.filter(c => !c.task).length) }),
@@ -2994,7 +2991,7 @@ const TTBoard = window.TTBoard = (() => {
         ta.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ok.click(); } if (e.key === 'Escape') { e.stopPropagation(); no.click(); } });
         setTimeout(() => ta.isConnected && ta.focus(), 30);
         body = el('div', { class: 'kb-nav-edit' }, ta, el('div', { class: 'kb-nav-edit-btns' }, no, ok));
-      } else body = el('div', { class: 'kb-nav-cmt-body', text: r.body });
+      } else body = el('div', { class: 'kb-nav-cmt-body' }, TT.mentionText(r.body));
       return el('div', { class: 'kb-nav-cmt' },
         el('div', { class: 'kb-nav-cmt-head' }, TT.avatar(r.author, 18), el('strong', { text: TT.nameOf(r.author) }),
           el('small', { text: (r.created_at || '').slice(5, 16) + (r.edited_at ? _t('（已編輯）') : '') }), el('span', { class: 'spacer' }), rp, ed, del),
@@ -3168,7 +3165,7 @@ const TTBoard = window.TTBoard = (() => {
       const ed = c.can_edit_body ? el('button', { class: 'kb-link-btn', type: 'button', html: svg('edit') + `<span>${text ? _t('修改說明') : _t('加說明')}</span>` }) : null;
       ed?.addEventListener('click', () => { editDesc = c.id; paint(); });
       return el('div', { class: 'kb-nav-descbox' },
-        text ? el('p', { class: 'kb-nav-desc', text }) : (ed ? null : el('p', { class: 'hint', text: _t('沒有說明') })),
+        text ? el('p', { class: 'kb-nav-desc' }, TT.mentionText(text)) : (ed ? null : el('p', { class: 'hint', text: _t('沒有說明') })),
         c.images?.length ? thumbs(c.images, { size: 'sm' }) : null, ed);
     }
 
