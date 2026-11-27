@@ -704,6 +704,29 @@ const TT = (() => {
     return input;
   }
 
+  /**
+   * Save a date field once the person has finished with it — not on every keystroke. Typing "11" "30" into a date
+   * field fires `change` at "3" already (11/03 is a valid date), so saving on `change` sent several saves that
+   * raced each other and could keep the wrong date. Here: on leaving the field or Enter at once; while still typing,
+   * 1.5 s after the last change (never an empty value then); and only when the value really changed.
+   */
+  function onDateCommit(inp, fn) {
+    let last = inp.value, timer = null;
+    const commit = () => {
+      clearTimeout(timer); timer = null;
+      if (inp.value === last || (inp.value && !/^\d{4}-\d{2}-\d{2}$/.test(inp.value))) return;
+      last = inp.value;
+      fn(inp.value);
+    };
+    inp.addEventListener('change', () => {
+      clearTimeout(timer);
+      if (document.activeElement !== inp) return commit();          // picked from the calendar, already left
+      if (inp.value) timer = setTimeout(commit, 1500);
+    });
+    inp.addEventListener('blur', commit);
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); commit(); } });
+  }
+
   /** A small「!」next to a field that is not obvious (基準線, 前置任務 …): its text shows on hover, focus or tap. */
   function helpTip(text) {
     const b = el('button', { class: 'help-tip', type: 'button', 'aria-label': _t('這是什麼？') + ' ' + text, text: '!' });
@@ -808,7 +831,7 @@ const TT = (() => {
   }
 
   return {
-    wbs, me, userMenu, avatar, nameOf, mentionInput, mentionText, dragGhost, helpTip, ROLE,
+    wbs, me, userMenu, avatar, nameOf, mentionInput, mentionText, dragGhost, helpTip, onDateCommit, ROLE,
     onInstallable, installApp, installed, syncThemeColor,
     langButton, store, api, esc, el, svg, tile, tagHue, isIconFile, iconUrl, initials, hostOf, toast, applyAppearance, cycleTheme, themePref,
     togglePerf, setFavicon, isLinkDrag, readDroppedLink, guessIcon, nameFromUrl,

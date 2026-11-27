@@ -1675,7 +1675,7 @@ const TTBoard = window.TTBoard = (() => {
     if (item.win && !wins.some(w => w.id === item.win)) winSel.append(el('option', { value: item.win, selected: true, text: _t('（已刪除的時段）') }));
     winSel.addEventListener('change', () => emit({ win: winSel.value }));
     const st = el('input', { class: 'input input-sm', type: 'date', value: started.slice(0, 10), disabled: !editable, title: _t('第一次改成進行中或第一次記工時時自動記錄，也可以修正') });
-    st.addEventListener('change', () => { started = st.value; emit({ started_at: started || null }); });
+    TT.onDateCommit(st, v => { started = v; emit({ started_at: started || null }); });
     const base = el('span', { class: 'kb-sched-base', text: baselineText(item) || _t('還沒有設定基準線') });
     let baseBtns = null;
     if (opts.card && editable) {
@@ -2323,7 +2323,7 @@ const TTBoard = window.TTBoard = (() => {
         const dateIn = (key, label, icon) => {
           if (!edit) return el('label', { class: 'kb-sub-field' }, el('span', { html: svg(icon) + label }), el('span', { class: 'kb-sub-ro', text: s[key] ? fmt(s[key], true) : '—' }));
           const inp = el('input', { class: 'input input-sm', type: 'date', value: (s[key] || '').slice(0, 10), title: s[key]?.includes('T') ? _t("時間 {0}（在「編輯」裡修改）", s[key].slice(11, 16)) : '' });
-          inp.addEventListener('change', () => subPut(c, { [key]: inp.value ? inp.value + (s[key]?.includes('T') ? s[key].slice(10) : '') : null }));
+          TT.onDateCommit(inp, v => subPut(c, { [key]: v ? v + (s[key]?.includes('T') ? s[key].slice(10) : '') : null }));
           return el('label', { class: 'kb-sub-field' }, el('span', { html: svg(icon) + label }), inp);
         };
         fields.append(dateIn('start_at', _t('開始'), 'play'), dateIn('due_at', _t('到期'), 'clock'));
@@ -3263,7 +3263,7 @@ const TTBoard = window.TTBoard = (() => {
       const date = key => {
         const inp = el('input', { class: 'input input-sm', type: 'date', value: (s[key] || '').slice(0, 10), disabled: !s.can_edit || spans,
           title: spans ? _t('由下層子任務推算：改下層的日期') : '' });
-        inp.addEventListener('change', () => put({ [key]: inp.value ? inp.value + (s[key]?.includes('T') ? s[key].slice(10) : '') : null }));
+        TT.onDateCommit(inp, v => put({ [key]: v ? v + (s[key]?.includes('T') ? s[key].slice(10) : '') : null }));
         return inp;
       };
       box.append(row(_t('開始'), date('start_at'), spans ? 'derived' : null), row(_t('到期'), date('due_at'), spans ? 'derived' : null));

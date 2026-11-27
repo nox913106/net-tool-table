@@ -2096,3 +2096,10 @@ body.nav-collapsed .sidebar:not(.peek) .nav-empty, body.nav-collapsed .sidebar:n
 .gcm-grip { color: var(--text-3); cursor: grab; font-size: 12px; letter-spacing: -2px; user-select: none; }
 .gcm-row.is-drag { opacity: .45; outline: 1px dashed var(--accent); }
 .gcm-list { display: flex; flex-direction: column; gap: 1px; }
+.gs-derived { display: flex; flex-direction: column; gap: 4px; }
+.gs-derived small { line-height: 1.5; }
+/* project board: what the marks mean */
+.pj-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin: -4px 0 10px; font-size: 12.5px; color: var(--text-2); }
+.pj-legend > span { display: inline-flex; align-items: center; gap: 2px; }
+.kb-chip.pj-sum { color: var(--g-summary, #f08c00); border-color: color-mix(in srgb, #f08c00 45%, transparent); }
+.pj-item.is-summary { border-style: dashed; cursor: pointer; }

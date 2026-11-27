@@ -2132,5 +2132,18 @@
  "沒有": "None",
  "這項工作實際花的時間：按 ▶ 開始計時、■ 停止，或直接記錄時數。和預估工時比較，也算進每個人的負載。": "The time really spent: ▶ starts the timer, ■ stops it, or log hours directly. Compared with the estimate, and counted in each person's load.",
  "主卡的進度＝已完成的子任務佔全部子任務的比例（取消的不算）；主卡的狀態也由子任務彙總。": "The main card's progress = the share of its subtasks that are done (cancelled ones left out); its status is rolled up from the subtasks too.",
- "點一個子任務，它的內容會在右邊新的一欄展開；可以一直往下一層看，不用開新視窗。": "Click a subtask and it opens in a new column on the right; keep going down the levels without opening another window."
+ "點一個子任務，它的內容會在右邊新的一欄展開；可以一直往下一層看，不用開新視窗。": "Click a subtask and it opens in a new column on the right; keep going down the levels without opening another window.",
+ "有下層工作，期間由下層推算，不能在這裡設定。請到最底層的工作設定日期，例如：": "It has work below it, so its period is worked out from that work and cannot be set here. Set the dates on the lowest-level items, e.g.: ",
+ "每張小卡是專案裡的一項工作（各層都有），依狀態分欄。把卡拖到其他欄就改它的狀態；上層的狀態、完成度會自動彙總。點一下卡片在導覽視窗打開。": "Each small card is one piece of the project's work (any level), in columns by status. Drag a card to another column to change its status; the levels above roll up their status and progress. Click a card to open it in the navigator.",
+ "卡片左下的標示是階層前綴（例如 A1、一、），由專案卡的「階層前綴」決定，看得出它在第幾層。": "The mark on a card is its level prefix (e.g. A1, 一、), set by the project card's “Level prefix”, so you can see its level.",
+ "紫色標籤是它所屬的階段（第一層），方便在同一欄裡分辨是哪個階段的工作。": "The purple tag is the phase (first level) it belongs to, so you can tell phases apart in the same column.",
+ "「摘要」是底下還有工作的項目：狀態由下層彙總，不能拖；要改狀態，請拖它底下的工作。": "“Summary” items have work below them: their status is rolled up from it, so they cannot be dragged — drag the work below instead.",
+ "「一般卡」是歸屬這個專案的日常卡片，拖動會改那張卡片本身的狀態。": "“Everyday card” is a routine card attached to this project; dragging it changes that card's own status.",
+ "「完成」欄也包含已取消的項目。": "The “Complete” column also holds cancelled items.",
+ "摘要：狀態由下層彙總，不能拖": "Summary: its status is rolled up from below, it cannot be dragged",
+ "摘要": "Summary",
+ "怎麼用": "How it works",
+ "階段": "Phase",
+ "專案 · 歷史": "Project · history",
+ "專案{0}": "Project{0}"
 }

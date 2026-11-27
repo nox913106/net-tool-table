@@ -471,9 +471,9 @@
       const clearVal = x.kind === 't' ? null : '';
       const dateIn = (v, field, label) => {
         const inp = el('input', { class: 'input gs-in gs-date', type: 'date', value: v ? v.slice(0, 10) : '', 'aria-label': label });
-        inp.addEventListener('change', () => {
+        TT.onDateCommit(inp, v => {                     // when the typing is finished, not on every digit
           const orig = field === 'start_at' ? x.start : x.due;
-          saveItem(x, { [field]: inp.value ? withDay(orig, dayNum(inp.value)) : clearVal }, label);
+          saveItem(x, { [field]: v ? withDay(orig, dayNum(v)) : clearVal }, label);
         });
         return inp;
       };
@@ -484,6 +484,14 @@
             a != null ? el('small', { class: 'hint', text: _t('{0} 天', b - a + 1) }) : null);
       } else {
         dates = a == null ? _t('未排日期') : x.milestone ? ymd(isoOf(b)) : `${ymd(isoOf(a))} – ${ymd(isoOf(b))}（${_t('{0} 天', b - a + 1)}）${derived || x.kids.length ? _t('，由下層推算') : ''}`;
+        if (x.kids.length) {
+          // a summary spans its work: point to where the dates are set (the first item at the lowest level)
+          let leaf = x; while (leaf.kids.length) leaf = leaf.kids[0];
+          const go = el('button', { class: 'gs-up', type: 'button', text: (leaf.prefix ? leaf.prefix + ' ' : '') + leaf.title });
+          go.addEventListener('click', () => { open.add(x.key); let p = parentOfKey(leaf.key); while (p) { open.add(p.key); p = parentOfKey(p.key); } saveOpen(); sel = leaf.key; paint(); });
+          dates = el('div', { class: 'gs-derived' }, el('b', { text: dates }),
+            el('small', { class: 'hint' }, _t('有下層工作，期間由下層推算，不能在這裡設定。請到最底層的工作設定日期，例如：'), go));
+        }
       }
       let ms = null;
       if (edit && !x.kids.length) {

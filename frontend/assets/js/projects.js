@@ -357,7 +357,7 @@
         archived ? el('div', { class: 'kb-readonly is-history pj-history', html: svg('archive') },
           el('span', { text: _t("歷史案件：{0} 結案，超過 {1}，只能檢視，不能修改。", (c.closed_at || '').slice(0, 10), TTBoard.historyText()) }),
           el('a', { href: '#/history', text: _t('回歷史區') })) : '',
-        el('div', { class: 'pj-title' }, el('span', { class: 'pj-kicker', text: archived ? _t('L1 // 專案 · 歷史') : _t("L1 // 專案{0}", p?.rank ? _t(" · 排序 #{0}", p.rank) : '') }),
+        el('div', { class: 'pj-title' }, el('span', { class: 'pj-kicker', text: archived ? _t('專案 · 歷史') : _t("專案{0}", p?.rank ? _t(" · 排序 #{0}", p.rank) : '') }),
           el('h1', { text: c.title }),
           el('p', { class: 'page-desc', text: [c.owner ? _t("負責 {0}", TT.nameOf(c.owner)) : '', c.start_at || c.due_at ? `${md(c.start_at)} – ${md(c.due_at)}` : '', c.base_due ? _t("基準線結案 {0}", md(c.base_due)) : _t('尚未設定基準線')].filter(Boolean).join(' · ') })),
         el('div', { class: 'pj-stats' },
@@ -398,6 +398,15 @@
         const codes = new Map();
         const codeOf = r => { if (!codes.has(r.card)) codes.set(r.card, TT.wbs.paths(rows.filter(x => x.card === r.card))); return TT.wbs.label(TT.wbs.styleOf(TTBoard.find(r.card)), codes.get(r.card).get(r.id)) || ''; };
         const items = rows.filter(r => !r.milestone).map(r => ({ r, lv: pathOf(r).length + 1, code: codeOf(r), phase: phaseOf(r), card: TTBoard.find(r.card) }));
+        const hasBelow = new Set(rows.map(r => r.parent).filter(Boolean));         // summaries: their status follows the work below
+        const TIP = {
+          board: _t('每張小卡是專案裡的一項工作（各層都有），依狀態分欄。把卡拖到其他欄就改它的狀態；上層的狀態、完成度會自動彙總。點一下卡片在導覽視窗打開。'),
+          code: _t('卡片左下的標示是階層前綴（例如 A1、一、），由專案卡的「階層前綴」決定，看得出它在第幾層。'),
+          phase: _t('紫色標籤是它所屬的階段（第一層），方便在同一欄裡分辨是哪個階段的工作。'),
+          summary: _t('「摘要」是底下還有工作的項目：狀態由下層彙總，不能拖；要改狀態，請拖它底下的工作。'),
+          ops: _t('「一般卡」是歸屬這個專案的日常卡片，拖動會改那張卡片本身的狀態。'),
+          done: _t('「完成」欄也包含已取消的項目。'),
+        };
         const ops = attached().filter(t => !rows.some(r => r.card === t.id));
         const cols = ['new', 'ongoing', 'pending', 'onhold', 'complete'];
         const ph = el('div', { class: 'kb-placeholder' }, el('span', { text: _t('放在這裡') }));
@@ -408,13 +417,16 @@
           const opsHere = ops.filter(t => t.status === s);
           const col = el('section', { class: 'kb-col', style: { '--st': st(s).color }, dataset: { status: s } },
             el('header', { class: 'kb-col-head' }, el('span', { class: 'kb-dot' }), el('span', { class: 'kb-name' }, el('strong', { text: st(s).label }), el('span', { class: 'kb-zh', text: st(s).zh })),
+              s === 'complete' ? TT.helpTip(TIP.done) : null,
               el('span', { class: 'kb-count', text: list.length + opsHere.length })));
           const box = el('div', { class: 'kb-list' });
           [...list.map(x => {
             const late = x.r.due_at && day(x.r.due_at) < T && !CLOSED.has(x.r.status);
-            const c = el('article', { class: 'kb-card pj-item', draggable: String(!archived), tabindex: '0', dataset: { sid: x.r.id } },
+            const sum = hasBelow.has(x.r.id);
+            const c = el('article', { class: 'kb-card pj-item' + (sum ? ' is-summary' : ''), draggable: String(!archived && !sum), tabindex: '0', dataset: { sid: x.r.id },
+              title: sum ? _t('摘要：狀態由下層彙總，不能拖') : '' },
               el('div', { class: 'kb-card-title' }, el('span', { text: x.r.title })),
-              el('div', { class: 'kb-chips' }, el('span', { class: 'kb-chip', text: x.code, title: _t('第 {0} 層', x.lv) }), x.phase && x.lv > 2 ? el('span', { class: 'kb-chip pj-phase', text: x.phase }) : null,
+              el('div', { class: 'kb-chips' }, sum ? el('span', { class: 'kb-chip pj-sum', text: _t('摘要') }) : null, el('span', { class: 'kb-chip', text: x.code, title: _t('第 {0} 層', x.lv) }), x.phase && x.lv > 2 ? el('span', { class: 'kb-chip pj-phase', text: x.phase }) : null,
                 x.r.due_at ? el('span', { class: 'kb-chip' + (late ? ' due-overdue' : ''), text: late ? _t("逾期 {0} 天", T - day(x.r.due_at)) : _t("{0} 到期", md(x.r.due_at)) }) : null),
               x.r.assignee ? el('div', { class: 'hint', text: x.r.assignee.name }) : null);
             c.addEventListener('click', () => TTBoard.openNavigator(x.card, pathOf(x.r)));
@@ -448,7 +460,13 @@
           });
           return col;
         }));
-        pane.replaceChildren(el('p', { class: 'hint', text: archived ? _t('這個專案結案時各層工作（階段 A、B… 與底下的工作）與歸屬的一般卡的狀態（歷史案件，只能檢視）。') : _t('這個專案的各層工作（階段 A、B… 與底下的工作）與歸屬的一般卡，依狀態分欄；拖到其他欄改狀態，上層狀態會自動彙總。') }), board);
+        const legend = el('div', { class: 'pj-legend' },
+          el('span', {}, _t('怎麼用'), TT.helpTip(TIP.board)),
+          el('span', {}, el('span', { class: 'kb-chip', text: 'A1' }), TT.helpTip(TIP.code)),
+          el('span', {}, el('span', { class: 'kb-chip pj-phase', text: _t('階段') }), TT.helpTip(TIP.phase)),
+          el('span', {}, el('span', { class: 'kb-chip pj-sum', text: _t('摘要') }), TT.helpTip(TIP.summary)),
+          el('span', {}, el('span', { class: 'kb-chip', text: _t('一般卡') }), TT.helpTip(TIP.ops)));
+        pane.replaceChildren(el('p', { class: 'hint', text: archived ? _t('這個專案結案時各層工作（階段 A、B… 與底下的工作）與歸屬的一般卡的狀態（歷史案件，只能檢視）。') : _t('這個專案的各層工作（階段 A、B… 與底下的工作）與歸屬的一般卡，依狀態分欄；拖到其他欄改狀態，上層狀態會自動彙總。') }), legend, board);
       } else {
         // list: 編號 runs 1, 2, 3 … down the list (the project itself is 0); the chosen level prefix before each title
         const kids = new Map();
