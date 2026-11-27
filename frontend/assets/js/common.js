@@ -529,6 +529,7 @@ const TT = (() => {
       const p = items[i];
       if (!p) return;
       if (onPick) { input.value = ''; hide(); onPick(p); input.focus(); return; }   // picker mode
+      names.set(p.username.toLowerCase(), p);
       const v = input.value, caret = input.selectionStart;
       known.add(p.username.toLowerCase());
       input.value = v.slice(0, start) + '@' + p.username + ' ' + v.slice(caret);
@@ -544,7 +545,12 @@ const TT = (() => {
       if (onPick) {                                 // picker mode: the whole box is the search text
         const whole = /^@?([A-Za-z0-9._\-\u3400-\u9fff]{1,30})$/.exec(input.value.slice(0, caret));
         m = whole ? [whole[0], '', whole[1]] : null;
-      } else m = /(^|[^\w@])@([A-Za-z0-9._\-\u3400-\u9fff]{0,30})$/.exec(input.value.slice(0, caret));
+      } else {
+        m = /(^|[^\w@])@([A-Za-z0-9._\-\u3400-\u9fff]{0,30})$/.exec(input.value.slice(0, caret));
+        const t = m && tokenAt(caret);
+        if (t && caret === t[1]) m = null;          // right after a finished mention: no new search
+        paintChips();
+      }
       if (!m) return hide();
       start = caret - m[2].length - 1;
       const q = m[2];
@@ -581,11 +587,43 @@ const TT = (() => {
       input.setSelectionRange(s, s);
       input.dispatchEvent(new Event('input', { bubbles: true }));
     };
+    // the people mentioned, by name, under the box; × takes the mention out of the text
+    const names = new Map();                     // username (lower case) -> person
+    const chips = el('div', { class: 'mention-chips', hidden: true });
+    const asked = new Set();
+    const paintChips = () => {
+      if (onPick) return;
+      if (!chips.isConnected && input.isConnected) {     // under the box (under its row when it sits beside a button)
+        const row = input.parentElement, cs = row && getComputedStyle(row);
+        (cs && cs.display.includes('flex') && !cs.flexDirection.startsWith('column') ? row : input).after(chips);
+      }
+      const users = [...new Set([...input.value.matchAll(/(?:^|[^\w@])@([A-Za-z0-9._\-]+)/g)].map(m => m[1].toLowerCase()))].filter(u => known.has(u));
+      for (const u of users) {
+        if (names.has(u) || asked.has(u)) continue;
+        asked.add(u);
+        api('/api/people?q=' + encodeURIComponent(u)).then(res => {
+          const p = (res || []).find(x => (x.username || '').toLowerCase() === u);
+          if (p) { names.set(u, p); paintChips(); }
+        }).catch(() => {});
+      }
+      chips.replaceChildren(...users.map(u => {
+        const p = names.get(u) || { username: u };
+        const x = el('button', { type: 'button', class: 'mention-chip-x', title: _t('移除'), html: '&times;' });
+        x.addEventListener('mousedown', e => {
+          e.preventDefault();
+          input.value = input.value.replace(new RegExp(`(^|[^\\w@])@${u.replace(/[.\-]/g, '\\$&')}(?![\\w.\-]) ?`, 'gi'), '$1');
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        return el('span', { class: 'mention-chip', title: '@' + (p.username || u) }, avatar(p, 18), el('span', { text: nameOf(p) }), x);
+      }));
+      chips.hidden = !users.length;
+    };
     if (!onPick) {
       learn();
-      input.addEventListener('focus', learn);
+      input.addEventListener('focus', () => { learn(); paintChips(); });
+      setTimeout(paintChips, 0);
       input.addEventListener('keydown', e => {
-        if (!box.hidden || e.isComposing || input.selectionStart !== input.selectionEnd) return;
+        if (e.isComposing || input.selectionStart !== input.selectionEnd || !['Backspace', 'Delete'].includes(e.key)) return;
         const pos = input.selectionStart, t = tokenAt(pos);
         if (!t) return;
         if ((e.key === 'Backspace' && pos > t[0]) || (e.key === 'Delete' && pos < t[1])) { e.preventDefault(); cut(t[0], t[1]); }
