@@ -2027,5 +2027,7 @@
  "請寫一段結案摘要": "Write a closure summary",
  "已完成結案對齊": "Closure aligned",
  "等你做結案對齊": "Closures waiting for your alignment",
- "（這次的更新沒有新的版本號，例如只改文件）": "(this update adds no new version number, e.g. documentation only)"
+ "（這次的更新沒有新的版本號，例如只改文件）": "(this update adds no new version number, e.g. documentation only)",
+ "放在這裡": "Drop here",
+ "目前：{0}　放到要改的狀態": "Now: {0} · drop on the new status"
 }

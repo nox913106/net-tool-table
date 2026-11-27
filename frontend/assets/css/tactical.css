@@ -260,6 +260,8 @@ body { font-family: var(--font); background: var(--bg); }
 /* ---------- kanban ---------- */
 .kb-col { background: var(--surface); border: 1px solid var(--border); }
 .kb-col.drop-over { border-color: var(--st); background: color-mix(in srgb, var(--st) 6%, var(--surface)); }
+body.kb-is-dragging .kb-col.drop-over { background: color-mix(in srgb, var(--st) 14%, var(--surface)); box-shadow: 0 0 0 2px var(--st), 0 0 18px color-mix(in srgb, var(--st) 35%, transparent); }
+.kb-drag-ghost { background: var(--surface-raised, var(--surface)); font-family: inherit; }
 .kb-col-head { background: var(--bg-2); }
 .kb-col-head strong { font-size: 13px; }
 .kb-dot { width: 8px; height: 8px; box-shadow: 0 0 7px var(--st); }
@@ -276,7 +278,8 @@ body { font-family: var(--font); background: var(--bg); }
 .kb-chip.due-today { background: var(--warn-bg); color: var(--warning); border-color: var(--warning); }
 .kb-chip.due-soon { background: var(--warn-bg); color: var(--warning); border-color: color-mix(in srgb, var(--warning) 55%, transparent); }
 .kb-chip.start-due { background: var(--ok-bg); color: var(--accent); border-color: var(--accent-line); }
-.kb-empty, .kb-placeholder { border-width: 1px; }
+.kb-empty { border-width: 1px; }
+.kb-placeholder { border-width: 2px; }
 .kb-blocked-bar { background: var(--crit-bg); color: var(--danger); border: 1px solid var(--danger); font-family: var(--mono); font-size: 11.5px; }
 .kb-progress-bar { background: var(--bg-2); border: 1px solid var(--border); }
 .kb-people-bar, .kb-tagbar { background: var(--surface); border: 1px solid var(--border); }

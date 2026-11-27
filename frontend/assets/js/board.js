@@ -465,6 +465,7 @@ const TTBoard = window.TTBoard = (() => {
     changed();
   }
   async function moveTo(id, status, index) {
+    document.body.classList.remove('kb-is-dragging');
     const t = tasks.find(x => x.id === id);
     if (!t) return;
     if (status === 'complete' && t.status !== 'complete' && openSubs(t) && !confirm(_t("「{0}」還有 {1} 個子任務沒完成，仍要把整張卡片改成 Complete？", t.title, openSubs(t)))) {
@@ -934,7 +935,7 @@ const TTBoard = window.TTBoard = (() => {
     const opened = new Set();                                  // empty columns the user unfolded (until the page reloads)
     // created on first paint: on a direct page load the board can render before /me has answered
     let peopleBar = null;
-    const placeholder = el('div', { class: 'kb-placeholder' });
+    const placeholder = el('div', { class: 'kb-placeholder' }, el('span', { text: _t('放在這裡') }));
 
     const render = () => {
       // a board that was on the page and has been taken off stops listening; one not yet placed on the
@@ -1130,7 +1131,7 @@ const TTBoard = window.TTBoard = (() => {
       root.replaceChildren(head, ...(rows.length ? rows : [el('p', { class: 'hint kb-lane-empty', text: _t('沒有卡片') })]));
     }
     function laneCell(s, items) {
-      const list = el('div', { class: 'kb-list kb-lane-cell', dataset: { status: s.key } }, items.map(card));
+      const list = el('div', { class: 'kb-list kb-lane-cell', dataset: { status: s.key }, style: { '--st': s.color } }, items.map(card));
       list.addEventListener('dragover', e => {
         if (!drag || drag.lane !== list.parentElement.dataset.person) return;      // move between statuses, not people
         e.preventDefault();
@@ -1250,9 +1251,19 @@ const TTBoard = window.TTBoard = (() => {
         drag = { id: t.id, lane: lanes ? String(laneOf(t)?.id ?? 'none') : null };
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('application/x-tool-table-task', String(t.id));
+        // a solid, compact drag image (the browser's default is a see-through copy of the whole card)
+        const st = STATUS[t.status] || STATUS.new;
+        const ghost = el('div', { class: 'kb-drag-ghost', style: { '--st': st.color } },
+          el('strong', { text: t.title }), el('small', { text: _t('目前：{0}　放到要改的狀態', st.zh) }));
+        document.body.append(ghost);
+        e.dataTransfer.setDragImage(ghost, 20, 20);
+        setTimeout(() => ghost.remove(), 0);
+        placeholder.style.height = `${Math.max(52, Math.min(c.offsetHeight, 120))}px`;
+        document.body.classList.add('kb-is-dragging');
         requestAnimationFrame(() => c.classList.add('dragging'));
       });
       c.addEventListener('dragend', () => {
+        document.body.classList.remove('kb-is-dragging');
         c.classList.remove('dragging');
         placeholder.remove();
         root.querySelectorAll('.drop-over').forEach(x => x.classList.remove('drop-over'));

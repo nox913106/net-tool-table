@@ -630,6 +630,18 @@ body.link-dragging .drop-overlay { display: grid; }
   transition: border-color var(--t-fast), background var(--t-fast);
 }
 .kb-col.drop-over { border-color: var(--st); background: color-mix(in srgb, var(--st) 7%, var(--surface)); }
+/* while a card is dragged: the column under it stands out, the others step back */
+body.kb-is-dragging .kb-col { transition: opacity var(--t-fast), box-shadow var(--t-fast), background var(--t-fast); }
+body.kb-is-dragging .kb-col:not(.drop-over) { opacity: .62; }
+body.kb-is-dragging .kb-col.drop-over { opacity: 1; border-color: var(--st); background: color-mix(in srgb, var(--st) 13%, var(--surface));
+  box-shadow: 0 0 0 2px var(--st), 0 10px 28px color-mix(in srgb, var(--st) 28%, transparent); }
+body.kb-is-dragging .kb-col.drop-over .kb-col-head { background: color-mix(in srgb, var(--st) 20%, transparent); }
+.kb-lane-cell.drop-over { box-shadow: inset 0 0 0 2px var(--st, var(--accent)); }
+.kb-drag-ghost { position: fixed; top: -1000px; left: -1000px; width: 260px; display: flex; flex-direction: column; gap: 3px; padding: 10px 14px;
+  border-radius: 12px; background: var(--surface-solid, var(--surface)); color: var(--text); border: 2px solid var(--st, var(--accent));
+  border-left-width: 6px; box-shadow: var(--shadow-lg); font-size: 13.5px; pointer-events: none; }
+.kb-drag-ghost strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kb-drag-ghost small { font-size: 11.5px; color: var(--text-3); }
 .kb-col-head {
   display: flex;
   align-items: center;
@@ -647,7 +659,8 @@ body.link-dragging .drop-overlay { display: grid; }
 .kb-list { display: flex; flex-direction: column; gap: 8px; padding: 10px; min-height: 64px; max-height: 460px; overflow-y: auto; }
 .kb-full .kb-list { max-height: calc(100dvh - var(--header-h, 72px) - 290px); min-height: 160px; }
 .kb-empty { padding: 14px 6px; text-align: center; font-size: 12.5px; color: var(--text-3); border: 1.5px dashed var(--border); border-radius: 12px; }
-.kb-placeholder { height: 52px; border-radius: 12px; border: 2px dashed var(--st, var(--accent)); background: color-mix(in srgb, var(--st, var(--accent)) 8%, transparent); flex: none; }
+.kb-placeholder { height: 52px; border-radius: 12px; border: 2px dashed var(--st, var(--accent)); background: color-mix(in srgb, var(--st, var(--accent)) 16%, transparent); flex: none;
+  display: grid; place-items: center; color: var(--st, var(--accent)); font-size: 12.5px; font-weight: 700; }
 .kb-col .kb-placeholder { border-color: var(--st); }
 
 .kb-card {
@@ -667,7 +680,7 @@ body.link-dragging .drop-overlay { display: grid; }
 .kb-card::before { content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 0 3px 3px 0; background: var(--st); opacity: .85; }
 .kb-card:hover, .kb-card:focus-visible { border-color: var(--border-strong); transform: translateY(-1px); }
 .kb-card:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft); }
-.kb-card.dragging { opacity: .35; transform: none; }
+.kb-card.dragging { opacity: .3; transform: none; outline: 2px dashed var(--border-strong); outline-offset: -2px; }
 .kb-card.is-closed { opacity: .72; }
 .kb-card.is-closed .kb-card-title span { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--text-3) 60%, transparent); }
 .kb-card.is-overdue { border-color: color-mix(in srgb, var(--danger) 55%, var(--border)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger) 25%, transparent), var(--shadow); }
