@@ -789,6 +789,40 @@ async def _one(db, task_id: int, user: dict) -> dict:
 
 # ----------------------------------------------------------- people on cards
 MENTION_RE = re.compile(r"(?<![\w@])@([A-Za-z0-9._\-]{1,64})")
+_AT = re.compile(r"(?<![\w@])@")
+_LOGIN = re.compile(r"[A-Za-z0-9._\-]{1,64}")
+
+
+async def canon_mentions(db, text: Optional[str]) -> Optional[str]:
+    """Store every @mention as @username: "@王小明" (a display name, picked or typed) becomes "@wang",
+    "@Alice" becomes "@alice". A name shared by several accounts, or no account at all, is left as typed."""
+    if not text or "@" not in text:
+        return text
+    cur = await db.execute("SELECT username, display_name FROM users WHERE active = 1")
+    logins, names = set(), {}
+    for r in await cur.fetchall():
+        logins.add(r["username"].lower())
+        for n in {(r["display_name"] or "").strip(), r["username"]}:
+            if n:
+                names.setdefault(n.lower(), set()).add(r["username"])
+    out, last = [], 0
+    low = text.lower()
+    for m in _AT.finditer(text):
+        i = m.end()
+        if i < last:
+            continue
+        login = _LOGIN.match(text, i)
+        if login and login.group(0).lower() in logins and not (i + len(login.group(0)) < len(text) and text[i + len(login.group(0))] > "\u2e7f"):
+            out += [text[last:i], login.group(0).lower()]
+            last = i + len(login.group(0))
+            continue
+        best = max((n for n in names if low.startswith(n, i)), key=len, default=None)
+        if best and len(names[best]) == 1:
+            end = i + len(best)
+            nxt = text[end:end + 1]
+            out += [text[last:i], next(iter(names[best])), " " if nxt and (nxt.isalnum() or nxt in "._-") else ""]
+            last = end
+    return "".join(out) + text[last:] if out else text
 
 
 async def _resolve_people(db, usernames: List[str]) -> List[dict]:
@@ -1890,6 +1924,7 @@ async def create_task(t: TaskIn, request: Request):
     repeat = _monthly_anchor(t.repeat, t.due_at)
     db = await get_db()
     try:
+        t.description = await canon_mentions(db, t.description)
         cur = await db.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tasks WHERE status = ?", (t.status,))
         order = (await cur.fetchone())["n"]
         cur = await db.execute(
@@ -1937,6 +1972,8 @@ async def update_task(task_id: int, t: TaskUpdate, request: Request):
         cur_task = await _get_visible(db, task_id, user)
         await _require_edit(db, task_id, user)
         changes = {k: getattr(t, k) for k in t.model_fields_set if k != "assignees"}
+        if changes.get("description"):
+            changes["description"] = await canon_mentions(db, changes["description"])
         assignees = t.assignees if "assignees" in t.model_fields_set else None
         if "deps" in changes:
             changes["deps"] = await deps_in(db, t.deps, ("t", task_id), user)
@@ -2438,6 +2475,7 @@ async def add_comment(task_id: int, body: CommentIn, request: Request):
                 raise HTTPException(status_code=400, detail="有附件已失效，請重新附加")
         if not body.body and not pics:
             raise HTTPException(status_code=400, detail="請輸入留言或附加檔案")
+        body.body = await canon_mentions(db, body.body)
         cur = await db.execute("INSERT INTO task_comments (task_id, user_id, body, parent_id) VALUES (?, ?, ?, ?)",
                                (task_id, user.get("id"), body.body, parent["id"] if parent else None))
         comment_id = cur.lastrowid
@@ -2489,6 +2527,7 @@ async def edit_comment(task_id: int, comment_id: int, body: CommentEdit, request
         cur = await db.execute("SELECT COUNT(*) AS n FROM task_images WHERE comment_id = ?", (comment_id,))
         if not body.body and not c["is_task"] and not (await cur.fetchone())["n"]:
             raise HTTPException(status_code=400, detail="留言不能是空的（要刪除請按刪除）")
+        body.body = await canon_mentions(db, body.body)
         if body.body != (c["body"] or ""):
             await db.execute("UPDATE task_comments SET body = ?, edited_at = CURRENT_TIMESTAMP WHERE id = ?", (body.body, comment_id))
             if user.get("id") is not None:

@@ -2138,7 +2138,10 @@ const TTBoard = window.TTBoard = (() => {
       };
       const renderBody = text => {
         const body = el('p', { class: 'kb-comment-body' });
-        text.split(/(@[A-Za-z0-9._\-]+)/).forEach(part => body.append(part.startsWith('@') ? el('span', { class: 'kb-at', text: part }) : part));
+        const who = {};
+        for (const p of [task.owner, ...(task.assignees || []), ...(task.mentions || [])]) if (p && p.username) who[p.username.toLowerCase()] = p;
+        text.split(/(@[A-Za-z0-9._\-]+)/).forEach(part => body.append(part.startsWith('@')
+          ? el('span', { class: 'kb-at', text: part, title: who[part.slice(1).toLowerCase()] ? TT.nameOf(who[part.slice(1).toLowerCase()]) : null }) : part));
         return body;
       };
       const delBtn = (c, isRoot) => {

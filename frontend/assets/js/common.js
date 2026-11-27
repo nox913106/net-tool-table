@@ -500,6 +500,8 @@ const TT = (() => {
   /**
    * @mention autocomplete for a textarea / input: typing "@ab" lists accounts (known ones and,
    * when the AD service account is set, the directory); Enter / click inserts "@username ".
+   * A mention already in the text (picked, or saved before) is one piece: Backspace / Delete removes the
+   * whole "@username" and typing inside it goes after it, so one stray key cannot turn it into another name.
    */
   function mentionInput(input, { onPick } = {}) {
     const box = el('div', { class: 'mention-pop', hidden: true, role: 'listbox' });
@@ -528,6 +530,7 @@ const TT = (() => {
       if (!p) return;
       if (onPick) { input.value = ''; hide(); onPick(p); input.focus(); return; }   // picker mode
       const v = input.value, caret = input.selectionStart;
+      known.add(p.username.toLowerCase());
       input.value = v.slice(0, start) + '@' + p.username + ' ' + v.slice(caret);
       const pos = start + p.username.length + 2;
       input.setSelectionRange(pos, pos);
@@ -563,6 +566,40 @@ const TT = (() => {
       else if (e.key === 'Escape') { e.stopPropagation(); hide(); }
     }, true);
     input.addEventListener('blur', () => setTimeout(hide, 120));
+    // ---- whole-piece mentions (text mode only)
+    const known = new Set();
+    const learn = () => { for (const m of input.value.matchAll(/(?:^|[^\w@])@([A-Za-z0-9._\-]+)/g)) known.add(m[1].toLowerCase()); };
+    const tokenAt = pos => {                     // the known mention [start, end) that pos touches
+      for (const m of input.value.matchAll(/(^|[^\w@])@([A-Za-z0-9._\-]+)/g)) {
+        const s = m.index + m[1].length, e = s + 1 + m[2].length;
+        if (pos >= s && pos <= e && known.has(m[2].toLowerCase())) return [s, e];
+      }
+      return null;
+    };
+    const cut = (s, e) => {
+      input.value = input.value.slice(0, s) + input.value.slice(e);
+      input.setSelectionRange(s, s);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    if (!onPick) {
+      learn();
+      input.addEventListener('focus', learn);
+      input.addEventListener('keydown', e => {
+        if (!box.hidden || e.isComposing || input.selectionStart !== input.selectionEnd) return;
+        const pos = input.selectionStart, t = tokenAt(pos);
+        if (!t) return;
+        if ((e.key === 'Backspace' && pos > t[0]) || (e.key === 'Delete' && pos < t[1])) { e.preventDefault(); cut(t[0], t[1]); }
+      });
+      input.addEventListener('beforeinput', e => {
+        if (!/^insert/.test(e.inputType) || input.selectionStart !== input.selectionEnd) return;
+        const pos = input.selectionStart, t = tokenAt(pos);
+        // typing inside a mention, or letters right after it, would change the name: go past it, after a space
+        if (t && pos > t[0] && (pos < t[1] || /^[\w.\-]/.test(e.data || ''))) {
+          if (input.value[t[1]] !== ' ') input.value = input.value.slice(0, t[1]) + ' ' + input.value.slice(t[1]);
+          input.setSelectionRange(t[1] + 1, t[1] + 1);
+        }
+      });
+    }
     const obs = new MutationObserver(() => { if (!input.isConnected) { box.remove(); obs.disconnect(); } });
     obs.observe(document.body, { childList: true, subtree: true });
     return input;
